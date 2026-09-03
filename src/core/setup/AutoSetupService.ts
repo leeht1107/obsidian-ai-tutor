@@ -11,6 +11,7 @@ import * as path from 'path';
 
 import { findCopilotCLIPath } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
+import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
 
 const isWindows = process.platform === 'win32';
 
@@ -60,6 +61,11 @@ export function checkSetupStatus(): SetupStatus {
     cliFound: findCopilotCLIPath() !== null,
     npmFound: findNpmPath() !== null,
   };
+}
+
+export function checkProviderSetupStatus(providerId: ProviderId): SetupStatus & { status: string } {
+  const descriptor = getProviderDescriptor(providerId);
+  return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
 }
 
 export interface InstallResult {
@@ -114,5 +120,25 @@ export async function installCopilotCLI(
     proc.on('error', (err: Error) => {
       resolve({ success: false, error: err.message });
     });
+  });
+}
+
+/** Installs only a provider with a verified npm recipe; script-only providers stay manual. */
+export async function installProviderCLI(providerId: ProviderId, onProgress: (msg: string) => void): Promise<InstallResult> {
+  if (providerId === 'copilot') return installCopilotCLI(onProgress);
+  const descriptor = getProviderDescriptor(providerId);
+  if (!descriptor.installCommand) return { success: false, error: '이 provider는 공식 package-manager 설치 명령이 없어 수동 설치가 필요합니다.' };
+  const npmPath = findNpmPath();
+  if (!npmPath) return { success: false, error: 'npm을 찾을 수 없습니다.' };
+  const packageName = descriptor.installCommand.split(' ').slice(3).join(' ');
+  return new Promise<InstallResult>((resolve) => {
+    const proc = spawn(npmPath, ['install', '-g', packageName], { env: { ...process.env, PATH: getEnhancedPath() }, shell: isWindows });
+    proc.stdout?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) onProgress(line); });
+    const errors: string[] = [];
+    proc.stderr?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) errors.push(line); });
+    proc.on('close', (code: number | null) => resolve(code === 0
+      ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
+      : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` }));
+    proc.on('error', (error: Error) => resolve({ success: false, error: error.message }));
   });
 }

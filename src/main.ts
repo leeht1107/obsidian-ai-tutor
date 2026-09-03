@@ -11,6 +11,7 @@ import { addIcon, Notice, Plugin } from 'obsidian';
 import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
+import { findProviderCliPath } from './core/providers/providerRegistry';
 import { StorageService } from './core/storage';
 import type {
   Conversation,
@@ -175,11 +176,12 @@ export default class ObsidianCopilotPlugin extends Plugin {
    */
   private async checkAndShowSetupWizard(): Promise<void> {
     try {
-      const { checkSetupStatus, hasShownThisSession } = await import('./core/setup/AutoSetupService');
+      const { hasShownThisSession } = await import('./core/setup/AutoSetupService');
       if (hasShownThisSession()) return;
-      if (this.settings.copilotCliPath) return; // Manual path configured
+      if (this.settings.providerCliPaths[this.settings.selectedProvider]) return; // Manual path configured
 
-      const { cliFound } = checkSetupStatus();
+      const { checkProviderSetupStatus } = await import('./core/setup/AutoSetupService');
+      const { cliFound } = checkProviderSetupStatus(this.settings.selectedProvider);
       if (cliFound) return; // Already found via auto-detect
 
       const { SetupWizardModal } = await import('./ui/modals/SetupWizardModal');
@@ -302,7 +304,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
   }
 
   getResolvedCopilotCliPath(): string | null {
-    return this.settings.copilotCliPath || 'copilot';
+    return this.settings.copilotCliPath || findProviderCliPath(this.settings.selectedProvider, this.settings.providerCliPaths[this.settings.selectedProvider] || '') || 'copilot';
   }
 
   get cliResolver(): { resolve: () => string | null; reset: () => void } {

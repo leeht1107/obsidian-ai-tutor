@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import type { App } from 'obsidian';
 import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
+import { findProviderCliPath, getProviderDescriptor, PROVIDERS } from '../../core/providers/providerRegistry';
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
@@ -102,6 +103,31 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(containerEl).setName('AI provider').setDesc('Choose one official CLI; only the selected provider is used for requests.')
+      .addDropdown((dropdown) => {
+        for (const provider of PROVIDERS) dropdown.addOption(provider.id, provider.label);
+        dropdown.setValue(this.plugin.settings.selectedProvider).onChange(async (value) => {
+          this.plugin.settings.selectedProvider = value as typeof this.plugin.settings.selectedProvider;
+          await this.plugin.saveSettings();
+          this.plugin.agentService?.cleanup();
+          this.display();
+        });
+      });
+
+    const selectedProvider = getProviderDescriptor(this.plugin.settings.selectedProvider);
+    const selectedPath = this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '';
+    const detectedPath = findProviderCliPath(this.plugin.settings.selectedProvider, selectedPath);
+    new Setting(containerEl)
+      .setName(`${selectedProvider.label} setup`)
+      .setDesc(detectedPath ? `Ready: ${detectedPath}` : selectedProvider.installCommand
+        ? `Install, then run ${selectedProvider.loginCommand}.`
+        : 'Guided manual setup is required; this provider has no verified package-manager installer.')
+      .addButton((button) => button.setButtonText(detectedPath ? 'Ready' : 'Setup').setDisabled(!!detectedPath).onClick(() => {
+        const command = process.platform === 'win32' && selectedProvider.windowsInstallCommand
+          ? selectedProvider.windowsInstallCommand : selectedProvider.installCommand;
+        new Notice(command ? `Copy and run: ${command}` : `Copy and run: ${selectedProvider.loginCommand}`);
+      }));
 
     new Setting(containerEl)
       .setName('Default model')

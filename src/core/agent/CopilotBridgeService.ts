@@ -12,6 +12,7 @@ import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory, getLastUserMessage } from '../../utils/session';
 import type { McpServerManager } from '../mcp';
 import { buildSystemPrompt } from '../prompts/mainAgent';
+import { buildNativeProviderCommand, findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -707,6 +708,10 @@ export class CopilotBridgeService {
     conversationHistory?: ChatMessage[],
     queryOptions?: QueryOptions
   ): AsyncGenerator<StreamChunk> {
+    if (this.plugin.settings.selectedProvider !== 'copilot') {
+      yield* this.querySelectedProvider(prompt, conversationHistory, queryOptions);
+      return;
+    }
     const copilotPath = this.getCopilotPath();
     if (!copilotPath) {
       yield {
@@ -830,6 +835,86 @@ export class CopilotBridgeService {
       this.cleanupRuntimeMcpConfigPath(runtimeMcpConfigPath);
       this.abortController = null;
     }
+  }
+
+  /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
+  private async *querySelectedProvider(
+    prompt: string,
+    conversationHistory?: ChatMessage[],
+    queryOptions?: QueryOptions
+  ): AsyncGenerator<StreamChunk> {
+    const provider = this.plugin.settings.selectedProvider as ProviderId;
+    const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
+    const cliPath = findProviderCliPath(provider, configuredPath);
+    if (!cliPath) {
+      yield { type: 'error', content: `${provider} CLI not found. Open Settings to complete setup.` };
+      return;
+    }
+
+    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
+    const native = buildNativeProviderCommand(provider, fullPrompt);
+    const cmdShim = resolveCmdShim(cliPath);
+    const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
+    const child = spawn(command, args, {
+      cwd: this.getWorkingDirectory(),
+      // Do not pass the legacy Copilot token setting to another provider.
+      env: (() => {
+        const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+        return {
+          ...process.env,
+          ...customEnv,
+          PATH: getEnhancedPath(customEnv.PATH, cliPath),
+        };
+      })(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: !cmdShim && process.platform === 'win32',
+    });
+    this.currentProcess = child;
+    let output = '';
+    let errorOutput = '';
+    let closed = false;
+    let resolveClose: (() => void) | null = null;
+    child.stdout?.on('data', (data: Buffer) => { output += data.toString(); });
+    child.stderr?.on('data', (data: Buffer) => { errorOutput += data.toString(); });
+    child.on('close', () => { closed = true; resolveClose?.(); });
+    child.on('error', (error) => { errorOutput = error.message; closed = true; resolveClose?.(); });
+    child.stdin?.end();
+    try {
+      if (!closed) await new Promise<void>((resolve) => { resolveClose = resolve; });
+      for (const line of output.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
+        const chunk = this.parseNativeProviderLine(provider, line);
+        if (chunk) yield chunk;
+      }
+      if (errorOutput.trim()) yield { type: 'error', content: errorOutput.trim() };
+      yield { type: 'done' };
+    } finally {
+      if (this.currentProcess === child) this.currentProcess = null;
+    }
+  }
+
+  private parseNativeProviderLine(provider: ProviderId, line: string): StreamChunk | null {
+    if (provider === 'agy') return { type: 'text', content: line + '\n' };
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (provider === 'claude') {
+        const delta = event.delta as Record<string, unknown> | undefined;
+        if (delta && typeof delta.text === 'string') return { type: 'text', content: delta.text };
+        const message = event.message as Record<string, unknown> | undefined;
+        const content = message?.content;
+        if (Array.isArray(content)) {
+          const text = content.map((item) => item && typeof item === 'object' && typeof (item as Record<string, unknown>).text === 'string' ? (item as Record<string, unknown>).text : '').join('');
+          return text ? { type: 'text', content: text } : null;
+        }
+      }
+      if (provider === 'codex') {
+        const item = event.item as Record<string, unknown> | undefined;
+        if (item && typeof item.text === 'string') return { type: 'text', content: item.text };
+        if (typeof event.text === 'string') return { type: 'text', content: event.text };
+      }
+    } catch {
+      return { type: 'text', content: line + '\n' };
+    }
+    return null;
   }
 
   private async *spawnCopilot(

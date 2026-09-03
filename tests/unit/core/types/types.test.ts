@@ -70,6 +70,8 @@ describe('types.ts', () => {
   describe('ObsidianCopilotSettings type', () => {
     it('should be assignable with valid settings', () => {
       const settings: ObsidianCopilotSettings = {
+        selectedProvider: 'copilot',
+        providerCliPaths: {},
         userName: '',
         enableBlocklist: false,
         blockedCommands: { unix: ['test'], windows: ['test-win'] },
@@ -100,6 +102,8 @@ describe('types.ts', () => {
 
     it('should accept custom model strings', () => {
       const settings: ObsidianCopilotSettings = {
+        selectedProvider: 'copilot',
+        providerCliPaths: {},
         userName: '',
         enableBlocklist: true,
         blockedCommands: { unix: [], windows: [] },

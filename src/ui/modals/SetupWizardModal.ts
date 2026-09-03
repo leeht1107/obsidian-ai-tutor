@@ -8,13 +8,13 @@
 
 import { type App,Modal, Notice } from 'obsidian';
 
+import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../../core/providers/providerRegistry';
 import {
-  checkSetupStatus,
-  installCopilotCLI,
+  checkProviderSetupStatus,
+  installProviderCLI,
   markShownThisSession,
 } from '../../core/setup/AutoSetupService';
 import type ObsidianCopilotPlugin from '../../main';
-import { findCopilotCLIPath } from '../../utils/copilotCli';
 
 type Phase = 'installing' | 'login' | 'done' | 'manual' | 'error';
 
@@ -32,7 +32,8 @@ export class SetupWizardModal extends Modal {
     this.modalEl.addClass('ocop-setup-modal');
     this.setTitle('Obsidian AI Tutor 초기 설정');
 
-    const { cliFound, npmFound } = checkSetupStatus();
+    const provider = this.plugin.settings.selectedProvider as ProviderId;
+    const { cliFound, npmFound } = checkProviderSetupStatus(provider);
 
     if (cliFound) {
       // Edge case: CLI appeared between check and open
@@ -41,7 +42,7 @@ export class SetupWizardModal extends Modal {
       return;
     }
 
-    if (npmFound) {
+    if (npmFound && getProviderDescriptor(provider).installCommand) {
       this.phase = 'installing';
       this.render();
       void this.runInstall();
@@ -65,9 +66,10 @@ export class SetupWizardModal extends Modal {
   // ── Phase: installing ───────────────────────────────────────────────────────
 
   private renderInstalling() {
+    const provider = getProviderDescriptor(this.plugin.settings.selectedProvider as ProviderId);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
     wrap.createEl('p', {
-      text: '📦 GitHub Copilot CLI 설치 중...',
+      text: `📦 ${provider.label} CLI 설치 중...`,
       cls: 'ocop-setup-status',
     });
     const log = wrap.createDiv({ cls: 'ocop-setup-log' });
@@ -75,12 +77,13 @@ export class SetupWizardModal extends Modal {
       log.createDiv({ cls: 'ocop-setup-log-line', text: line });
     }
     if (this.installLog.length === 0) {
-      log.createDiv({ cls: 'ocop-setup-log-line ocop-setup-muted', text: 'npm install -g @github/copilot 실행 중...' });
+      log.createDiv({ cls: 'ocop-setup-log-line ocop-setup-muted', text: `${provider.installCommand} 실행 중...` });
     }
   }
 
   private async runInstall() {
-    const result = await installCopilotCLI((msg) => {
+    const provider = this.plugin.settings.selectedProvider as ProviderId;
+    const result = await installProviderCLI(provider, (msg) => {
       if (msg) {
         this.installLog.push(msg);
         if (this.phase === 'installing') this.render();
@@ -102,15 +105,16 @@ export class SetupWizardModal extends Modal {
   // ── Phase: login ────────────────────────────────────────────────────────────
 
   private renderLogin() {
+    const provider = getProviderDescriptor(this.plugin.settings.selectedProvider as ProviderId);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
 
-    wrap.createEl('p', { text: '✅ CLI 설치 완료!', cls: 'ocop-setup-success' });
+    wrap.createEl('p', { text: `✅ ${provider.label} CLI 설치 완료!`, cls: 'ocop-setup-success' });
     wrap.createEl('p', {
       text: '마지막으로 터미널에서 아래 명령을 실행해 GitHub 계정을 연결하세요. 대화형 CLI를 먼저 열었다면 /login을 입력해도 됩니다.',
       cls: 'ocop-setup-desc',
     });
 
-    this.renderCmdRow(wrap, 'copilot login');
+    this.renderCmdRow(wrap, provider.loginCommand);
 
     wrap.createEl('p', {
       text: '브라우저에서 GitHub 로그인이 완료되면 아래 버튼을 누르세요.',
@@ -143,34 +147,29 @@ export class SetupWizardModal extends Modal {
   // ── Phase: manual ───────────────────────────────────────────────────────────
 
   private renderManual() {
+    const provider = getProviderDescriptor(this.plugin.settings.selectedProvider as ProviderId);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
 
     wrap.createEl('p', {
-      text: 'GitHub Copilot CLI를 사용하려면 Node.js가 필요합니다.',
+      text: `${provider.label} CLI를 설치하고 공식 로그인 절차를 완료하세요.`,
       cls: 'ocop-setup-desc',
     });
 
     const list = wrap.createEl('ol', { cls: 'ocop-setup-steps' });
 
-    // Step 1 — Node.js
+    // Step 1 — provider installation
     const s1 = list.createEl('li');
-    s1.createSpan({ text: 'Node.js 설치: ' });
-    const link = s1.createEl('a', { text: 'nodejs.org 다운로드 →', href: '#' });
-    link.addEventListener('click', (e: MouseEvent) => {
-      e.preventDefault();
-      // Open externally via Obsidian helper
-      (this.app as any).openUrl?.('https://nodejs.org');
-    });
+    s1.createSpan({ text: '공식 설치 명령: ' });
+    this.renderCmdRow(s1, provider.installCommand ?? provider.command);
 
     // Step 2 — npm install
     const s2 = list.createEl('li');
-    s2.createSpan({ text: 'CLI 설치 (터미널, npm 기준): ' });
-    this.renderCmdRow(s2, 'npm install -g @github/copilot');
+    s2.createSpan({ text: '공식 로그인: ' });
+    this.renderCmdRow(s2, provider.loginCommand);
 
     // Step 3 — login
     const s3 = list.createEl('li');
-    s3.createSpan({ text: 'GitHub 로그인 (터미널): ' });
-    this.renderCmdRow(s3, 'copilot login');
+    s3.createSpan({ text: '설치 완료 후 다시 확인하세요.' });
 
     wrap.createEl('p', {
       text: '설치 완료 후 아래 버튼으로 다시 확인하세요.',
@@ -179,7 +178,7 @@ export class SetupWizardModal extends Modal {
 
     const btn = wrap.createEl('button', { text: '설치 완료 확인', cls: 'mod-cta ocop-setup-action-btn' });
     btn.addEventListener('click', () => {
-      if (findCopilotCLIPath() || this.plugin.settings.copilotCliPath) {
+      if (findProviderCliPath(this.plugin.settings.selectedProvider, this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '') || this.plugin.settings.copilotCliPath) {
         this.phase = 'done';
         this.render();
       } else {
@@ -194,6 +193,7 @@ export class SetupWizardModal extends Modal {
   // ── Phase: error ────────────────────────────────────────────────────────────
 
   private renderError() {
+    const provider = getProviderDescriptor(this.plugin.settings.selectedProvider as ProviderId);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
 
     wrap.createEl('p', { text: '⚠️ 자동 설치에 실패했습니다.', cls: 'ocop-setup-warn' });
@@ -207,17 +207,17 @@ export class SetupWizardModal extends Modal {
       text: '아래 명령을 터미널에서 직접 실행해 주세요.',
       cls: 'ocop-setup-desc',
     });
-    this.renderCmdRow(wrap, 'npm install -g @github/copilot');
+    this.renderCmdRow(wrap, provider.installCommand ?? provider.command);
 
     wrap.createEl('p', {
       text: '권한 오류가 계속되면 npm 전역 설치 위치를 사용자 폴더로 바꾸거나 Homebrew 설치를 먼저 고려하세요. sudo는 Mac/Linux에서 마지막 방법으로만 사용하세요.',
       cls: 'ocop-setup-hint',
     });
-    this.renderCmdRow(wrap, 'sudo npm install -g @github/copilot');
+    this.renderCmdRow(wrap, provider.loginCommand);
 
     const btn = wrap.createEl('button', { text: '설치 완료 확인', cls: 'mod-cta ocop-setup-action-btn' });
     btn.addEventListener('click', () => {
-      if (findCopilotCLIPath() || this.plugin.settings.copilotCliPath) {
+      if (findProviderCliPath(this.plugin.settings.selectedProvider, this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '') || this.plugin.settings.copilotCliPath) {
         this.phase = 'login';
         this.render();
       } else {

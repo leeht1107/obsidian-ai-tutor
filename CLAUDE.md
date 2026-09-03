@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Baseline completed and checkpointed; agy research remains receipt-blocked on Orca authentication/startup.
-- Next likely action: Dispatch bounded Luna implementation work while preserving the agy blocker and receipts.
+- Status: Provider foundation produced and released; independent verification is next. agy research remains receipt-blocked on Orca authentication/startup.
+- Next likely action: Verify the direct-provider seam, then dispatch the smallest remaining learning/performance/documents slice.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-03/144100_obsidian-ai-tutor_baseline_handoff.md`
+- Living handoff: `.handoff/2026-09-03/144800_obsidian-ai-tutor_provider-foundation_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 

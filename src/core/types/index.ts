@@ -47,6 +47,7 @@ export {
   type Permission,
   type PermissionMode,
   type PlatformBlockedCommands,
+  type SelectedProvider,
   type SlashCommand,
 } from './settings';
 

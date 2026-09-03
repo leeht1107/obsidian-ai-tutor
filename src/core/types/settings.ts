@@ -4,6 +4,8 @@
 
 import { type CopilotModel, DEFAULT_MODEL, type ThinkingBudget } from './models';
 
+export type SelectedProvider = 'copilot' | 'claude' | 'codex' | 'agy';
+
 /** Platform-specific blocked commands (Unix). */
 const UNIX_BLOCKED_COMMANDS = [
   '\\brm\\s+-rf\\b',
@@ -131,6 +133,8 @@ export interface KeyboardNavigationSettings {
 
 /** Plugin settings persisted to disk. */
 export interface ObsidianCopilotSettings {
+  selectedProvider: SelectedProvider;
+  providerCliPaths: Partial<Record<SelectedProvider, string>>;
   userName: string;
   enableBlocklist: boolean;
   blockedCommands: PlatformBlockedCommands;
@@ -158,6 +162,8 @@ export interface ObsidianCopilotSettings {
 
 /** Default plugin settings. */
 export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
+  selectedProvider: 'copilot',
+  providerCliPaths: {},
   userName: '',
   enableBlocklist: true,
   blockedCommands: getDefaultBlockedCommands(),
