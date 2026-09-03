@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Provider foundation and the minimal Phase 5 Quiz/Socratic hint/stuck slice are independently verified; Claude completed the latter after Luna and Terra Codex endpoint failures.
-- Next likely action: Produce deterministic direct-process performance evidence and completion documentation, then evaluate. agy remains receipt-blocked on Orca authentication/startup.
+- Status: Provider foundation, minimal Phase 5 hint/stuck controls, and deterministic one-child/p95 dispatch evidence are independently verified. Claude completed the latest production tasks after Luna and Terra Codex endpoint failures.
+- Next likely action: Produce completion documentation and provider/setup disclosure, then conduct independent acceptance and advisor review. agy remains receipt-blocked on Orca authentication/startup.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-03/150400_obsidian-ai-tutor_learning-ux_handoff.md`
+- Living handoff: `.handoff/2026-09-03/151300_obsidian-ai-tutor_performance-proof_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 
