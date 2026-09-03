@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Complete. Provider foundation, Phase 5 hint/stuck controls, direct-process evidence, parser coverage, public documentation, stale manifest branding, advisor-sol review, public publication, and BRAT distribution assets are verified.
-- Next likely action: None. Preserve the disclosed manual agy setup and automated-only Windows coverage unless a new scoped request changes them.
+- Status: Complete. Provider foundation, learning controls, direct-process evidence, parser coverage, public documentation, advisor-sol review, BRAT distribution assets, the persistent in-chat provider selector, and tutor-specific compass icon are verified.
+- Next likely action: None. BRAT should update from release `0.1.1`; preserve the disclosed manual agy setup and automated-only Windows coverage unless a new scoped request changes them.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-04/163000_obsidian-ai-tutor_brat-distribution_handoff.md`
+- Living handoff: `.handoff/2026-09-04/171000_obsidian-ai-tutor_chat-provider-icon_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 

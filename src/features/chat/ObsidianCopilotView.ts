@@ -2,6 +2,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
+import { type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
   COPILOT_MODELS,
@@ -269,6 +270,7 @@ export class ObsidianCopilotView extends ItemView {
     );
 
     const inputToolbar = this.inputWrapper.createDiv({ cls: 'ocop-input-toolbar' });
+    this.buildProviderSelector(inputToolbar);
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
       getSettings: () => ({
         model: this.plugin.settings.model,
@@ -389,6 +391,10 @@ export class ObsidianCopilotView extends ItemView {
     this.externalContextSelector.setOnChange(() => {
       this.fileContextManager?.preScanExternalContexts();
     });
+  }
+
+  private buildProviderSelector(toolbar: HTMLElement) {
+    createProviderSelector(toolbar, this.plugin);
   }
 
   private initializeControllers() {
@@ -651,4 +657,30 @@ export class ObsidianCopilotView extends ItemView {
     const isPlanModeRequested = this.state.planModeRequested;
     this.permissionToggle?.setPlanModeActive(isPlanMode || isPlanModeRequested);
   }
+}
+
+export function createProviderSelector(
+  toolbar: HTMLElement,
+  plugin: Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings'>
+): HTMLSelectElement {
+  const label = toolbar.createEl('label', {
+    cls: 'ocop-provider-selector',
+  });
+  label.createSpan({ cls: 'ocop-provider-selector-label', text: 'Provider' });
+  const select = label.createEl('select', {
+    cls: 'ocop-provider-selector-control',
+    attr: { 'aria-label': 'AI provider' },
+  });
+
+  for (const provider of PROVIDERS) {
+    select.createEl('option', { value: provider.id, text: provider.label });
+  }
+  select.value = plugin.settings.selectedProvider;
+  select.addEventListener('change', async () => {
+    const provider = select.value as ProviderId;
+    if (!PROVIDERS.some((item) => item.id === provider)) return;
+    plugin.settings.selectedProvider = provider;
+    await plugin.saveSettings();
+  });
+  return select;
 }

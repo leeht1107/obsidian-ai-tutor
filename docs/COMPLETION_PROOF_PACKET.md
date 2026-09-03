@@ -13,9 +13,12 @@ default branch `main`. Initial publication pushed commit
 `git ls-remote origin refs/heads/main` and must equal local `git rev-parse
 HEAD` after the final proof-packet commit is pushed.
 
-**BRAT distribution:** release
-[`0.1.0`](https://github.com/leeht1107/obsidian-ai-tutor/releases/tag/0.1.0)
-contains the required `manifest.json`, `main.js`, and `styles.css` assets.
+**BRAT distribution:** release `0.1.1` contains the required
+`manifest.json`, `main.js`, and `styles.css` assets. It adds a persistent
+chat-toolbar provider selector (Copilot, Claude Code, Codex, or agy) and a
+distinct Obsidian-compass icon. The selector writes the existing global
+`selectedProvider` setting, so the next chat request uses the chosen native
+CLI without introducing a provider runtime, proxy, or extra process.
 
 **Update (advisor-sol repair):** advisor-sol receipt
 `01a067eb-6665-7322-abf7-0cc1cd101404` found that Claude's stream-JSON argv
