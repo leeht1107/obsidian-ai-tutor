@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Provider foundation, Phase 5 hint/stuck controls, direct-process evidence, parser coverage, public documentation, and stale manifest branding are verified. Acceptance repair 1 added Codex/agy parser evidence after the evaluator found the gap.
-- Next likely action: Conduct advisor-sol review, then create/push the public remote if no demonstrated repair blocker remains. agy remains receipt-blocked on Orca authentication/startup.
+- Status: Provider foundation, Phase 5 hint/stuck controls, direct-process evidence, parser coverage, public documentation, and stale manifest branding are verified. Advisor-sol repair 2 added valid Claude stream JSON argv plus explicit provider-first setup/recheck behavior.
+- Next likely action: Conduct a narrow advisor-sol re-review, then create/push the public remote if it clears. agy remains receipt-blocked on Orca authentication/startup.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-03/153700_obsidian-ai-tutor_acceptance-repair_handoff.md`
+- Living handoff: `.handoff/2026-09-04/160000_obsidian-ai-tutor_advisor-repair_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 

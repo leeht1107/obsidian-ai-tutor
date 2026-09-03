@@ -4,7 +4,22 @@ Status: production requirements 1–4 and 6 of `goal-contract.md` are met and
 independently verifiable with the commands below. Requirement 5 (public
 remote, final commit) is **not yet met** — no remote is configured; this is
 explicitly disclosed as pending, not claimed as done. Acceptance evaluation
-and the required advisor-sol review have not yet run against this packet.
+has run. The first required advisor-sol review returned three demonstrated
+setup blockers; all three were repaired and its authenticated narrow
+re-review returned **`PROCEED`**. Publication is now the sole pending step.
+
+**Update (advisor-sol repair):** advisor-sol receipt
+`01a067eb-6665-7322-abf7-0cc1cd101404` found that Claude's stream-JSON argv
+needed `--verbose`, a first launch could install default Copilot before a
+student chose a provider, and setup completion could accept a different
+provider's legacy Copilot path. The repair adds `--verbose`, an explicit
+four-provider first-run chooser that starts setup only after the student's
+selection, and selected-provider-only availability rechecks. Regression
+tests cover the native argv plus no spawn before selection / selected-only
+installation. Independent verification after the repair: typecheck and lint
+clean; **47 suites / 915 tests passed**; production build succeeded; the
+direct-dispatch p95 was `0.253ms`. The narrow re-review receipt is
+`.claude/artifacts/obsidian-ai-tutor-20260903-0001/advisor-sol/repair2-receipt.json`.
 
 **Update (acceptance blocker #2 repaired):** the independent acceptance
 evaluation (`.claude/artifacts/obsidian-ai-tutor-20260903-0001/claude-acceptance-evaluation.md`)

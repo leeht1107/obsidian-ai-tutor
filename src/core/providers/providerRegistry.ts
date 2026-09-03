@@ -30,7 +30,7 @@ export function getProviderDescriptor(id: ProviderId): ProviderDescriptor {
 
 export function buildNativeProviderCommand(id: ProviderId, prompt: string): { command: string; args: string[] } {
   switch (id) {
-    case 'claude': return { command: 'claude', args: ['-p', prompt, '--output-format', 'stream-json'] };
+    case 'claude': return { command: 'claude', args: ['-p', prompt, '--output-format', 'stream-json', '--verbose'] };
     case 'codex': return { command: 'codex', args: ['exec', '--json', prompt] };
     case 'agy': return { command: 'agy', args: ['-p', prompt] };
     case 'copilot': return { command: 'copilot', args: ['-p', prompt] };
@@ -56,4 +56,3 @@ export function findProviderCliPath(id: ProviderId, customPath = ''): string | n
 function isFile(candidate: string): boolean {
   try { return fs.statSync(candidate).isFile(); } catch { return false; }
 }
-

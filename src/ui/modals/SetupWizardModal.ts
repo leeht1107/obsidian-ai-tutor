@@ -16,10 +16,10 @@ import {
 } from '../../core/setup/AutoSetupService';
 import type ObsidianCopilotPlugin from '../../main';
 
-type Phase = 'installing' | 'login' | 'done' | 'manual' | 'error';
+type Phase = 'choose' | 'installing' | 'login' | 'done' | 'manual' | 'error';
 
 export class SetupWizardModal extends Modal {
-  private phase: Phase = 'installing';
+  private phase: Phase = 'choose';
   private installLog: string[] = [];
   private errorDetail = '';
 
@@ -32,35 +32,46 @@ export class SetupWizardModal extends Modal {
     this.modalEl.addClass('ocop-setup-modal');
     this.setTitle('Obsidian AI Tutor 초기 설정');
 
-    const provider = this.plugin.settings.selectedProvider as ProviderId;
-    const { cliFound, npmFound } = checkProviderSetupStatus(provider);
-
-    if (cliFound) {
-      // Edge case: CLI appeared between check and open
-      this.phase = 'done';
-      this.render();
-      return;
-    }
-
-    if (npmFound && getProviderDescriptor(provider).installCommand) {
-      this.phase = 'installing';
-      this.render();
-      void this.runInstall();
-    } else {
-      this.phase = 'manual';
-      this.render();
-    }
+    this.render();
   }
 
   private render() {
     this.contentEl.empty();
     switch (this.phase) {
+      case 'choose':    this.renderChoose();    break;
       case 'installing': this.renderInstalling(); break;
       case 'login':      this.renderLogin();      break;
       case 'done':       this.renderDone();       break;
       case 'manual':     this.renderManual();     break;
       case 'error':      this.renderError();      break;
     }
+  }
+
+  private renderChoose() {
+    const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
+    wrap.createEl('p', { text: '어떤 AI를 사용하시나요?', cls: 'ocop-setup-desc' });
+    for (const provider of ['copilot', 'claude', 'codex', 'agy'] as const) {
+      const descriptor = getProviderDescriptor(provider);
+      const button = wrap.createEl('button', { text: descriptor.label, cls: 'ocop-setup-action-btn' });
+      button.addEventListener('click', () => void this.chooseProvider(provider));
+    }
+  }
+
+  private async chooseProvider(provider: ProviderId) {
+    this.plugin.settings.selectedProvider = provider;
+    await this.plugin.saveSettings();
+    const { cliFound, npmFound } = checkProviderSetupStatus(provider);
+    if (cliFound) {
+      this.phase = 'done';
+    } else if (npmFound && getProviderDescriptor(provider).installCommand) {
+      this.phase = 'installing';
+      this.render();
+      void this.runInstall();
+      return;
+    } else {
+      this.phase = 'manual';
+    }
+    this.render();
   }
 
   // ── Phase: installing ───────────────────────────────────────────────────────
@@ -110,21 +121,25 @@ export class SetupWizardModal extends Modal {
 
     wrap.createEl('p', { text: `✅ ${provider.label} CLI 설치 완료!`, cls: 'ocop-setup-success' });
     wrap.createEl('p', {
-      text: '마지막으로 터미널에서 아래 명령을 실행해 GitHub 계정을 연결하세요. 대화형 CLI를 먼저 열었다면 /login을 입력해도 됩니다.',
+      text: `마지막으로 터미널에서 아래 명령을 실행해 ${provider.label} 로그인을 완료하세요.`,
       cls: 'ocop-setup-desc',
     });
 
     this.renderCmdRow(wrap, provider.loginCommand);
 
     wrap.createEl('p', {
-      text: '브라우저에서 GitHub 로그인이 완료되면 아래 버튼을 누르세요.',
+      text: '로그인 후 아래 버튼으로 CLI를 다시 확인하세요.',
       cls: 'ocop-setup-hint',
     });
 
     const btn = wrap.createEl('button', { text: '로그인 완료 →', cls: 'mod-cta ocop-setup-action-btn' });
     btn.addEventListener('click', () => {
-      this.phase = 'done';
-      this.render();
+      if (this.hasSelectedProviderCli()) {
+        this.phase = 'done';
+        this.render();
+      } else {
+        new Notice('선택한 provider CLI를 아직 찾을 수 없습니다. 설치 후 다시 확인해 주세요.');
+      }
     });
   }
 
@@ -178,7 +193,7 @@ export class SetupWizardModal extends Modal {
 
     const btn = wrap.createEl('button', { text: '설치 완료 확인', cls: 'mod-cta ocop-setup-action-btn' });
     btn.addEventListener('click', () => {
-      if (findProviderCliPath(this.plugin.settings.selectedProvider, this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '') || this.plugin.settings.copilotCliPath) {
+      if (this.hasSelectedProviderCli()) {
         this.phase = 'done';
         this.render();
       } else {
@@ -217,7 +232,7 @@ export class SetupWizardModal extends Modal {
 
     const btn = wrap.createEl('button', { text: '설치 완료 확인', cls: 'mod-cta ocop-setup-action-btn' });
     btn.addEventListener('click', () => {
-      if (findProviderCliPath(this.plugin.settings.selectedProvider, this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '') || this.plugin.settings.copilotCliPath) {
+      if (this.hasSelectedProviderCli()) {
         this.phase = 'login';
         this.render();
       } else {
@@ -227,6 +242,13 @@ export class SetupWizardModal extends Modal {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  private hasSelectedProviderCli(): boolean {
+    const provider = this.plugin.settings.selectedProvider;
+    const configuredPath = this.plugin.settings.providerCliPaths[provider]
+      || (provider === 'copilot' ? this.plugin.settings.copilotCliPath : '');
+    return findProviderCliPath(provider, configuredPath) !== null;
+  }
 
   private renderCmdRow(parent: HTMLElement, cmd: string) {
     const row = parent.createDiv({ cls: 'ocop-setup-cmd-row' });

@@ -6,7 +6,7 @@ describe('provider registry', () => {
   });
 
   it.each([
-    ['claude', 'claude', ['-p', 'hello', '--output-format', 'stream-json']],
+    ['claude', 'claude', ['-p', 'hello', '--output-format', 'stream-json', '--verbose']],
     ['codex', 'codex', ['exec', '--json', 'hello']],
     ['agy', 'agy', ['-p', 'hello']],
   ] as const)('builds the native %s command', (id, command, args) => {
