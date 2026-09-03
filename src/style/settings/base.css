@@ -1,0 +1,101 @@
+/* Settings page - remove separator lines from setting items */
+.ocop-settings .setting-item {
+  border-top: none;
+}
+
+/* Settings section headings (via setHeading()) */
+.ocop-settings .setting-item-heading {
+  padding-top: 18px;
+  margin-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ocop-settings .setting-item-heading:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.ocop-settings .setting-item-heading .setting-item-name {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+/* Custom section descriptions - align with items */
+.ocop-slash-settings-desc,
+.ocop-mcp-settings-desc,
+.ocop-approved-desc,
+.ocop-skills-settings-desc {
+  padding: 0 12px;
+}
+
+/* Unified icon action buttons for settings */
+.ocop-settings-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-settings-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-settings-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-settings-delete-btn:hover {
+  color: var(--text-error);
+}
+
+.ocop-settings-advanced-wrapper {
+  margin-top: 18px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.ocop-settings-advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.ocop-settings-advanced-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-settings-advanced-title {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+.ocop-settings-advanced-toggle {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.ocop-settings-advanced-content {
+  padding-top: 8px;
+}
+
+/* Media folder input width */
+.ocop-settings-media-input {
+  width: 200px;
+}

@@ -1,0 +1,181 @@
+/* History dropdown container */
+.ocop-history-container {
+  position: relative;
+}
+
+/* History dropdown menu */
+.ocop-history-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--background-secondary);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+  max-height: 400px;
+  overflow: hidden;
+  width: 280px;
+}
+
+.ocop-history-menu.visible {
+  display: block;
+}
+
+.ocop-history-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ocop-history-list {
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.ocop-history-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* History item */
+.ocop-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  transition: background 0.15s ease;
+}
+
+.ocop-history-item-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-history-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-history-item:last-child {
+  border-bottom: none;
+}
+
+.ocop-history-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-history-item.active {
+  background: var(--background-secondary);
+  border-left: 2px solid var(--interactive-accent);
+  padding-left: 10px;
+}
+
+.ocop-history-item.active .ocop-history-item-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-history-item.active .ocop-history-item-content {
+  cursor: default;
+}
+
+.ocop-history-item.active .ocop-history-item-date {
+  color: var(--text-faint);
+}
+
+.ocop-history-item-content {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ocop-history-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ocop-history-item-date {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.ocop-history-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.ocop-history-item:hover .ocop-history-item-actions {
+  opacity: 1;
+}
+
+.ocop-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-delete-btn:hover {
+  color: var(--color-red);
+}
+
+/* Rename input */
+.ocop-rename-input {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.ocop-rename-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+/* Loading indicator for title generation */
+.ocop-action-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: spin 1s linear infinite;
+  opacity: 0.6;
+  cursor: default;
+}

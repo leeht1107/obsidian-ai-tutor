@@ -1,0 +1,850 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { findCopilotCLIPath, resolveCmdShim } from '@/utils/copilotCli';
+import { parseEnvironmentVariables } from '@/utils/env';
+import { appendMarkdownSnippet } from '@/utils/markdown';
+import {
+  expandHomePath,
+  getPathAccessType,
+  getVaultPath,
+  isPathInAllowedContextPaths,
+  isPathInAllowedExportPaths,
+  isPathWithinVault,
+  normalizePathForFilesystem,
+  translateMsysPath,
+} from '@/utils/path';
+
+describe('utils.ts', () => {
+  describe('getVaultPath', () => {
+    it('should return basePath when adapter has basePath property', () => {
+      const mockApp = {
+        vault: {
+          adapter: {
+            basePath: '/Users/test/my-vault',
+          },
+        },
+      } as any;
+
+      const result = getVaultPath(mockApp);
+
+      expect(result).toBe('/Users/test/my-vault');
+    });
+
+    it('should return null when adapter does not have basePath', () => {
+      const mockApp = {
+        vault: {
+          adapter: {},
+        },
+      } as any;
+
+      const result = getVaultPath(mockApp);
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null when adapter is undefined', () => {
+      const mockApp = {
+        vault: {
+          adapter: undefined,
+        },
+      } as any;
+
+      // The function will throw because it tries to use 'in' on undefined
+      // This tests error handling - in real usage adapter is always defined
+      expect(() => getVaultPath(mockApp)).toThrow();
+    });
+
+    it('should handle empty string basePath', () => {
+      const mockApp = {
+        vault: {
+          adapter: {
+            basePath: '',
+          },
+        },
+      } as any;
+
+      const result = getVaultPath(mockApp);
+
+      // Empty string is still a valid basePath value
+      expect(result).toBe('');
+    });
+
+    it('should handle paths with spaces', () => {
+      const mockApp = {
+        vault: {
+          adapter: {
+            basePath: '/Users/test/My Obsidian Vault',
+          },
+        },
+      } as any;
+
+      const result = getVaultPath(mockApp);
+
+      expect(result).toBe('/Users/test/My Obsidian Vault');
+    });
+
+    it('should handle Windows-style paths', () => {
+      const mockApp = {
+        vault: {
+          adapter: {
+            basePath: 'C:\\Users\\test\\vault',
+          },
+        },
+      } as any;
+
+      const result = getVaultPath(mockApp);
+
+      expect(result).toBe('C:\\Users\\test\\vault');
+    });
+  });
+
+  describe('parseEnvironmentVariables', () => {
+    it('should parse simple KEY=VALUE pairs', () => {
+      const input = 'API_KEY=abc123\nDEBUG=true';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        API_KEY: 'abc123',
+        DEBUG: 'true',
+      });
+    });
+
+    it('should skip empty lines', () => {
+      const input = 'KEY1=value1\n\nKEY2=value2\n\n';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        KEY1: 'value1',
+        KEY2: 'value2',
+      });
+    });
+
+    it('should skip comment lines starting with #', () => {
+      const input = '# This is a comment\nKEY=value\n# Another comment';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        KEY: 'value',
+      });
+    });
+
+    it('should handle values with = signs', () => {
+      const input = 'URL=https://example.com?foo=bar&baz=qux';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        URL: 'https://example.com?foo=bar&baz=qux',
+      });
+    });
+
+    it('should trim whitespace from keys and values', () => {
+      const input = '  KEY  =  value  ';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        KEY: 'value',
+      });
+    });
+
+    it('should skip lines without = sign', () => {
+      const input = 'VALID=value\nINVALID_LINE\nANOTHER=test';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        VALID: 'value',
+        ANOTHER: 'test',
+      });
+    });
+
+    it('should skip lines with = at start (no key)', () => {
+      const input = '=value\nKEY=valid\n =also-no-key';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        KEY: 'valid',
+      });
+    });
+
+    it('should return empty object for empty input', () => {
+      expect(parseEnvironmentVariables('')).toEqual({});
+      expect(parseEnvironmentVariables('   ')).toEqual({});
+      expect(parseEnvironmentVariables('\n\n')).toEqual({});
+    });
+
+    it('should handle values with spaces', () => {
+      const input = 'MESSAGE=Hello World';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        MESSAGE: 'Hello World',
+      });
+    });
+
+    it('should strip surrounding double quotes from values', () => {
+      const input = 'URL="https://api.example.com"\nKEY="secret-key"';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        URL: 'https://api.example.com',
+        KEY: 'secret-key',
+      });
+    });
+
+    it('should strip surrounding single quotes from values', () => {
+      const input = "URL='https://api.example.com'\nKEY='secret-key'";
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        URL: 'https://api.example.com',
+        KEY: 'secret-key',
+      });
+    });
+
+    it('should not strip mismatched quotes', () => {
+      const input = 'VAL1="not-closed\nVAL2=\'also-not-closed\nVAL3="mixed\'';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        VAL1: '"not-closed',
+        VAL2: "'also-not-closed",
+        VAL3: '"mixed\'',
+      });
+    });
+
+    it('should preserve quotes inside values', () => {
+      const input = 'JSON={"key": "value"}';
+      const result = parseEnvironmentVariables(input);
+
+      expect(result).toEqual({
+        JSON: '{"key": "value"}',
+      });
+    });
+  });
+
+  describe('expandHomePath', () => {
+    const envKey = 'OBSIDIAN_CODE_TEST_PATH';
+    const envValue = path.join(os.tmpdir(), 'ocop-env');
+    let originalValue: string | undefined;
+
+    beforeEach(() => {
+      originalValue = process.env[envKey];
+      process.env[envKey] = envValue;
+    });
+
+    afterEach(() => {
+      if (originalValue === undefined) {
+        delete process.env[envKey];
+      } else {
+        process.env[envKey] = originalValue;
+      }
+    });
+
+    it('should expand percent-style environment variables', () => {
+      expect(expandHomePath(`%${envKey}%`)).toBe(envValue);
+    });
+
+    it('should expand dollar-style environment variables', () => {
+      const braceStyle = '${' + envKey + '}';
+      expect(expandHomePath(`$${envKey}`)).toBe(envValue);
+      expect(expandHomePath(braceStyle)).toBe(envValue);
+    });
+
+    it('should handle Windows-specific environment variable formats based on platform', () => {
+      const powerShellStyle = `$env:${envKey}`;
+      const cmdStyle = `!${envKey}!`;
+
+      // On Windows: expanded; on Unix: unchanged
+      const expectedPowerShell = process.platform === 'win32' ? envValue : powerShellStyle;
+      const expectedCmd = process.platform === 'win32' ? envValue : cmdStyle;
+
+      expect(expandHomePath(powerShellStyle)).toBe(expectedPowerShell);
+      expect(expandHomePath(cmdStyle)).toBe(expectedCmd);
+    });
+
+    it('should leave unknown environment variables untouched', () => {
+      expect(expandHomePath('%OBSIDIAN_CODE_MISSING_VAR%')).toBe('%OBSIDIAN_CODE_MISSING_VAR%');
+      expect(expandHomePath('$OBSIDIAN_CODE_MISSING_VAR')).toBe('$OBSIDIAN_CODE_MISSING_VAR');
+    });
+  });
+
+  describe('normalizePathForFilesystem', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    });
+
+    it('expands home paths before filesystem use', () => {
+      const expected = path.join(os.homedir(), 'notes/file.md');
+      expect(normalizePathForFilesystem('~/notes/file.md')).toBe(expected);
+    });
+
+    it('expands environment variables before filesystem use', () => {
+      const envKey = 'OBSIDIAN_CODE_FS_TEST_PATH';
+      const originalValue = process.env[envKey];
+      process.env[envKey] = '/tmp/ocop-test';
+
+      try {
+        expect(normalizePathForFilesystem(`$${envKey}/notes/file.md`)).toBe('/tmp/ocop-test/notes/file.md');
+      } finally {
+        if (originalValue === undefined) {
+          delete process.env[envKey];
+        } else {
+          process.env[envKey] = originalValue;
+        }
+      }
+    });
+
+    it('strips Windows device prefixes when platform is win32', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      expect(normalizePathForFilesystem('\\\\?\\C:\\Users\\test\\file.txt')).toBe('C:\\Users\\test\\file.txt');
+      expect(normalizePathForFilesystem('\\\\?\\UNC\\server\\share\\file.txt')).toBe('\\\\server\\share\\file.txt');
+    });
+
+    it('translates MSYS paths when platform is win32', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      expect(normalizePathForFilesystem('/c/Users/test/file.txt')).toBe('C:\\Users\\test\\file.txt');
+    });
+
+    it('handles empty string input', () => {
+      expect(normalizePathForFilesystem('')).toBe('');
+    });
+
+    it('handles non-existent environment variables', () => {
+      // Non-existent env vars should be left as-is
+      expect(normalizePathForFilesystem('$NONEXISTENT/path')).toBe('$NONEXISTENT/path');
+      expect(normalizePathForFilesystem('%NONEXISTENT%/path')).toBe('%NONEXISTENT%/path');
+    });
+
+    it('handles mixed path separators', () => {
+      // Mixed / and \ should be normalized by path operations
+      const result = normalizePathForFilesystem('C:/Users\\test/path.txt');
+      // On Windows: path module normalizes, on Unix: keeps as-is
+      expect(result).toBeTruthy();
+    });
+
+    it('handles chained home and environment variable expansions', () => {
+      const envKey = 'OBSIDIAN_CODE_TEST_SUBDIR';
+      const originalValue = process.env[envKey];
+      process.env[envKey] = 'project';
+
+      try {
+        const result = normalizePathForFilesystem(`~/$${envKey}/file.md`);
+        const expected = path.join(os.homedir(), 'project', 'file.md');
+        expect(result).toBe(expected);
+      } finally {
+        if (originalValue === undefined) {
+          delete process.env[envKey];
+        } else {
+          process.env[envKey] = originalValue;
+        }
+      }
+    });
+
+    it('handles Windows env vars with parentheses like ProgramFiles(x86)', () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      const originalPFx86 = process.env['ProgramFiles(x86)'];
+
+      try {
+        process.env['ProgramFiles(x86)'] = 'C:\\Program Files (x86)';
+        const result = normalizePathForFilesystem('%ProgramFiles(x86)%/app/file.txt');
+        expect(result).toBe('C:\\Program Files (x86)\\app\\file.txt');
+      } finally {
+        if (originalPFx86 === undefined) {
+          delete process.env['ProgramFiles(x86)'];
+        } else {
+          process.env['ProgramFiles(x86)'] = originalPFx86;
+        }
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      }
+    });
+  });
+
+  describe('appendMarkdownSnippet', () => {
+    it('should append snippet as-is when existing prompt is empty', () => {
+      expect(appendMarkdownSnippet('', '  - Test  ')).toBe('- Test');
+    });
+
+    it('should append snippet with a blank line separator by default', () => {
+      const existing = '## Existing\n\n- A';
+      const snippet = '## New\n\n- B';
+      expect(appendMarkdownSnippet(existing, snippet)).toBe('## Existing\n\n- A\n\n## New\n\n- B');
+    });
+
+    it('should ensure a blank line separation when existing ends with a newline', () => {
+      const existing = '## Existing\n';
+      const snippet = '- B';
+      expect(appendMarkdownSnippet(existing, snippet)).toBe('## Existing\n\n- B');
+    });
+
+    it('should not add extra spacing when existing ends with a blank line', () => {
+      const existing = '## Existing\n\n';
+      const snippet = '- B';
+      expect(appendMarkdownSnippet(existing, snippet)).toBe('## Existing\n\n- B');
+    });
+
+    it('should return existing prompt unchanged when snippet is empty', () => {
+      expect(appendMarkdownSnippet('## Existing', '   ')).toBe('## Existing');
+    });
+  });
+
+  describe('findCopilotCLIPath', () => {
+    const originalPlatform = process.platform;
+    let originalEnv: NodeJS.ProcessEnv;
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      process.env.PATH = '';
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      process.env = originalEnv;
+    });
+
+    describe('on Unix/macOS', () => {
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+      });
+
+      function mockExistingFile(...paths: string[]) {
+        const pathSet = new Set(paths);
+        jest.spyOn(fs, 'existsSync').mockImplementation((p: any) => pathSet.has(p));
+        jest.spyOn(fs, 'statSync').mockImplementation((p: any) => ({
+          isFile: () => pathSet.has(String(p)),
+        }) as fs.Stats);
+      }
+
+      it('should return first matching Copilot CLI path', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+        mockExistingFile('/opt/homebrew/bin/copilot');
+
+        expect(findCopilotCLIPath()).toBe('/opt/homebrew/bin/copilot');
+      });
+
+      it('should return null when Copilot CLI is not found', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+        jest.spyOn(fs, 'existsSync').mockReturnValue(false as any);
+
+        expect(findCopilotCLIPath()).toBeNull();
+      });
+
+      it('should resolve Copilot CLI from PATH', () => {
+        mockExistingFile('/custom/bin/copilot');
+
+        const customPath = '/custom/bin:/usr/bin';
+        process.env.PATH = customPath;
+        expect(findCopilotCLIPath()).toBe('/custom/bin/copilot');
+      });
+
+      it('should consider home-bin candidates', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+        mockExistingFile('/home/test/bin/copilot');
+        expect(findCopilotCLIPath()).toBe('/home/test/bin/copilot');
+      });
+
+      it('should not return a directory path even if it exists', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+        const dirPath = path.join('/opt/homebrew/bin', 'copilot');
+        jest.spyOn(fs, 'existsSync').mockImplementation((p: any) => p === dirPath);
+        jest.spyOn(fs, 'statSync').mockImplementation(() => ({
+          isFile: () => false,
+        }) as fs.Stats);
+
+        expect(findCopilotCLIPath()).toBeNull();
+      });
+    });
+
+    describe('on Windows', () => {
+      const winPath = path.win32;
+
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+        process.env.ProgramFiles = 'C:\\Program Files';
+        process.env['ProgramFiles(x86)'] = 'C:\\Program Files (x86)';
+        process.env.APPDATA = 'C:\\Users\\test\\AppData\\Roaming';
+      });
+
+      function mockExistingFile(...paths: string[]) {
+        const pathSet = new Set(paths);
+        jest.spyOn(fs, 'existsSync').mockImplementation((p: any) => pathSet.has(p));
+        jest.spyOn(fs, 'statSync').mockImplementation((p: any) => ({
+          isFile: () => pathSet.has(String(p)),
+        }) as fs.Stats);
+      }
+
+      it('should return first matching Windows Copilot executable', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\test');
+        const exePath = winPath.join('C:\\Users\\test', 'AppData', 'Roaming', 'npm', 'copilot.exe');
+        mockExistingFile(exePath);
+
+        expect(findCopilotCLIPath()).toBe(exePath);
+      });
+
+      it('should prefer the npm .cmd shim on Windows', () => {
+        const cmdPath = winPath.join('C:\\Users\\test\\AppData\\Roaming', 'npm', 'copilot.cmd');
+        const exePath = winPath.join('C:\\Users\\test\\AppData\\Roaming', 'npm', 'copilot.exe');
+        mockExistingFile(cmdPath, exePath);
+
+        expect(findCopilotCLIPath()).toBe(cmdPath);
+      });
+
+      it('should find Copilot CLI in custom npm global path via npm_config_prefix', () => {
+        process.env.npm_config_prefix = 'D:\\nodejs\\node_global';
+        const expectedPath = winPath.join('D:\\nodejs\\node_global', 'copilot.exe');
+        mockExistingFile(expectedPath);
+
+        expect(findCopilotCLIPath()).toBe(expectedPath);
+      });
+
+      it('should resolve Copilot CLI from PATH on Windows', () => {
+        const expectedPath = winPath.join('C:\\Tools', 'copilot.exe');
+        mockExistingFile(expectedPath);
+        process.env.PATH = 'C:\\Tools;C:\\Windows\\System32';
+
+        expect(findCopilotCLIPath()).toBe(expectedPath);
+      });
+
+      it('should expand tilde PATH entries with Windows separators', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\test');
+        const expectedPath = winPath.join('C:\\Users\\test', 'bin', 'copilot.cmd');
+        mockExistingFile(expectedPath);
+        process.env.PATH = '~\\bin;C:\\Windows\\System32';
+
+        expect(findCopilotCLIPath()).toBe(expectedPath);
+      });
+
+      it('should return null when no CLI is found on Windows', () => {
+        jest.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\test');
+        jest.spyOn(fs, 'existsSync').mockReturnValue(false as any);
+
+        expect(findCopilotCLIPath()).toBeNull();
+      });
+
+      it('should not return a directory path even if it exists', () => {
+        const dirPath = winPath.join('C:\\Users\\test', 'AppData', 'Roaming', 'npm', 'copilot.exe');
+        jest.spyOn(fs, 'existsSync').mockImplementation((p: any) => p === dirPath);
+        jest.spyOn(fs, 'statSync').mockImplementation(() => ({
+          isFile: () => false,
+        }) as fs.Stats);
+
+        expect(findCopilotCLIPath()).toBeNull();
+      });
+
+      it('should resolve npm .cmd shims with Windows path semantics', () => {
+        const cmdDir = winPath.join('C:\\Users\\test\\AppData\\Roaming', 'npm');
+        const cmdPath = winPath.join(cmdDir, 'copilot.cmd');
+        const scriptPath = winPath.join(cmdDir, 'node_modules', '@github', 'copilot', 'dist', 'cli.js');
+        const nodePath = winPath.join(cmdDir, 'node.exe');
+
+        jest.spyOn(fs, 'readFileSync').mockImplementation(() => (
+          '@"%dp0%\\node.exe" "%dp0%\\node_modules\\@github\\copilot\\dist\\cli.js" %*\r\n'
+        ) as any);
+        mockExistingFile(scriptPath, nodePath);
+
+        expect(resolveCmdShim(cmdPath)).toEqual([nodePath, scriptPath]);
+      });
+    });
+  });
+
+  describe('isPathInAllowedExportPaths', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should return false when allowed export paths is empty', () => {
+      expect(isPathInAllowedExportPaths('/tmp/out.md', [], '/vault')).toBe(false);
+    });
+
+    it('should allow candidate path within allowed export directory', () => {
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation((p: any) => path.resolve(String(p)) as any);
+      (fs.realpathSync as any).native = realpathSpy;
+
+      expect(isPathInAllowedExportPaths('/tmp/out.md', ['/tmp'], '/vault')).toBe(true);
+      expect(isPathInAllowedExportPaths('/var/out.md', ['/tmp'], '/vault')).toBe(false);
+    });
+
+    it('should expand tilde for export paths and candidate paths', () => {
+      jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation((p: any) => path.resolve(String(p)) as any);
+      (fs.realpathSync as any).native = realpathSpy;
+
+      expect(isPathInAllowedExportPaths('~/Desktop/out.md', ['~/Desktop'], '/vault')).toBe(true);
+      expect(isPathInAllowedExportPaths('~/Downloads/out.md', ['~/Desktop'], '/vault')).toBe(false);
+    });
+  });
+
+  describe('getPathAccessType', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const stubRealpath = () => {
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation((p: any) => path.resolve(String(p)) as any);
+      (fs.realpathSync as any).native = realpathSpy;
+    };
+
+    it('should return vault for paths inside vault', () => {
+      stubRealpath();
+      expect(getPathAccessType('notes/a.md', [], [], '/vault')).toBe('vault');
+    });
+
+    it('should treat exact overlap as read-write', () => {
+      stubRealpath();
+      expect(getPathAccessType('/tmp/shared/out.md', ['/tmp/shared'], ['/tmp/shared'], '/vault')).toBe('readwrite');
+    });
+
+    it('should prefer context over export for nested paths', () => {
+      stubRealpath();
+      const allowedExportPaths = ['/tmp'];
+      const allowedContextPaths = ['/tmp/workspace'];
+
+      expect(getPathAccessType('/tmp/workspace/file.md', allowedContextPaths, allowedExportPaths, '/vault')).toBe('context');
+      expect(getPathAccessType('/tmp/out.md', allowedContextPaths, allowedExportPaths, '/vault')).toBe('export');
+    });
+
+    it('should let a nested context override a read-write parent', () => {
+      stubRealpath();
+      const allowedExportPaths = ['/tmp/shared'];
+      const allowedContextPaths = ['/tmp/shared', '/tmp/shared/readonly'];
+
+      expect(getPathAccessType('/tmp/shared/readonly/file.md', allowedContextPaths, allowedExportPaths, '/vault')).toBe('context');
+      expect(getPathAccessType('/tmp/shared/file.md', allowedContextPaths, allowedExportPaths, '/vault')).toBe('readwrite');
+    });
+  });
+
+  describe('isPathWithinVault', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should allow relative paths within vault', () => {
+      expect(isPathWithinVault('notes/a.md', '/vault')).toBe(true);
+    });
+
+    it('should block path traversal escaping vault', () => {
+      expect(isPathWithinVault('../secrets.txt', '/vault')).toBe(false);
+    });
+
+    it('should allow absolute paths inside vault', () => {
+      expect(isPathWithinVault('/vault/notes/a.md', '/vault')).toBe(true);
+    });
+
+    it('should block absolute paths outside vault', () => {
+      expect(isPathWithinVault('/etc/passwd', '/vault')).toBe(false);
+    });
+
+    it('should expand tilde and still enforce vault boundary', () => {
+      jest.spyOn(os, 'homedir').mockReturnValue('/home/test');
+      expect(isPathWithinVault('~/vault/notes/a.md', '/vault')).toBe(false);
+    });
+
+    it('should allow exact vault path', () => {
+      expect(isPathWithinVault('/vault', '/vault')).toBe(true);
+      expect(isPathWithinVault('.', '/vault')).toBe(true);
+    });
+
+    it('should handle non-existent paths via fallback resolution', () => {
+      // When fs.realpathSync throws (file doesn't exist), path.resolve is used
+      jest.spyOn(fs, 'realpathSync').mockImplementation(() => {
+        throw new Error('ENOENT');
+      });
+      // Even with mock throwing, function should still work via fallback
+      expect(isPathWithinVault('nonexistent/path.md', '/vault')).toBe(true);
+    });
+
+    it('should block symlink escapes for non-existent targets', () => {
+      jest.spyOn(fs, 'existsSync').mockImplementation((p: any) => {
+        const s = String(p);
+        return s === '/' || s === '/vault' || s === '/vault/export';
+      });
+
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation((p: any) => {
+        const s = String(p);
+        if (s === '/') return '/';
+        if (s === '/vault') return '/vault';
+        if (s === '/vault/export') return '/tmp/export';
+        throw new Error('ENOENT');
+      });
+      (fs.realpathSync as any).native = realpathSpy;
+
+      expect(isPathWithinVault('export/newfile.txt', '/vault')).toBe(false);
+    });
+  });
+
+  describe('Windows separator normalization', () => {
+    const originalPlatform = process.platform;
+    const originalSep = path.sep;
+    const originalIsAbsolute = path.isAbsolute;
+
+    beforeEach(() => {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      // Force Windows-style separator to detect regressions when comparisons rely on path.sep.
+      Object.defineProperty(path, 'sep', { value: '\\', writable: true });
+      jest.spyOn(path, 'isAbsolute').mockImplementation((p: any) => {
+        const value = String(p);
+        return /^[A-Za-z]:[\\/]/.test(value) || originalIsAbsolute(value);
+      });
+
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation((p: any) => String(p) as any);
+      (fs.realpathSync as any).native = realpathSpy;
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      Object.defineProperty(path, 'sep', { value: originalSep, writable: true });
+      jest.restoreAllMocks();
+    });
+
+    it('allows vault paths after slash normalization', () => {
+      expect(isPathWithinVault('C:\\Users\\test\\vault\\note.md', 'C:\\Users\\test\\vault')).toBe(true);
+    });
+
+    it('allows export paths after slash normalization', () => {
+      expect(
+        isPathInAllowedExportPaths(
+          'C:\\Users\\test\\export\\out.md',
+          ['C:\\Users\\test\\export'],
+          'C:\\Users\\test\\vault'
+        )
+      ).toBe(true);
+    });
+
+    it('allows context paths after slash normalization', () => {
+      expect(
+        isPathInAllowedContextPaths(
+          'C:\\Users\\test\\context\\in.md',
+          ['C:\\Users\\test\\context'],
+          'C:\\Users\\test\\vault'
+        )
+      ).toBe(true);
+    });
+
+    it('treats vault paths as vault access after normalization', () => {
+      expect(getPathAccessType(
+        'C:\\Users\\test\\vault\\note.md',
+        [],
+        [],
+        'C:\\Users\\test\\vault'
+      )).toBe('vault');
+    });
+
+    it('resolves access type using normalized boundaries', () => {
+      expect(getPathAccessType(
+        'C:\\Users\\test\\shared\\note.md',
+        ['C:\\Users\\test\\shared'],
+        ['C:\\Users\\test\\shared'],
+        'C:\\Users\\test\\vault'
+      )).toBe('readwrite');
+    });
+
+    it('treats ~/.copilot paths as vault access after normalization', () => {
+      jest.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\test');
+      expect(getPathAccessType(
+        'C:\\Users\\test\\.copilot\\settings.json',
+        [],
+        [],
+        'C:\\Users\\test\\vault'
+      )).toBe('vault');
+    });
+  });
+
+  describe('translateMsysPath', () => {
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    });
+
+    describe('on Windows', () => {
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+      });
+
+      it('should translate MSYS drive paths to Windows paths', () => {
+        expect(translateMsysPath('/c/Users/test')).toBe('C:\\Users\\test');
+        expect(translateMsysPath('/d/Projects/vault')).toBe('D:\\Projects\\vault');
+      });
+
+      it('should handle uppercase drive letters', () => {
+        expect(translateMsysPath('/C/Users/test')).toBe('C:\\Users\\test');
+      });
+
+      it('should handle root drive paths', () => {
+        expect(translateMsysPath('/c')).toBe('C:');
+        expect(translateMsysPath('/c/')).toBe('C:\\');
+      });
+
+      it('should not translate non-MSYS absolute paths', () => {
+        expect(translateMsysPath('/home/user')).toBe('/home/user');
+        expect(translateMsysPath('/tmp/file.txt')).toBe('/tmp/file.txt');
+      });
+
+      it('should not translate Windows native paths', () => {
+        expect(translateMsysPath('C:\\Users\\test')).toBe('C:\\Users\\test');
+      });
+
+      it('should not translate relative paths', () => {
+        expect(translateMsysPath('./file.txt')).toBe('./file.txt');
+        expect(translateMsysPath('../parent/file.txt')).toBe('../parent/file.txt');
+      });
+    });
+
+    describe('on Unix', () => {
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+      });
+
+      it('should not translate any paths', () => {
+        expect(translateMsysPath('/c/Users/test')).toBe('/c/Users/test');
+        expect(translateMsysPath('/home/user')).toBe('/home/user');
+      });
+    });
+  });
+
+  describe('Windows path handling', () => {
+    // Note: Full integration tests for Windows path validation require running on Windows
+    // because Node's `path` module behavior is determined at module load time.
+    // These tests verify the translateMsysPath function which is platform-mockable.
+
+    describe('translateMsysPath behavior', () => {
+      const originalPlatform = process.platform;
+
+      afterEach(() => {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      });
+
+      it('translates MSYS paths to Windows paths when platform is win32', () => {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+
+        expect(translateMsysPath('/c/Users/test')).toBe('C:\\Users\\test');
+        expect(translateMsysPath('/d/Projects/vault')).toBe('D:\\Projects\\vault');
+        expect(translateMsysPath('/c')).toBe('C:');
+        expect(translateMsysPath('/c/')).toBe('C:\\');
+      });
+
+      it('does not translate non-MSYS paths on Windows', () => {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+
+        // Multi-letter paths after / are not MSYS drive paths
+        expect(translateMsysPath('/home/user')).toBe('/home/user');
+        expect(translateMsysPath('/tmp/file')).toBe('/tmp/file');
+        // Already Windows paths
+        expect(translateMsysPath('C:\\Users')).toBe('C:\\Users');
+        // Relative paths
+        expect(translateMsysPath('./file')).toBe('./file');
+      });
+
+      it('does not translate any paths on non-Windows', () => {
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+
+        expect(translateMsysPath('/c/Users/test')).toBe('/c/Users/test');
+        expect(translateMsysPath('/home/user')).toBe('/home/user');
+      });
+    });
+  });
+});

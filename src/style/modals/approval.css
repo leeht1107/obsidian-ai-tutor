@@ -1,0 +1,83 @@
+/* Approval Modal */
+.ocop-approval-modal {
+  padding: 16px;
+}
+
+.ocop-approval-info {
+  margin-bottom: 12px;
+}
+
+.ocop-approval-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.ocop-approval-icon {
+  color: #67d7ff;
+}
+
+.ocop-approval-tool-name {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ocop-approval-desc {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border-radius: 6px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  color: var(--text-normal);
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+
+.ocop-approval-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ocop-approval-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-deny-btn {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+}
+
+.ocop-deny-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-allow-btn {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ocop-allow-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-always-btn {
+  background: #67d7ff;
+  color: white;
+  border: none;
+}
+
+.ocop-always-btn:hover {
+  background: #50c8ef;
+}

@@ -1,0 +1,335 @@
+/* Messages area */
+.ocop-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Focusable messages panel for vim-style navigation */
+.ocop-messages-focusable:focus {
+  outline: none;
+}
+
+/* Welcome message - claude.ai style */
+.ocop-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  min-height: 200px;
+}
+
+.ocop-welcome-greeting {
+  font-family: var(--font-interface);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-normal);
+  letter-spacing: -0.02em;
+}
+
+.ocop-welcome-subtitle {
+  max-width: 520px;
+  margin-top: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ocop-welcome-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 720px;
+  margin-top: 18px;
+}
+
+.ocop-welcome-suggestion {
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 78%, #0f172a 22%);
+  color: var(--text-normal);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  line-height: 1.35;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-welcome-suggestion:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, #38bdf8 58%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-secondary) 60%, #0f172a 40%);
+  color: #dbeafe;
+}
+
+.ocop-quiz-progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.ocop-quiz-progress {
+  flex: 1;
+  height: 4px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ocop-quiz-progress-fill {
+  height: 100%;
+  background: #38bdf8;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.ocop-quiz-progress-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ocop-quiz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocop-quiz-answer-btn,
+.ocop-quiz-submit-btn {
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 74%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 70%, #111827 30%);
+  color: var(--text-normal);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.ocop-quiz-answer-btn:hover,
+.ocop-quiz-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #38bdf8;
+  background: color-mix(in srgb, var(--background-secondary) 58%, #0f172a 42%);
+}
+
+.ocop-quiz-answer-btn.is-selected {
+  border-color: #38bdf8;
+  background: color-mix(in srgb, #38bdf8 14%, transparent);
+  color: #dbeafe;
+}
+
+.ocop-quiz-submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Individual messages */
+.ocop-message {
+  padding: 10px 14px;
+  border-radius: 6px;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+.ocop-message-user {
+  background: color-mix(in srgb, var(--background-secondary) 78%, #0f172a 22%);
+  color: var(--text-normal);
+  align-self: stretch;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  border-left: 3px solid #38bdf8;
+}
+
+/* Text selection in user messages - visible highlight */
+.ocop-message-user ::selection {
+  background: var(--text-selection);
+  color: inherit;
+}
+
+.ocop-message-user ::-moz-selection {
+  background: var(--text-selection);
+  color: inherit;
+}
+
+.ocop-message-assistant {
+  background: transparent;
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+}
+
+/* Socratic mode: distinct colors for Q&A flow */
+.ocop-socratic-active .ocop-message-user {
+  border-left-color: #a78bfa;
+  background: color-mix(in srgb, var(--background-secondary) 72%, #1a1030 28%);
+}
+
+.ocop-socratic-active .ocop-message-assistant {
+  background: rgba(35, 40, 66, 0.35);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+/* Message content */
+.ocop-message-content {
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Interrupted message */
+.ocop-interrupted {
+  color: #d45d5d;
+}
+
+.ocop-interrupted-hint {
+  color: var(--text-muted);
+}
+
+/* Text blocks within message content */
+.ocop-text-block {
+  margin: 0;
+}
+
+.ocop-text-block-streaming {
+  white-space: pre-wrap;
+}
+
+.ocop-text-block+.ocop-tool-call {
+  margin-top: 8px;
+}
+
+.ocop-tool-call+.ocop-text-block {
+  margin-top: 8px;
+}
+
+.ocop-message-content p {
+  margin: 0 0 8px 0;
+}
+
+.ocop-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.ocop-message-content ul,
+.ocop-message-content ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+/* Scrollbar styling */
+.ocop-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ocop-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocop-messages::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.ocop-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+/* Copy message button */
+.ocop-message-assistant {
+  position: relative;
+}
+
+.ocop-msg-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+}
+
+.ocop-msg-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-message-assistant:hover .ocop-msg-copy-btn {
+  opacity: 1;
+}
+
+.ocop-msg-copy-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.ocop-msg-copy-btn.is-copied {
+  opacity: 1;
+  color: #38bdf8;
+}
+
+/* ============================================
+ * A)/B) Choice Buttons (inline in assistant messages)
+ * ============================================ */
+.ocop-choice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ocop-choice-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1.4;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.ocop-choice-btn:hover {
+  background: var(--interactive-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.ocop-choice-btn-label {
+  font-weight: 600;
+  color: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.ocop-choice-btn-text {
+  color: var(--text-muted);
+}

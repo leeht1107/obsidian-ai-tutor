@@ -1,0 +1,161 @@
+/* Instruction Mode */
+
+/* Instruction Confirm Modal */
+.ocop-instruction-modal {
+  max-width: 500px;
+}
+
+.ocop-instruction-section {
+  margin-bottom: 16px;
+}
+
+.ocop-instruction-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.ocop-instruction-original {
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-refined {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-clarification {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-edit-container {
+  margin-top: 6px;
+}
+
+.ocop-instruction-edit-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  resize: vertical;
+  min-height: 80px;
+}
+
+.ocop-instruction-edit-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ocop-instruction-response-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  resize: vertical;
+  min-height: 60px;
+}
+
+.ocop-instruction-response-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ocop-instruction-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.ocop-instruction-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.ocop-instruction-reject-btn {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.ocop-instruction-reject-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-instruction-edit-btn {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.ocop-instruction-edit-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-instruction-accept-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ocop-instruction-accept-btn:hover {
+  opacity: 0.9;
+}
+
+/* Instruction loading state */
+.ocop-instruction-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.ocop-instruction-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: ocop-instruction-spin 0.8s linear infinite;
+}
+
+/* Instruction modal content sections */
+.ocop-instruction-content-section {
+  margin: 8px 0;
+}
+
+.ocop-instruction-clarification-section,
+.ocop-instruction-confirmation-section {
+  margin-top: 8px;
+}

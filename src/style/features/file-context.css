@@ -1,0 +1,129 @@
+/* @ Mention dropdown */
+.ocop-mention-dropdown {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 -8px 24px rgba(2, 6, 23, 0.26);
+  z-index: 1000;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.ocop-mention-dropdown.visible {
+  display: block;
+}
+
+/* Fixed positioning for inline editor */
+.ocop-mention-dropdown-fixed {
+  position: fixed;
+  z-index: 10001;
+}
+
+.ocop-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.ocop-mention-item:hover,
+.ocop-mention-item.selected {
+  background: color-mix(in srgb, var(--background-modifier-hover) 70%, #111827 30%);
+}
+
+.ocop-mention-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-mention-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-mention-path {
+  font-size: 13px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-mention-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Scrollbar for mention dropdown */
+.ocop-mention-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ocop-mention-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocop-mention-dropdown::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+/* MCP items in @-mention dropdown */
+.ocop-mention-item.mcp-server .ocop-mention-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-mention-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ocop-mention-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #38bdf8;
+}
+
+.ocop-mention-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Context file items in @-mention dropdown */
+.ocop-mention-item.context-file .ocop-mention-icon {
+  color: #67d7ff;
+}
+
+/* Context folder filter items in @-mention dropdown */
+.ocop-mention-item.context-folder .ocop-mention-icon {
+  color: #67d7ff;
+}
+
+.ocop-mention-name-folder {
+  color: #67d7ff;
+  font-weight: 600;
+}
+
+.ocop-mention-name-context {
+  color: var(--text-normal);
+}

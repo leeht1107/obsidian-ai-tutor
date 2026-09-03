@@ -1,0 +1,41 @@
+/* Thinking budget selector */
+.ocop-thinking-selector,
+.ocop-websearch-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  cursor: pointer;
+}
+
+.ocop-thinking-selector.is-disabled {
+  opacity: 0.72;
+}
+
+.ocop-thinking-label-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ocop-thinking-gears {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+/* Current selection (visible when collapsed) */
+.ocop-thinking-current {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #67d7ff;
+  font-weight: 500;
+  cursor: default;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.ocop-thinking-disabled {
+  color: var(--text-muted);
+}

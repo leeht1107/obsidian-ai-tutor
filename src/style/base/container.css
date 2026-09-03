@@ -1,0 +1,11 @@
+.ocop-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--interactive-accent) 8%, transparent) 0%, transparent 34%),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--interactive-accent) 5%, transparent) 0%, transparent 28%),
+    var(--background-primary);
+}
