@@ -6,6 +6,19 @@ remote, final commit) is **not yet met** — no remote is configured; this is
 explicitly disclosed as pending, not claimed as done. Acceptance evaluation
 and the required advisor-sol review have not yet run against this packet.
 
+**Update (acceptance blocker #2 repaired):** the independent acceptance
+evaluation (`.claude/artifacts/obsidian-ai-tutor-20260903-0001/claude-acceptance-evaluation.md`)
+found that `parseNativeProviderLine`'s Codex and agy branches had zero
+automated coverage — only `claude`'s JSON parsing was exercised through the
+real dispatch path. This is now closed: `tests/unit/core/agent/directProcessDispatch.test.ts`
+drives `CopilotBridgeService.query()` → `querySelectedProvider()` against
+deterministic fake-CLI fixtures for all three non-Copilot providers and
+proves Codex's nested-JSON extraction (`item.text`) and agy's raw-line
+passthrough (no JSON parsing attempted) as distinct, asserted behaviors, not
+just "a text chunk was emitted." See
+[§4 One-child-process / p95 dispatch evidence](#4-one-child-process--p95-dispatch-evidence)
+and `.claude/artifacts/obsidian-ai-tutor-20260903-0001/claude-provider-parsing-repair.md`.
+
 Locked contract: `goal-contract.md` (unchanged by this task).
 
 This document only adds documentation. No file under `src/`, `tests/`,
@@ -20,7 +33,7 @@ were touched.
 | # | goal-contract.md requirement | Status | Evidence |
 |---|---|---|---|
 | 1 | Build, typecheck, lint, and tests pass after the final edit | ✅ Met | [§2 Final command outputs](#2-final-command-outputs-this-task) |
-| 2 | Four provider paths (Copilot, Claude Code, Codex, agy) support discovery/setup and the locked Chat, Context, Quiz, Socratic flows where provider capability permits | ✅ Met | [§3 Provider / setup / feature matrix](#3-provider--setup--feature-matrix) |
+| 2 | Four provider paths (Copilot, Claude Code, Codex, agy) support discovery/setup and the locked Chat, Context, Quiz, Socratic flows where provider capability permits | ✅ Met — response parsing now verified for all three non-Copilot providers (previously only claude) | [§3 Provider / setup / feature matrix](#3-provider--setup--feature-matrix), [§4 One-child-process / p95 dispatch evidence](#4-one-child-process--p95-dispatch-evidence) |
 | 3 | No shared provider runtime/proxy/queue/RPC/stream relay/extra child process; deterministic fake-CLI benchmark proves one child process per request and p95 dispatch overhead ≤10 ms | ✅ Met | [§4 One-child-process / p95 dispatch evidence](#4-one-child-process--p95-dispatch-evidence) |
 | 4 | Windows-specific path/command handling has automated coverage; this packet distinguishes it from physical Windows E2E | ✅ Met (automated only) | [§5 Windows coverage statement](#5-windows-coverage-statement) |
 | 5 | Target remote is public, contains the final commit, preserves MIT copyright notice, passes stale branding/scope audit | ⚠️ Partially met — **remote not yet created/pushed** | [§6 MIT / stale-branding / scope audit](#6-mit--stale-branding--scope-audit) |
@@ -51,6 +64,22 @@ Results:
 `f883901feb4bb8783f3b8be3e4c4941f6c2b382d` ("test: prove direct provider
 dispatch overhead"); this task's diff is limited to `README.md`,
 `README_Ko.md`, and this file.
+
+**Re-run for the acceptance-blocker-#2 repair task** (Codex/agy response
+parsing coverage added to `tests/unit/core/agent/directProcessDispatch.test.ts`,
+no other source file changed):
+
+```
+npm run typecheck   → tsc --noEmit, exit 0, no output
+npm run lint         → eslint "{src,tests}/**/*.ts", exit 0, no output
+npm test             → 46 suites / 913 tests passed (was 911; +2 for the new
+                        codex/agy parsing tests), 0 failed, 0 skipped
+npm run build         → build:css (styles.css 127.0 KB) + esbuild production, exit 0
+```
+
+`git status --short` was clean before this repair task's edit; the diff is
+limited to `tests/unit/core/agent/directProcessDispatch.test.ts` and this
+file. Full detail: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/claude-provider-parsing-repair.md`.
 
 ---
 
@@ -110,10 +139,30 @@ Full method, fixture design, and three prior independent runs are in
 - Explicitly **not** measured: real CLI process startup time, model
   inference latency, or end-to-end request latency — those are external to
   this plugin and outside the contract's item-3 claim.
-- Only `claude` was exercised directly; `codex`/`agy` share the identical
-  `querySelectedProvider` call site and differ only in the pure
-  `buildNativeProviderCommand`/`parseNativeProviderLine` functions, which do
-  not affect process count or dispatch timing.
+- **Response-parsing coverage (all three non-Copilot providers, added in a
+  later task):** the one-child-process and p95 timing proof above used only
+  `claude`'s fixture; a separate `describe` block in the same test file adds
+  two more real-dispatch tests, one per remaining provider, each with its own
+  deterministic fake-CLI fixture and its own `spawn`-count assertion:
+  - `claude`: fixture emits `{"delta":{"text":"dispatch-fixture-ok"}}`;
+    the parsed chunk is the extracted `dispatch-fixture-ok` text (covered by
+    the process-count test above).
+  - `codex`: fixture emits `{"item":{"text":"codex-fixture-ok"}}`; the test
+    asserts the emitted chunk is the bare string `codex-fixture-ok` — proving
+    `parseNativeProviderLine`'s codex branch parses the JSON and extracts
+    `item.text`, rather than falling back to a raw-line dump.
+  - `agy`: fixture emits the JSON-*shaped* line `{"raw":"agy-fixture-ok"}`;
+    the test asserts the emitted chunk is the untouched raw line
+    (`{"raw":"agy-fixture-ok"}\n`) — proving agy's branch returns before any
+    `JSON.parse` call (raw-line passthrough), which a parsed value would not
+    have preserved.
+  - All three tests drive the real `CopilotBridgeService.query()` →
+    `querySelectedProvider()` path (no mocking of the parsing function
+    itself) and each independently reassert `spawn` is called exactly once,
+    so the existing one-child-process guarantee holds per provider, not just
+    for `claude`.
+  - No production code changed to add this coverage — only
+    `tests/unit/core/agent/directProcessDispatch.test.ts` was extended.
 
 Commands:
 
@@ -241,10 +290,11 @@ retried agy as a worker. Consequently:
   `tests/unit/core/providers/providerRegistry.test.ts` pins this invariant.
   See §3.
 - This packet does **not** claim agy authentication was ever available or
-  verified end-to-end in this workstream. Discovery, argv construction, and
-  the shared dispatch seam are covered by the deterministic-fixture test in
-  §4 (which does not require a real agy login); a real, authenticated agy
-  session was never exercised by this workstream's automated evidence.
+  verified end-to-end in this workstream. Discovery, argv construction, the
+  shared dispatch seam, and — as of the acceptance-blocker-#2 repair task —
+  agy's raw-line response-parsing branch are all covered by deterministic-
+  fixture tests in §4 (none require a real agy login); a real, authenticated
+  agy session was never exercised by this workstream's automated evidence.
 
 ---
 
@@ -270,3 +320,11 @@ retried agy as a worker. Consequently:
   not a CI-matrix or multi-host benchmark.
 - `manifest.json`'s Copilot-only description (§6) was corrected in a
   follow-up task; see §6 for the resolution and its receipt.
+- **Resolved in the acceptance-blocker-#2 repair task:** Codex/agy
+  `parseNativeProviderLine` response parsing previously had zero automated
+  coverage (flagged in `claude-acceptance-evaluation.md` §2). Both branches
+  are now covered by deterministic-fixture tests through the real
+  `query()`/`querySelectedProvider()` path; see §4. This does not cover a
+  real Codex or agy CLI's actual JSON schema drifting from the fixture's
+  assumed shape (`item.text` for Codex) — only this plugin's parsing logic
+  against a fixed, known-shape input.
