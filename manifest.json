@@ -1,7 +1,7 @@
 {
   "id": "obsidian-ai-tutor",
   "name": "Obsidian AI Tutor",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "minAppVersion": "1.0.0",
   "description": "Chat with GitHub Copilot, Claude Code, Codex, or agy in a sidebar for AI-assisted note writing and coding.",
   "author": "reallygood83",
