@@ -63,3 +63,8 @@ Project: obsidian-ai-tutor | Task: chat-provider-icon | Scope: persistent-chat-p
 - Provider readiness now uses the dispatch-shared `findProviderCliPath(provider, configuredPath)` contract, so any executable discoverable through enhanced PATH or `providerCliPaths` is selectable, including `agy` after manual installation; manual setup remains guidance before discovery.
 - Native providers now hide the thinking selector and its stored budget display (`display: none`) instead of rendering a disabled Copilot budget. No provider abstraction, proxy, or hardcoded local path was added.
 - Kill coverage verifies configured-path readiness, PATH-style readiness, and native thinking concealment. Focused 10-test suite, typecheck, lint, production build, and `git diff --check` passed.
+
+## BRAT release 0.1.4 (2026-09-04)
+
+- Published GitHub release `0.1.4` with the BRAT asset triplet: `main.js`, `manifest.json`, and `styles.css`.
+- Source commit: `05f9449` (`feat: improve provider composer UX`). The release contains the two-row composer, dismissible provider chooser, bundled marks, lifecycle-safe dismissal, configured-path readiness, and native thinking concealment.
