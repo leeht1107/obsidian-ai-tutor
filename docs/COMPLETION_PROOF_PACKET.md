@@ -1,12 +1,17 @@
 # Completion Proof Packet — Obsidian AI Tutor
 
-Status: production requirements 1–4 and 6 of `goal-contract.md` are met and
-independently verifiable with the commands below. Requirement 5 (public
-remote, final commit) is **not yet met** — no remote is configured; this is
-explicitly disclosed as pending, not claimed as done. Acceptance evaluation
-has run. The first required advisor-sol review returned three demonstrated
-setup blockers; all three were repaired and its authenticated narrow
-re-review returned **`PROCEED`**. Publication is now the sole pending step.
+Status: all production requirements of `goal-contract.md` are met and
+independently verifiable with the commands below. Acceptance evaluation ran;
+the first required advisor-sol review returned three demonstrated setup
+blockers, all three were repaired, and its authenticated narrow re-review
+returned **`PROCEED`**.
+
+**Publication:** the public target is
+[`leeht1107/obsidian-ai-tutor`](https://github.com/leeht1107/obsidian-ai-tutor),
+default branch `main`. Initial publication pushed commit
+`eddf3bb72620ec311e16986f6ea3a023ead5ca2e`; the final publication check is
+`git ls-remote origin refs/heads/main` and must equal local `git rev-parse
+HEAD` after the final proof-packet commit is pushed.
 
 **Update (advisor-sol repair):** advisor-sol receipt
 `01a067eb-6665-7322-abf7-0cc1cd101404` found that Claude's stream-JSON argv
@@ -51,7 +56,7 @@ were touched.
 | 2 | Four provider paths (Copilot, Claude Code, Codex, agy) support discovery/setup and the locked Chat, Context, Quiz, Socratic flows where provider capability permits | ✅ Met — response parsing now verified for all three non-Copilot providers (previously only claude) | [§3 Provider / setup / feature matrix](#3-provider--setup--feature-matrix), [§4 One-child-process / p95 dispatch evidence](#4-one-child-process--p95-dispatch-evidence) |
 | 3 | No shared provider runtime/proxy/queue/RPC/stream relay/extra child process; deterministic fake-CLI benchmark proves one child process per request and p95 dispatch overhead ≤10 ms | ✅ Met | [§4 One-child-process / p95 dispatch evidence](#4-one-child-process--p95-dispatch-evidence) |
 | 4 | Windows-specific path/command handling has automated coverage; this packet distinguishes it from physical Windows E2E | ✅ Met (automated only) | [§5 Windows coverage statement](#5-windows-coverage-statement) |
-| 5 | Target remote is public, contains the final commit, preserves MIT copyright notice, passes stale branding/scope audit | ⚠️ Partially met — **remote not yet created/pushed** | [§6 MIT / stale-branding / scope audit](#6-mit--stale-branding--scope-audit) |
+| 5 | Target remote is public, contains the final commit, preserves MIT copyright notice, passes stale branding/scope audit | ✅ Met — public `origin/main`; final SHA comparison is recorded in this packet's publication command | [§6 MIT / stale-branding / scope audit](#6-mit--stale-branding--scope-audit) |
 | 6 | Every completed production/evaluation task has lifecycle receipts from the Harness-selected backend (Orca) and an indexed handoff/SSOT/scratchpad | ✅ Met | [§7 Orca lifecycle receipts](#7-orca-production-lifecycle-receipts) |
 
 ---
