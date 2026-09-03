@@ -13,6 +13,10 @@ default branch `main`. Initial publication pushed commit
 `git ls-remote origin refs/heads/main` and must equal local `git rev-parse
 HEAD` after the final proof-packet commit is pushed.
 
+**BRAT distribution:** release
+[`0.1.0`](https://github.com/leeht1107/obsidian-ai-tutor/releases/tag/0.1.0)
+contains the required `manifest.json`, `main.js`, and `styles.css` assets.
+
 **Update (advisor-sol repair):** advisor-sol receipt
 `01a067eb-6665-7322-abf7-0cc1cd101404` found that Claude's stream-JSON argv
 needed `--verbose`, a first launch could install default Copilot before a
