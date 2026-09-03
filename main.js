@@ -4853,7 +4853,13 @@ var import_obsidian = require("obsidian");
 // src/features/chat/constants.ts
 var MCP_ICON_SVG = `<svg fill="currentColor" fill-rule="evenodd" height="1em" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>MCP</title><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"></path><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"></path></svg>`;
 var CHECK_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-var LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 16 16"><path d="M7.998 15.035c-4.562 0-7.873-2.914-7.998-3.749V9.338c.085-.628.677-1.686 1.588-2.065.013-.07.024-.143.036-.218.029-.183.06-.384.126-.612-.201-.508-.254-1.084-.254-1.656 0-.87.128-1.769.693-2.484.579-.733 1.494-1.124 2.724-1.261 1.206-.134 2.262.034 2.944.765.05.053.096.108.139.165.044-.057.094-.112.143-.165.682-.731 1.738-.899 2.944-.765 1.23.137 2.145.528 2.724 1.261.566.715.693 1.614.693 2.484 0 .572-.053 1.148-.254 1.656.066.228.098.429.126.612.012.076.024.148.037.218.924.385 1.522 1.471 1.591 2.095v1.872c0 .766-3.351 3.795-8.002 3.795Zm0-1.485c2.28 0 4.584-1.11 5.002-1.433V7.862l-.023-.116c-.49.21-1.075.291-1.727.291-1.146 0-2.059-.327-2.71-.991A3.222 3.222 0 0 1 8 6.303a3.24 3.24 0 0 1-.544.743c-.65.664-1.563.991-2.71.991-.652 0-1.236-.081-1.727-.291l-.023.116v4.255c.419.323 2.722 1.433 5.002 1.433ZM6.762 2.83c-.193-.206-.637-.413-1.682-.297-1.019.113-1.479.404-1.713.7-.247.312-.369.789-.369 1.554 0 .793.129 1.171.308 1.371.162.181.519.379 1.442.379.853 0 1.339-.235 1.638-.54.315-.322.527-.827.617-1.553.117-.935-.037-1.395-.241-1.614Zm4.155-.297c-1.044-.116-1.488.091-1.681.297-.204.219-.359.679-.242 1.614.091.726.303 1.231.618 1.553.299.305.784.54 1.638.54.922 0 1.28-.198 1.442-.379.179-.2.308-.578.308-1.371 0-.765-.123-1.242-.37-1.554-.233-.296-.693-.587-1.713-.7Z" fill="currentColor"/><path d="M6.25 9.037a.75.75 0 0 1 .75.75v1.501a.75.75 0 0 1-1.5 0V9.787a.75.75 0 0 1 .75-.75Zm4.25.75v1.501a.75.75 0 0 1-1.5 0V9.787a.75.75 0 0 1 1.5 0Z" fill="currentColor"/></svg>`;
+var LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 100 100" role="img" aria-label="Obsidian AI Tutor"><path fill="#7c3aed" d="M50 5 62 29l26 7-18 20 3 27-23-11-23 11 3-27-18-20 26-7z"/><path fill="#fff" d="m50 20 6 25 25 5-25 6-6 25-6-25-25-6 25-5z"/><path fill="#a78bfa" d="m50 31 3 16 16 3-16 3-3 16-3-16-16-3 16-3z"/></svg>`;
+var PROVIDER_MARKS = {
+  copilot: '<svg viewBox="0 0 20 20" aria-hidden="true"><path fill="#f0b429" d="M5 4h4l2 3 2-3h3v4l-3 2 3 2v4h-3l-2-3-2 3H5v-4l3-2-3-2z"/></svg>',
+  claude: '<svg viewBox="0 0 20 20" aria-hidden="true"><path fill="#d97757" d="m10 2 1.7 5.8L17 5l-3.1 5 4.7 2.4-5.9-.1L14 18l-4-4.4L6 18l1.3-5.7-5.9.1L6.1 10 3 5l5.3 2.8z"/></svg>',
+  codex: '<svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round" d="M5 5.5 10 3l5 2.5v6L10 17l-5-2.5zM5 5.5l5 2.8 5-2.8M10 8.3V17"/><path fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" d="m7.5 11 2 2 3-3"/></svg>',
+  agy: '<svg viewBox="0 0 20 20" aria-hidden="true"><path fill="#4285f4" d="m10 2 2 5.1 5.5.4-4.2 3.5 1.4 5.3-4.7-2.8-4.7 2.8 1.4-5.3-4.2-3.5 5.5-.4z"/></svg>'
+};
 
 // src/utils/externalContext.ts
 init_path();
@@ -6720,7 +6726,7 @@ function getProviderLabel(provider) {
 }
 function getModelSelectorLabel(provider, model) {
   var _a, _b;
-  if (provider !== "copilot") return "Native default";
+  if (provider !== "copilot") return "CLI default";
   return (_b = (_a = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _a.label) != null ? _b : COPILOT_MODELS[0].label;
 }
 var ModelSelector = class {
@@ -6748,12 +6754,14 @@ var ModelSelector = class {
     var _a;
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
+      this.container.style.display = "none";
       this.buttonEl.empty();
       this.buttonEl.addClass("is-native-default");
       this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
       this.buttonEl.setAttribute("aria-label", "Model selection is controlled by the selected provider");
       return;
     }
+    this.container.style.display = "";
     this.buttonEl.removeClass("is-native-default");
     this.buttonEl.removeAttribute("aria-label");
     const currentModel = this.callbacks.getSettings().model;
@@ -6823,6 +6831,7 @@ var ThinkingBudgetSelector = class {
   }
   isEnabled() {
     var _a, _b;
+    if (this.callbacks.getSettings().selectedProvider !== "copilot") return false;
     const currentModel = this.callbacks.getSettings().model;
     return (_b = (_a = COPILOT_MODELS.find((m) => m.value === currentModel)) == null ? void 0 : _a.supportsReasoning) != null ? _b : false;
   }
@@ -6847,6 +6856,9 @@ var ThinkingBudgetSelector = class {
   updateDisplay() {
     if (!this.gearsEl) return;
     this.gearsEl.empty();
+    const isCopilot = this.callbacks.getSettings().selectedProvider === "copilot";
+    this.container.style.display = isCopilot ? "" : "none";
+    if (!isCopilot) return;
     if (this.isEnabled()) {
       this.container.removeClass("is-disabled");
     } else {
@@ -18655,9 +18667,20 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       }
     });
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
-      var _a2, _b;
+      var _a2, _b, _c;
       (_a2 = this.modelSelector) == null ? void 0 : _a2.updateDisplay();
       (_b = this.modelSelector) == null ? void 0 : _b.renderOptions();
+      (_c = this.thinkingBudgetSelector) == null ? void 0 : _c.updateDisplay();
+    });
+    const sendButton = toolbarComponents.primaryToolbarEl.createEl("button", {
+      cls: "ocop-send-btn",
+      attr: { type: "button", "aria-label": "Send message", title: "Send message" }
+    });
+    (0, import_obsidian28.setIcon)(sendButton, "arrow-up");
+    sendButton.addEventListener("click", () => {
+      var _a2, _b, _c;
+      if ((_a2 = this.permissionToggle) == null ? void 0 : _a2.isPlanModeActive()) void ((_b = this.inputController) == null ? void 0 : _b.sendPlanModeMessage());
+      else void ((_c = this.inputController) == null ? void 0 : _c.sendMessage());
     });
     this.modelSelector = toolbarComponents.modelSelector;
     this.thinkingBudgetSelector = toolbarComponents.thinkingBudgetSelector;
@@ -18679,7 +18702,9 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
     });
   }
   buildProviderSelector(toolbar, onProviderChange) {
-    createProviderSelector(toolbar, this.plugin, onProviderChange);
+    createProviderSelector(toolbar, this.plugin, onProviderChange, (handler) => {
+      this.registerDomEvent(document, "click", handler);
+    });
   }
   initializeControllers() {
     var _a;
@@ -18958,27 +18983,69 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
     (_a = this.permissionToggle) == null ? void 0 : _a.setPlanModeActive(isPlanMode || isPlanModeRequested);
   }
 };
-function createProviderSelector(toolbar, plugin, onProviderChange) {
-  const label = toolbar.createEl("label", {
-    cls: "ocop-provider-selector"
+function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick) {
+  const container = toolbar.createDiv({ cls: "ocop-provider-selector" });
+  const button = container.createEl("button", { cls: "ocop-provider-btn", attr: { type: "button", "aria-label": "Choose AI provider", "aria-expanded": "false" } });
+  const popover = container.createDiv({ cls: "ocop-provider-popover" });
+  let setupHint = null;
+  const updateButton = () => {
+    var _a;
+    const provider = (_a = PROVIDERS.find((item) => item.id === plugin.settings.selectedProvider)) != null ? _a : PROVIDERS[0];
+    button.empty();
+    const mark = button.createSpan({ cls: "ocop-provider-mark" });
+    mark.innerHTML = PROVIDER_MARKS[provider.id];
+    button.createSpan({ cls: "ocop-provider-btn-label", text: provider.label });
+    button.createSpan({ cls: "ocop-provider-btn-chevron", text: "\u2304" });
+  };
+  const close = () => {
+    popover.removeClass("is-visible");
+    button.setAttribute("aria-expanded", "false");
+  };
+  const renderPopover = () => {
+    var _a;
+    popover.empty();
+    setupHint = null;
+    popover.createDiv({ cls: "ocop-provider-popover-title", text: "AI provider" });
+    for (const provider of PROVIDERS) {
+      const configuredPath = ((_a = plugin.settings.providerCliPaths) == null ? void 0 : _a[provider.id]) || "";
+      const ready = !!findProviderCliPath(provider.id, configuredPath);
+      const option = popover.createEl("button", { cls: "ocop-provider-option", attr: { type: "button", "aria-pressed": String(plugin.settings.selectedProvider === provider.id) } });
+      const mark = option.createSpan({ cls: "ocop-provider-mark" });
+      mark.innerHTML = PROVIDER_MARKS[provider.id];
+      const info = option.createSpan({ cls: "ocop-provider-option-info" });
+      info.createSpan({ cls: "ocop-provider-option-name", text: provider.label });
+      info.createSpan({ cls: ready ? "ocop-provider-option-status is-ready" : "ocop-provider-option-status", text: ready ? "Ready" : "Setup needed" });
+      option.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (ready) {
+          plugin.settings.selectedProvider = provider.id;
+          await plugin.saveSettings();
+          updateButton();
+          onProviderChange == null ? void 0 : onProviderChange(provider.id);
+          close();
+        } else {
+          if (!setupHint) setupHint = popover.createDiv({ cls: "ocop-provider-setup-hint" });
+          setupHint.setText(provider.status === "manual-setup" ? "Add agy to PATH, then reopen this provider menu." : `Install or sign in to ${provider.label}, then reopen this provider menu.`);
+        }
+      });
+    }
+    if (plugin.settings.selectedProvider !== "copilot") popover.createDiv({ cls: "ocop-provider-cli-note", text: "Model and thinking: CLI default (the selected native CLI controls these)." });
+  };
+  updateButton();
+  renderPopover();
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (popover.hasClass("is-visible")) close();
+    else {
+      renderPopover();
+      popover.addClass("is-visible");
+      button.setAttribute("aria-expanded", "true");
+    }
   });
-  label.createSpan({ cls: "ocop-provider-selector-label", text: "Provider" });
-  const select = label.createEl("select", {
-    cls: "ocop-provider-selector-control",
-    attr: { "aria-label": "AI provider" }
+  registerDocumentClick == null ? void 0 : registerDocumentClick((event) => {
+    if (!container.contains(event.target)) close();
   });
-  for (const provider of PROVIDERS) {
-    select.createEl("option", { value: provider.id, text: provider.label });
-  }
-  select.value = plugin.settings.selectedProvider;
-  select.addEventListener("change", async () => {
-    const provider = select.value;
-    if (!PROVIDERS.some((item) => item.id === provider)) return;
-    plugin.settings.selectedProvider = provider;
-    await plugin.saveSettings();
-    onProviderChange == null ? void 0 : onProviderChange(provider);
-  });
-  return select;
+  return container;
 }
 
 // src/core/mcp/McpServerManager.ts

@@ -2,7 +2,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
-import { type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
+import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
   COPILOT_MODELS,
@@ -32,7 +32,7 @@ import {
 } from '../../ui';
 import { QuizSetupModal, SocraticSetupModal } from '../../ui';
 import { getVaultPath } from '../../utils/path';
-import { LOGO_SVG } from './constants';
+import { LOGO_SVG, PROVIDER_MARKS } from './constants';
 import {
   ConversationController,
   InputController,
@@ -375,6 +375,16 @@ export class ObsidianCopilotView extends ItemView {
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
       this.modelSelector?.updateDisplay();
       this.modelSelector?.renderOptions();
+      this.thinkingBudgetSelector?.updateDisplay();
+    });
+    const sendButton = toolbarComponents.primaryToolbarEl.createEl('button', {
+      cls: 'ocop-send-btn',
+      attr: { type: 'button', 'aria-label': 'Send message', title: 'Send message' },
+    });
+    setIcon(sendButton, 'arrow-up');
+    sendButton.addEventListener('click', () => {
+      if (this.permissionToggle?.isPlanModeActive()) void this.inputController?.sendPlanModeMessage();
+      else void this.inputController?.sendMessage();
     });
     this.modelSelector = toolbarComponents.modelSelector;
     this.thinkingBudgetSelector = toolbarComponents.thinkingBudgetSelector;
@@ -398,7 +408,9 @@ export class ObsidianCopilotView extends ItemView {
   }
 
   private buildProviderSelector(toolbar: HTMLElement, onProviderChange?: () => void) {
-    createProviderSelector(toolbar, this.plugin, onProviderChange);
+    createProviderSelector(toolbar, this.plugin, onProviderChange, (handler) => {
+      this.registerDomEvent(document, 'click', handler);
+    });
   }
 
   private initializeControllers() {
@@ -666,27 +678,51 @@ export class ObsidianCopilotView extends ItemView {
 export function createProviderSelector(
   toolbar: HTMLElement,
   plugin: Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings'>,
-  onProviderChange?: (provider: ProviderId) => void
-): HTMLSelectElement {
-  const label = toolbar.createEl('label', {
-    cls: 'ocop-provider-selector',
-  });
-  label.createSpan({ cls: 'ocop-provider-selector-label', text: 'Provider' });
-  const select = label.createEl('select', {
-    cls: 'ocop-provider-selector-control',
-    attr: { 'aria-label': 'AI provider' },
-  });
-
-  for (const provider of PROVIDERS) {
-    select.createEl('option', { value: provider.id, text: provider.label });
-  }
-  select.value = plugin.settings.selectedProvider;
-  select.addEventListener('change', async () => {
-    const provider = select.value as ProviderId;
-    if (!PROVIDERS.some((item) => item.id === provider)) return;
-    plugin.settings.selectedProvider = provider;
-    await plugin.saveSettings();
-    onProviderChange?.(provider);
-  });
-  return select;
+  onProviderChange?: (provider: ProviderId) => void,
+  registerDocumentClick?: (handler: (event: MouseEvent) => void) => void
+): HTMLElement {
+  const container = toolbar.createDiv({ cls: 'ocop-provider-selector' });
+  const button = container.createEl('button', { cls: 'ocop-provider-btn', attr: { type: 'button', 'aria-label': 'Choose AI provider', 'aria-expanded': 'false' } });
+  const popover = container.createDiv({ cls: 'ocop-provider-popover' });
+  let setupHint: HTMLElement | null = null;
+  const updateButton = () => {
+    const provider = PROVIDERS.find((item) => item.id === plugin.settings.selectedProvider) ?? PROVIDERS[0];
+    button.empty();
+    const mark = button.createSpan({ cls: 'ocop-provider-mark' });
+    mark.innerHTML = PROVIDER_MARKS[provider.id];
+    button.createSpan({ cls: 'ocop-provider-btn-label', text: provider.label });
+    button.createSpan({ cls: 'ocop-provider-btn-chevron', text: '⌄' });
+  };
+  const close = () => { popover.removeClass('is-visible'); button.setAttribute('aria-expanded', 'false'); };
+  const renderPopover = () => {
+    popover.empty();
+    setupHint = null;
+    popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI provider' });
+    for (const provider of PROVIDERS) {
+      const configuredPath = plugin.settings.providerCliPaths?.[provider.id] || '';
+      const ready = !!findProviderCliPath(provider.id, configuredPath);
+      const option = popover.createEl('button', { cls: 'ocop-provider-option', attr: { type: 'button', 'aria-pressed': String(plugin.settings.selectedProvider === provider.id) } });
+      const mark = option.createSpan({ cls: 'ocop-provider-mark' });
+      mark.innerHTML = PROVIDER_MARKS[provider.id];
+      const info = option.createSpan({ cls: 'ocop-provider-option-info' });
+      info.createSpan({ cls: 'ocop-provider-option-name', text: provider.label });
+      info.createSpan({ cls: ready ? 'ocop-provider-option-status is-ready' : 'ocop-provider-option-status', text: ready ? 'Ready' : 'Setup needed' });
+      option.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (ready) {
+          plugin.settings.selectedProvider = provider.id;
+          await plugin.saveSettings();
+          updateButton(); onProviderChange?.(provider.id); close();
+        } else {
+          if (!setupHint) setupHint = popover.createDiv({ cls: 'ocop-provider-setup-hint' });
+          setupHint.setText(provider.status === 'manual-setup' ? 'Add agy to PATH, then reopen this provider menu.' : `Install or sign in to ${provider.label}, then reopen this provider menu.`);
+        }
+      });
+    }
+    if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: 'Model and thinking: CLI default (the selected native CLI controls these).' });
+  };
+  updateButton(); renderPopover();
+  button.addEventListener('click', (event) => { event.stopPropagation(); if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); } });
+  registerDocumentClick?.((event) => { if (!container.contains(event.target as Node)) close(); });
+  return container;
 }

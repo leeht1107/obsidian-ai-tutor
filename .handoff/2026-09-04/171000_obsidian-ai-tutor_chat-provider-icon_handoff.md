@@ -45,3 +45,21 @@ Project: obsidian-ai-tutor | Task: chat-provider-icon | Scope: persistent-chat-p
 - Focused regression coverage asserts provider-aware model labels, provider refresh callback, and that the registered compass SVG markers are present in built `main.js`.
 - Verification: `npm test -- --runInBand tests/unit/features/chat/ObsidianCopilotView.test.ts` (5 passed), `npm run typecheck`, `npm run lint`, `npm run build`, and `git diff --check` passed. Visual QA by DOM/CSS inspection: primary actions are grouped in `.ocop-toolbar-primary`; secondary controls are in `.ocop-toolbar-secondary` with reduced opacity and separator; native model state is visibly muted and non-interactive.
 - Deployment repair: release `0.1.2` publishes `main.js`, `manifest.json`, and `styles.css`. The active local QA plugin received the identical asset triplet (SHA-256 matched); it needs a normal Obsidian plugin/app reload to execute the new `onload` icon registration.
+
+## Toolbar provider follow-up (2026-09-04)
+
+- Replaced the dense native provider select with a compact primary-row button and dismissible popover. Ready providers persist immediately; unavailable/manual providers show setup guidance without changing selection.
+- Added bundled service marks, a primary-row send action preserving plan/normal dispatch, responsive secondary-row overflow, and native-provider disclosure as `CLI default` inside the popover only. Native provider model/thinking controls no longer present unsupported settings.
+- Evidence: `tests/unit/features/chat/ObsidianCopilotView.test.ts`; focused test, typecheck, lint, build, and `git diff --check` passed after this follow-up.
+
+## R5 review blocker repair (2026-09-04)
+
+- Provider popover outside-click dismissal is registered through the owning `ItemView.registerDomEvent` lifecycle; the standalone helper no longer installs an unmanaged document listener.
+- Chat header branding now uses the tutor compass mark, provider choices use distinct bundled service marks, native provider changes refresh both model and thinking controls, and repeated unavailable-provider clicks reuse one setup hint.
+- Focused regression coverage now exercises lifecycle registration, setup-hint deduplication, distinct provider marks, and compass branding. Verification: focused test (8 passed), typecheck, lint, build, and `git diff --check` passed.
+
+## R6 advisor-sol blocker repair (2026-09-04)
+
+- Provider readiness now uses the dispatch-shared `findProviderCliPath(provider, configuredPath)` contract, so any executable discoverable through enhanced PATH or `providerCliPaths` is selectable, including `agy` after manual installation; manual setup remains guidance before discovery.
+- Native providers now hide the thinking selector and its stored budget display (`display: none`) instead of rendering a disabled Copilot budget. No provider abstraction, proxy, or hardcoded local path was added.
+- Kill coverage verifies configured-path readiness, PATH-style readiness, and native thinking concealment. Focused 10-test suite, typecheck, lint, production build, and `git diff --check` passed.

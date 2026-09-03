@@ -8,7 +8,7 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Complete. Provider foundation, learning controls, direct-process evidence, parser coverage, public documentation, advisor-sol review, BRAT distribution assets, the persistent in-chat provider selector, provider-aware model UI, two-row toolbar density repair, and tutor-specific compass icon are verified.
+- Status: Complete. Provider foundation, learning controls, direct-process evidence, parser coverage, public documentation, advisor-sol review, BRAT distribution assets, the persistent in-chat provider popover, lifecycle-safe outside-click dismissal, PATH/configured-path provider readiness, native thinking concealment, provider-aware model/thinking UI, two-row toolbar density repair, bundled recognizable service marks, send action, and tutor-specific compass icon are verified.
 - Next likely action: None. BRAT should update from release `0.1.1`; preserve the disclosed manual agy setup and automated-only Windows coverage unless a new scoped request changes them.
 
 ## Current Sources of Truth

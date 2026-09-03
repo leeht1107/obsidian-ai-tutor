@@ -96,7 +96,7 @@ function getProviderLabel(provider: string): string {
 
 /** The native CLIs own model choice; Copilot is the only provider with this list. */
 export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel): string {
-  if (provider !== 'copilot') return 'Native default';
+  if (provider !== 'copilot') return 'CLI default';
   return COPILOT_MODELS.find((option) => option.value === model)?.label ?? COPILOT_MODELS[0].label;
 }
 
@@ -131,12 +131,14 @@ export class ModelSelector {
   updateDisplay() {
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
+      this.container.style.display = 'none';
       this.buttonEl.empty();
       this.buttonEl.addClass('is-native-default');
       this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
       this.buttonEl.setAttribute('aria-label', 'Model selection is controlled by the selected provider');
       return;
     }
+    this.container.style.display = '';
     this.buttonEl.removeClass('is-native-default');
     this.buttonEl.removeAttribute('aria-label');
     const currentModel = this.callbacks.getSettings().model;
@@ -218,6 +220,7 @@ export class ThinkingBudgetSelector {
   }
 
   private isEnabled(): boolean {
+    if (this.callbacks.getSettings().selectedProvider !== 'copilot') return false;
     const currentModel = this.callbacks.getSettings().model;
     return COPILOT_MODELS.find((m) => m.value === currentModel)?.supportsReasoning ?? false;
   }
@@ -245,6 +248,10 @@ export class ThinkingBudgetSelector {
   updateDisplay() {
     if (!this.gearsEl) return;
     this.gearsEl.empty();
+
+    const isCopilot = this.callbacks.getSettings().selectedProvider === 'copilot';
+    this.container.style.display = isCopilot ? '' : 'none';
+    if (!isCopilot) return;
 
     if (this.isEnabled()) {
       this.container.removeClass('is-disabled');
