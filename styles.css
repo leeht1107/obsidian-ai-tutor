@@ -1,0 +1,6457 @@
+/* ObsidianCode Plugin Styles */
+/* Built from src/style/ modules */
+
+
+/* ============================================
+   base/container.css
+   ============================================ */
+.ocop-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--interactive-accent) 8%, transparent) 0%, transparent 34%),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--interactive-accent) 5%, transparent) 0%, transparent 28%),
+    var(--background-primary);
+}
+
+
+/* ============================================
+   base/animations.css
+   ============================================ */
+/* Thinking pulse animation */
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Spinner rotation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* External context icon glow */
+@keyframes external-context-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(217, 119, 87, 0.4));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 6px rgba(217, 119, 87, 0.8));
+  }
+}
+
+/* MCP selector icon glow */
+@keyframes mcp-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(124, 58, 237, 0.4));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.9));
+  }
+}
+
+/* Inline edit spinner */
+@keyframes ocop-inline-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Instruction modal spinner */
+@keyframes ocop-instruction-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* MCP test spinner */
+@keyframes ocop-mcp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Thinking dots bounce */
+@keyframes ocop-dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+
+
+/* ============================================
+   base/light-theme.css
+   ============================================ */
+/* ============================================
+ * Light theme overrides
+ * Obsidian adds .theme-light to <body> in light mode.
+ * Dark theme uses color-mix with navy (#0f172a, #0b1220, #111827).
+ * Light theme replaces those with clean Obsidian variables.
+ * ============================================ */
+
+/* --- Header --- */
+.theme-light .ocop-header {
+  background: var(--background-primary);
+}
+
+.theme-light .ocop-header-btn {
+  background: var(--background-secondary);
+}
+
+.theme-light .ocop-header-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.theme-light .ocop-logo {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+/* --- Messages --- */
+.theme-light .ocop-message-user {
+  background: var(--background-secondary);
+  border-left-color: #0284c7;
+}
+
+.theme-light .ocop-welcome-suggestion {
+  background: var(--background-secondary);
+}
+
+.theme-light .ocop-welcome-suggestion:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.theme-light .ocop-quiz-answer-btn,
+.theme-light .ocop-quiz-submit-btn {
+  background: var(--background-secondary);
+}
+
+.theme-light .ocop-quiz-answer-btn:hover,
+.theme-light .ocop-quiz-submit-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+}
+
+.theme-light .ocop-quiz-answer-btn.is-selected {
+  background: color-mix(in srgb, #0284c7 10%, transparent);
+  color: var(--text-normal);
+  border-color: #0284c7;
+}
+
+/* --- Input area --- */
+.theme-light .ocop-input-wrapper {
+  background: var(--background-secondary);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .ocop-selection-indicator {
+  color: #0c4a6e;
+  background: linear-gradient(135deg, color-mix(in srgb, #38bdf8 14%, #f0f9ff) 0%, color-mix(in srgb, #06b6d4 10%, #f0f9ff) 100%);
+  border-color: color-mix(in srgb, #0284c7 28%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .ocop-quiz-launcher-btn {
+  color: #0c4a6e;
+  border-color: color-mix(in srgb, #0284c7 28%, var(--background-modifier-border));
+  background: color-mix(in srgb, #0284c7 8%, var(--background-secondary));
+}
+
+.theme-light .ocop-quiz-launcher-btn:hover {
+  background: color-mix(in srgb, #0284c7 14%, var(--background-secondary));
+  border-color: #0284c7;
+}
+
+.theme-light .ocop-file-chip {
+  background: var(--background-secondary);
+}
+
+.theme-light .ocop-file-chip-badge {
+  color: #0369a1;
+  background: color-mix(in srgb, #0284c7 10%, transparent);
+}
+
+.theme-light .ocop-file-chip.ocop-file-chip-current {
+  border-color: #0284c7;
+  background: color-mix(in srgb, #0284c7 8%, transparent);
+}
+
+.theme-light .ocop-file-chip.ocop-file-chip-current .ocop-file-chip-badge {
+  background: color-mix(in srgb, #0284c7 14%, transparent);
+}
+
+.theme-light .ocop-file-chip.ocop-file-chip-pinned {
+  border-color: #0284c7;
+  background: color-mix(in srgb, #0284c7 8%, transparent);
+}
+
+.theme-light .ocop-file-chip.ocop-file-chip-pinned .ocop-file-chip-badge {
+  background: color-mix(in srgb, #0891b2 14%, transparent);
+  color: #0e7490;
+}
+
+.theme-light .ocop-file-chip.ocop-file-chip-pinned .ocop-file-chip-icon {
+  color: #0284c7;
+}
+
+/* --- Instruction mode border --- */
+.theme-light .ocop-input-instruction-mode {
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 1px #0284c7;
+}
+
+/* --- Toolbar: Model selector --- */
+.theme-light .ocop-model-btn {
+  background: var(--background-secondary);
+}
+
+.theme-light .ocop-model-dropdown {
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+.theme-light .ocop-model-option.selected {
+  background: color-mix(in srgb, #0284c7 10%, transparent);
+}
+
+/* --- Toolbar: Permission toggle --- */
+.theme-light .ocop-toggle-switch {
+  background: var(--background-modifier-border);
+}
+
+.theme-light .ocop-toggle-switch.active {
+  background: color-mix(in srgb, #2563eb 30%, #e2e8f0 70%);
+}
+
+.theme-light .ocop-permission-toggle.plan-mode .ocop-toggle-switch {
+  background: color-mix(in srgb, #06b6d4 25%, #e2e8f0 75%);
+}
+
+/* --- Toolbar: Dropdowns (external context, MCP) --- */
+.theme-light .ocop-external-context-dropdown,
+.theme-light .ocop-mcp-selector-dropdown {
+  background: var(--background-secondary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* --- Feature: File context (@ mention) --- */
+.theme-light .ocop-mention-dropdown {
+  background: var(--background-secondary);
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.theme-light .ocop-mention-item:hover,
+.theme-light .ocop-mention-item.selected {
+  background: var(--background-modifier-hover);
+}
+
+.theme-light .ocop-mention-name {
+  color: #0284c7;
+}
+
+.theme-light .ocop-mention-item.context-file .ocop-mention-icon,
+.theme-light .ocop-mention-item.context-folder .ocop-mention-icon {
+  color: #0284c7;
+}
+
+.theme-light .ocop-mention-name-folder {
+  color: #0284c7;
+}
+
+/* --- Thinking indicator --- */
+.theme-light .ocop-thinking {
+  color: #0284c7;
+}
+
+.theme-light .ocop-thinking-label {
+  color: #0284c7;
+}
+
+.theme-light .ocop-thinking-current {
+  color: #0284c7;
+}
+
+/* --- Plan message --- */
+.theme-light .ocop-message-plan {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+
+/* ============================================
+   components/header.css
+   ============================================ */
+/* Header */
+.ocop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 14px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 84%, #0f172a 16%);
+}
+
+.ocop-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ocop-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 46%, #8b5cf6 100%);
+  color: white;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 24px rgba(14, 22, 36, 0.3);
+}
+
+.ocop-logo svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ocop-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Header actions (right side) */
+.ocop-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Header icon buttons (history, new, etc.) */
+.ocop-header-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.ocop-header-btn:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, #111827 22%);
+  color: var(--text-normal);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, #38bdf8 42%, var(--background-modifier-border));
+}
+
+.ocop-header-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+
+/* ============================================
+   components/history.css
+   ============================================ */
+/* History dropdown container */
+.ocop-history-container {
+  position: relative;
+}
+
+/* History dropdown menu */
+.ocop-history-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--background-secondary);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+  max-height: 400px;
+  overflow: hidden;
+  width: 280px;
+}
+
+.ocop-history-menu.visible {
+  display: block;
+}
+
+.ocop-history-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ocop-history-list {
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.ocop-history-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* History item */
+.ocop-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  transition: background 0.15s ease;
+}
+
+.ocop-history-item-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-history-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-history-item:last-child {
+  border-bottom: none;
+}
+
+.ocop-history-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-history-item.active {
+  background: var(--background-secondary);
+  border-left: 2px solid var(--interactive-accent);
+  padding-left: 10px;
+}
+
+.ocop-history-item.active .ocop-history-item-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-history-item.active .ocop-history-item-content {
+  cursor: default;
+}
+
+.ocop-history-item.active .ocop-history-item-date {
+  color: var(--text-faint);
+}
+
+.ocop-history-item-content {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ocop-history-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ocop-history-item-date {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.ocop-history-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.ocop-history-item:hover .ocop-history-item-actions {
+  opacity: 1;
+}
+
+.ocop-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-delete-btn:hover {
+  color: var(--color-red);
+}
+
+/* Rename input */
+.ocop-rename-input {
+  width: 100%;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.ocop-rename-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+/* Loading indicator for title generation */
+.ocop-action-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: spin 1s linear infinite;
+  opacity: 0.6;
+  cursor: default;
+}
+
+
+/* ============================================
+   components/messages.css
+   ============================================ */
+/* Messages area */
+.ocop-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Focusable messages panel for vim-style navigation */
+.ocop-messages-focusable:focus {
+  outline: none;
+}
+
+/* Welcome message - claude.ai style */
+.ocop-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  min-height: 200px;
+}
+
+.ocop-welcome-greeting {
+  font-family: var(--font-interface);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-normal);
+  letter-spacing: -0.02em;
+}
+
+.ocop-welcome-subtitle {
+  max-width: 520px;
+  margin-top: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ocop-welcome-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 720px;
+  margin-top: 18px;
+}
+
+.ocop-welcome-suggestion {
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 78%, #0f172a 22%);
+  color: var(--text-normal);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  line-height: 1.35;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-welcome-suggestion:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, #38bdf8 58%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-secondary) 60%, #0f172a 40%);
+  color: #dbeafe;
+}
+
+.ocop-quiz-progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.ocop-quiz-progress {
+  flex: 1;
+  height: 4px;
+  background: var(--background-modifier-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ocop-quiz-progress-fill {
+  height: 100%;
+  background: #38bdf8;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.ocop-quiz-progress-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ocop-quiz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocop-quiz-answer-btn,
+.ocop-quiz-submit-btn {
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 74%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 70%, #111827 30%);
+  color: var(--text-normal);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.ocop-quiz-answer-btn:hover,
+.ocop-quiz-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #38bdf8;
+  background: color-mix(in srgb, var(--background-secondary) 58%, #0f172a 42%);
+}
+
+.ocop-quiz-answer-btn.is-selected {
+  border-color: #38bdf8;
+  background: color-mix(in srgb, #38bdf8 14%, transparent);
+  color: #dbeafe;
+}
+
+.ocop-quiz-submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Individual messages */
+.ocop-message {
+  padding: 10px 14px;
+  border-radius: 6px;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+.ocop-message-user {
+  background: color-mix(in srgb, var(--background-secondary) 78%, #0f172a 22%);
+  color: var(--text-normal);
+  align-self: stretch;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  border-left: 3px solid #38bdf8;
+}
+
+/* Text selection in user messages - visible highlight */
+.ocop-message-user ::selection {
+  background: var(--text-selection);
+  color: inherit;
+}
+
+.ocop-message-user ::-moz-selection {
+  background: var(--text-selection);
+  color: inherit;
+}
+
+.ocop-message-assistant {
+  background: transparent;
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+}
+
+/* Socratic mode: distinct colors for Q&A flow */
+.ocop-socratic-active .ocop-message-user {
+  border-left-color: #a78bfa;
+  background: color-mix(in srgb, var(--background-secondary) 72%, #1a1030 28%);
+}
+
+.ocop-socratic-active .ocop-message-assistant {
+  background: rgba(35, 40, 66, 0.35);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+/* Message content */
+.ocop-message-content {
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Interrupted message */
+.ocop-interrupted {
+  color: #d45d5d;
+}
+
+.ocop-interrupted-hint {
+  color: var(--text-muted);
+}
+
+/* Text blocks within message content */
+.ocop-text-block {
+  margin: 0;
+}
+
+.ocop-text-block-streaming {
+  white-space: pre-wrap;
+}
+
+.ocop-text-block+.ocop-tool-call {
+  margin-top: 8px;
+}
+
+.ocop-tool-call+.ocop-text-block {
+  margin-top: 8px;
+}
+
+.ocop-message-content p {
+  margin: 0 0 8px 0;
+}
+
+.ocop-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.ocop-message-content ul,
+.ocop-message-content ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+/* Scrollbar styling */
+.ocop-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ocop-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocop-messages::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.ocop-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+/* Copy message button */
+.ocop-message-assistant {
+  position: relative;
+}
+
+.ocop-msg-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+}
+
+.ocop-msg-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-message-assistant:hover .ocop-msg-copy-btn {
+  opacity: 1;
+}
+
+.ocop-msg-copy-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.ocop-msg-copy-btn.is-copied {
+  opacity: 1;
+  color: #38bdf8;
+}
+
+/* ============================================
+ * A)/B) Choice Buttons (inline in assistant messages)
+ * ============================================ */
+.ocop-choice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ocop-choice-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1.4;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.ocop-choice-btn:hover {
+  background: var(--interactive-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.ocop-choice-btn-label {
+  font-weight: 600;
+  color: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.ocop-choice-btn-text {
+  color: var(--text-muted);
+}
+
+
+/* ============================================
+   components/code.css
+   ============================================ */
+/* Code block wrapper - contains pre + button outside scroll area */
+.ocop-code-wrapper {
+  position: relative;
+  margin: 8px 0;
+}
+
+/* Code blocks in chat messages */
+.ocop-code-wrapper pre,
+.ocop-message-content pre {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+/* Code blocks without language - wrap content */
+.ocop-code-wrapper:not(.has-language) pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: hidden;
+}
+
+/* Unwrapped pre still needs margin */
+.ocop-message-content>pre {
+  margin: 8px 0;
+}
+
+.ocop-message-content code {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+/* Clickable language label - positioned outside scroll area */
+.ocop-code-wrapper .ocop-code-lang-label {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+  background: var(--background-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ocop-code-wrapper .ocop-code-lang-label:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Hide default copy button when language label exists */
+.ocop-code-wrapper.has-language .copy-code-button {
+  display: none;
+}
+
+/* Copy button - positioned outside scroll area */
+.ocop-code-wrapper .copy-code-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--background-primary);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  border-radius: 3px;
+  z-index: 2;
+}
+
+/* If copy button uses an icon (svg) */
+.ocop-code-wrapper .copy-code-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Show copy button on hover */
+.ocop-code-wrapper:not(.has-language):hover .copy-code-button {
+  opacity: 1;
+}
+
+.ocop-code-wrapper .copy-code-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+
+/* ============================================
+   components/thinking.css
+   ============================================ */
+/* Thinking indicator */
+.ocop-thinking {
+  color: #67d7ff;
+  padding: 4px 0;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ocop-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ocop-thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ocop-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.ocop-thinking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.ocop-thinking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.ocop-thinking-startup {
+  font-style: italic;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+/* Thinking block (extended thinking) */
+.ocop-thinking-block {
+  margin: 8px 0;
+}
+
+.ocop-text-block+.ocop-thinking-block {
+  margin-top: 8px;
+}
+
+.ocop-thinking-block+.ocop-text-block {
+  margin-top: 8px;
+}
+
+.ocop-thinking-block+.ocop-tool-call {
+  margin-top: 8px;
+}
+
+.ocop-tool-call+.ocop-thinking-block {
+  margin-top: 8px;
+}
+
+/* Thinking block header - transparent */
+.ocop-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ocop-thinking-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #67d7ff;
+}
+
+/* Thinking block content - tree-branch style */
+.ocop-thinking-content {
+  padding: 4px 0 4px 24px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-height: 400px;
+  overflow-y: auto;
+  border-left: 2px solid var(--background-modifier-border);
+  margin-left: 7px;
+}
+
+.ocop-thinking-content p {
+  margin: 0 0 8px 0;
+}
+
+.ocop-thinking-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Thinking content code blocks - inherits from wrapper, adjust spacing */
+.ocop-thinking-content .ocop-code-wrapper {
+  margin: 8px 0;
+}
+
+.ocop-thinking-content .ocop-code-wrapper pre {
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+
+.ocop-thinking-content code {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+}
+
+
+/* ============================================
+   components/toolcalls.css
+   ============================================ */
+/* Tool call container - transparent, no border */
+.ocop-tool-call {
+  margin: 8px 0;
+}
+
+/* Tool call header - transparent */
+.ocop-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ocop-tool-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-accent);
+  flex-shrink: 0;
+}
+
+.ocop-tool-call.is-mcp .ocop-tool-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-tool-call.is-skill .ocop-tool-icon {
+  color: var(--color-orange);
+}
+
+.ocop-tool-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-tool-label {
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ocop-tool-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ocop-tool-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-tool-status.status-running {
+  color: var(--text-accent);
+}
+
+.ocop-tool-status.status-completed {
+  color: var(--color-green);
+}
+
+.ocop-tool-status.status-error {
+  color: var(--color-red);
+}
+
+.ocop-tool-status.status-blocked {
+  color: var(--color-orange);
+}
+
+/* MCP / Skill badges — shared base */
+.ocop-tool-mcp-badge,
+.ocop-tool-skill-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.ocop-tool-mcp-badge {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.ocop-tool-skill-badge {
+  background: transparent;
+  color: var(--color-orange);
+  border: 1px solid var(--color-orange);
+}
+
+/* Container structural styling to differentiate MCP and Skill */
+.ocop-tool-call.is-mcp {
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 10px 0;
+}
+
+.ocop-tool-call.is-mcp .ocop-tool-header {
+  padding: 0;
+}
+
+.ocop-tool-call.is-skill {
+  border-left: 3px solid var(--color-orange);
+  padding-left: 10px;
+  background: linear-gradient(90deg, var(--background-secondary) 0%, transparent 100%);
+  margin: 10px 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.ocop-tool-call.is-skill .ocop-tool-header {
+  padding: 0;
+}
+
+/* Spinner animation */
+.ocop-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--text-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Tool call content - tree-branch style */
+.ocop-tool-content {
+  padding: 4px 0 4px 24px;
+}
+
+/* Tree-branch result row */
+.ocop-tool-result-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.ocop-tool-branch {
+  font-family: monospace;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.ocop-tool-result-text {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow: hidden;
+  flex: 1;
+}
+
+/* Result items - regular text lines */
+.ocop-tool-result-item {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.ocop-tool-result-item:last-child {
+  margin-bottom: 0;
+}
+
+/* Bulleted items (WebSearch) - hanging indent for wrapped lines */
+.ocop-tool-result-bullet {
+  display: block;
+  padding-left: 0.8em;
+  text-indent: -0.8em;
+  margin-bottom: 2px;
+}
+
+.ocop-tool-result-bullet:last-child {
+  margin-bottom: 0;
+}
+
+
+/* ============================================
+   components/todo-panel.css
+   ============================================ */
+/* Todo Panel - persistent bottom panel for todos */
+
+/* Main container - no border/background, flows seamlessly */
+.ocop-todo-panel {
+  padding: 0;
+}
+
+/* Todos container */
+.ocop-todo-panel-todos {
+  margin-top: 4px;
+}
+
+/* Header (collapsed view) - subtle hover only */
+.ocop-todo-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.ocop-todo-panel-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-todo-panel-header:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* List icon */
+.ocop-todo-panel-icon {
+  display: flex;
+  align-items: center;
+  color: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.ocop-todo-panel-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Label */
+.ocop-todo-panel-label {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--interactive-accent);
+}
+
+/* Current task preview (collapsed state) */
+.ocop-todo-panel-current {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Content (expanded list) */
+.ocop-todo-panel-content {
+  padding: 4px 0 4px 18px;
+}
+
+/* Individual todo item - reuses existing styles */
+.ocop-todo-panel-content .ocop-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.ocop-todo-panel-content .ocop-todo-item:first-child {
+  padding-top: 0;
+}
+
+.ocop-todo-panel-content .ocop-todo-item:last-child {
+  padding-bottom: 0;
+}
+
+.ocop-todo-panel-content .ocop-todo-status-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.ocop-todo-panel-content .ocop-todo-status-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-todo-panel-content .ocop-todo-text {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* Status-specific styling */
+.ocop-todo-panel-content .ocop-todo-pending .ocop-todo-status-icon {
+  color: var(--text-muted);
+}
+
+.ocop-todo-panel-content .ocop-todo-pending .ocop-todo-text {
+  color: var(--text-muted);
+}
+
+.ocop-todo-panel-content .ocop-todo-in_progress .ocop-todo-status-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-todo-panel-content .ocop-todo-in_progress .ocop-todo-text {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.ocop-todo-panel-content .ocop-todo-completed .ocop-todo-status-icon {
+  color: var(--color-green);
+}
+
+.ocop-todo-panel-content .ocop-todo-completed .ocop-todo-text {
+  color: var(--text-muted);
+}
+
+
+/* ============================================
+   components/subagent.css
+   ============================================ */
+/* Subagent List (Task tool) - follows TodoList pattern */
+.ocop-subagent-list {
+  margin: 8px 0;
+}
+
+.ocop-text-block+.ocop-subagent-list {
+  margin-top: 8px;
+}
+
+.ocop-subagent-list+.ocop-text-block {
+  margin-top: 8px;
+}
+
+.ocop-tool-call+.ocop-subagent-list {
+  margin-top: 8px;
+}
+
+.ocop-subagent-list+.ocop-tool-call {
+  margin-top: 8px;
+}
+
+/* Subagent header */
+.ocop-subagent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ocop-subagent-icon {
+  display: flex;
+  align-items: center;
+  color: var(--interactive-accent);
+  flex-shrink: 0;
+}
+
+.ocop-subagent-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-subagent-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.ocop-subagent-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-subagent-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ocop-subagent-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-subagent-status.status-running {
+  color: var(--text-accent);
+}
+
+.ocop-subagent-status.status-completed {
+  color: var(--color-green);
+}
+
+.ocop-subagent-status.status-error {
+  color: var(--color-red);
+}
+
+/* Subagent content */
+.ocop-subagent-content {
+  padding: 4px 0 4px 24px;
+}
+
+/* Tree branch indicator */
+.ocop-subagent-branch {
+  font-family: monospace;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+/* Individual tool item container */
+.ocop-subagent-tool-item {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+/* Tool row (branch + label) */
+.ocop-subagent-tool-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.ocop-subagent-tool-text {
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1;
+  color: var(--text-normal);
+}
+
+/* Tool result area nested under tool (max 2 lines) */
+.ocop-subagent-tool-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 0 0 20px;
+}
+
+.ocop-subagent-result-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex: 1;
+  white-space: pre-wrap;
+  overflow: hidden;
+  max-height: 2.8em;
+}
+
+/* DONE indicator */
+.ocop-subagent-done {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.ocop-subagent-done-text {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+/* Async Subagent (Task tool with run_in_background=true) */
+
+/* Status text display (e.g., "pending", "running agent_123", etc.) */
+.ocop-subagent-status-text {
+  font-size: 11px;
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* Async-specific status styling */
+.ocop-subagent-list.async.pending .ocop-subagent-icon {
+  color: var(--text-muted);
+}
+
+.ocop-subagent-list.async.pending .ocop-subagent-status-text {
+  color: var(--text-muted);
+}
+
+.ocop-subagent-list.async.running .ocop-subagent-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-subagent-list.async.running .ocop-subagent-status-text {
+  color: var(--text-accent);
+}
+
+.ocop-subagent-list.async.awaiting .ocop-subagent-icon {
+  color: var(--color-yellow);
+}
+
+.ocop-subagent-list.async.awaiting .ocop-subagent-status-text {
+  color: var(--color-yellow);
+}
+
+.ocop-subagent-list.async.completed .ocop-subagent-icon {
+  color: var(--color-green);
+}
+
+.ocop-subagent-list.async.completed .ocop-subagent-status-text {
+  color: var(--color-green);
+}
+
+.ocop-subagent-list.async.error .ocop-subagent-icon {
+  color: var(--color-red);
+}
+
+.ocop-subagent-list.async.error .ocop-subagent-status-text {
+  color: var(--color-red);
+}
+
+.ocop-subagent-list.async.orphaned .ocop-subagent-icon {
+  color: var(--color-orange);
+}
+
+.ocop-subagent-list.async.orphaned .ocop-subagent-status-text {
+  color: var(--color-orange);
+}
+
+
+/* ============================================
+   components/ask-user-question.css
+   ============================================ */
+/**
+ * AskUserQuestion styles - minimal design.
+ */
+
+/* ============================================
+ * Question Panel (replaces input area)
+ * ============================================ */
+
+.ocop-ask-panel {
+  padding: 12px 0;
+  outline: none;
+}
+
+.ocop-ask-panel:focus {
+  outline: none;
+}
+
+/* Tab navigation row */
+.ocop-ask-panel-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.ocop-ask-panel-nav {
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ocop-ask-panel-nav:hover {
+  color: var(--text-normal);
+}
+
+.ocop-ask-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: none !important;
+  background-color: transparent !important;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-monospace);
+  /* Completely reset button appearance */
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+  text-shadow: none !important;
+}
+
+.ocop-ask-panel-tab:hover {
+  color: var(--text-normal);
+  background: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ocop-ask-panel-tab:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ocop-ask-panel-tab.active {
+  color: var(--interactive-accent);
+  background: none !important;
+  border: none !important;
+}
+
+.ocop-ask-panel-tab-check {
+  font-family: monospace;
+}
+
+/* Green dot for answered tabs */
+.ocop-ask-panel-tab.answered .ocop-ask-panel-tab-check {
+  color: var(--color-green);
+}
+
+
+/* Question content */
+.ocop-ask-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ocop-ask-panel-question {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 8px;
+}
+
+/* Options list */
+.ocop-ask-panel-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.ocop-ask-panel-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+
+.ocop-ask-panel-option:hover {
+  color: var(--interactive-accent);
+}
+
+.ocop-ask-panel-option.focused {
+  color: var(--interactive-accent);
+}
+
+.ocop-ask-panel-option.selected {
+  color: var(--interactive-accent);
+}
+
+/* Caret indicator (> or space) */
+.ocop-ask-panel-caret {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--interactive-accent);
+  font-weight: bold;
+}
+
+/* Number/checkbox indicator */
+.ocop-ask-panel-indicator {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ocop-ask-panel-option.focused .ocop-ask-panel-caret {
+  color: var(--interactive-accent);
+}
+
+.ocop-ask-panel-option.focused .ocop-ask-panel-indicator {
+  color: var(--interactive-accent);
+}
+
+/* Green checkmark for selected items */
+.ocop-ask-panel-option.selected .ocop-ask-panel-indicator {
+  color: var(--color-green);
+}
+
+.ocop-ask-panel-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ocop-ask-panel-label-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ocop-ask-panel-option-label {
+  font-weight: 500;
+}
+
+/* Checkmark after label for single-select */
+.ocop-ask-panel-checkmark {
+  color: var(--color-green);
+  font-weight: bold;
+}
+
+.ocop-ask-panel-option-desc {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Other option */
+.ocop-ask-panel-other {
+  flex-wrap: wrap;
+}
+
+.ocop-ask-panel-other-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 2px 4px;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.ocop-ask-panel-other-input:focus {
+  outline: none;
+  border-bottom-color: var(--interactive-accent);
+}
+
+.ocop-ask-panel-other-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* Keyboard hint */
+.ocop-ask-panel-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Submit review panel */
+.ocop-ask-panel-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.ocop-ask-panel-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ocop-ask-panel-summary-question {
+  color: var(--text-normal);
+}
+
+.ocop-ask-panel-summary-answer {
+  color: var(--color-green);
+  padding-left: 8px;
+}
+
+.ocop-ask-panel-summary-answer.unanswered {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ocop-ask-panel-submit-prompt {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ============================================
+ * Tool Call Result Block - matches toolcalls.css style
+ * ============================================ */
+
+.ocop-ask-question-block {
+  margin: 8px 0;
+}
+
+.ocop-ask-question-block.ocop-ask-question-pending {
+  display: none;
+}
+
+/* Header - transparent like other tool calls */
+.ocop-ask-question-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ocop-ask-question-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-accent);
+}
+
+.ocop-ask-question-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-ask-question-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-ask-question-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ocop-ask-question-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ocop-ask-question-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-ask-question-status.status-completed {
+  color: var(--color-green);
+}
+
+.ocop-ask-question-status.status-error,
+.ocop-ask-question-status.status-blocked {
+  color: var(--color-red);
+}
+
+/* Content - indented to align under label */
+.ocop-ask-question-content {
+  padding: 4px 0 4px 24px;
+}
+
+/* Q&A pairs */
+.ocop-ask-question-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.ocop-ask-question-qa + .ocop-ask-question-qa {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+
+.ocop-ask-question-q-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ocop-ask-question-answer {
+  font-size: 13px;
+  color: var(--text-normal);
+  padding-left: 8px;
+  border-left: 2px solid var(--interactive-accent);
+}
+
+.ocop-ask-question-error {
+  font-size: 12px;
+  color: var(--color-red);
+  font-style: italic;
+}
+
+/* Q&A list - tree symbol + aligned container */
+.ocop-ask-question-list {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ocop-ask-question-tree {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ocop-ask-question-aligned {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ocop-ask-question-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ocop-ask-question-q {
+  font-size: 13px;
+  color: var(--text-muted);
+  /* Hanging indent: wrapped lines align with text after "Q: " */
+  padding-left: 1.5em;
+  text-indent: -1.5em;
+}
+
+.ocop-ask-question-a {
+  font-size: 13px;
+  color: var(--color-green);
+  /* Hanging indent: wrapped lines align with text after "A: " */
+  padding-left: 1.5em;
+  text-indent: -1.5em;
+}
+
+
+/* ============================================
+   components/plan-approval.css
+   ============================================ */
+/**
+ * PlanApproval panel styles.
+ * Panel shows approval options (plan content is displayed in chat).
+ */
+
+/* ============================================
+ * Plan Approval Panel (replaces input area)
+ * ============================================ */
+
+.ocop-plan-approval-panel {
+  /* Match input wrapper padding structure */
+  padding: 10px;  /* Same as .ocop-input */
+  min-height: 60px;  /* Same as .ocop-input min-height */
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ocop-plan-approval-panel:focus {
+  outline: none;
+}
+
+/* Header: "Would you like to proceed?" */
+.ocop-plan-approval-header {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* Options list - tighter spacing */
+.ocop-plan-approval-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.ocop-plan-approval-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+
+.ocop-plan-approval-option:hover {
+  color: var(--interactive-accent);
+}
+
+.ocop-plan-approval-option.focused {
+  color: var(--interactive-accent);
+}
+
+/* Caret - narrower */
+.ocop-plan-approval-caret {
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--interactive-accent);
+  font-weight: bold;
+}
+
+.ocop-plan-approval-number {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ocop-plan-approval-option.focused .ocop-plan-approval-caret,
+.ocop-plan-approval-option.focused .ocop-plan-approval-number {
+  color: var(--interactive-accent);
+}
+
+.ocop-plan-approval-option-label {
+  font-weight: 500;
+}
+
+/* Placeholder text for revise option (muted) */
+.ocop-plan-approval-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Inline revise input - must blend perfectly with option text */
+.ocop-plan-approval-revise-inline {
+  flex: 1;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  outline: none;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-indent: 0;
+  min-width: 0;
+  height: auto;
+}
+
+.ocop-plan-approval-revise-inline::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ============================================
+ * Plan Message (distinct styling in chat)
+ * ============================================ */
+
+.ocop-message-plan {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  /* Match plan banner horizontal margin (0 12px 8px 12px) */
+  margin: 8px 12px;
+  padding: 10px 16px;
+  /* Override assistant message width/max-width to respect margins */
+  width: auto;
+  max-width: none;
+  /* Match plan banner font styling */
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ============================================
+ * Approval Indicator (user's choice display)
+ * ============================================ */
+
+.ocop-approval-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 12px;
+  font-size: 13px;
+}
+
+.ocop-approval-indicator-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.ocop-approval-indicator-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Text always muted */
+.ocop-approval-indicator-text {
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* Green check for approve (icon only) */
+.ocop-approval-indicator-approve .ocop-approval-indicator-icon {
+  color: var(--color-green);
+}
+
+/* Red x for revise (icon only) */
+.ocop-approval-indicator-revise .ocop-approval-indicator-icon {
+  color: var(--color-red);
+}
+
+
+/* ============================================
+   components/plan-banner.css
+   ============================================ */
+/**
+ * PlanBanner styles.
+ * Collapsible banner below header showing approved plan.
+ */
+
+.ocop-plan-banner {
+  margin: 0 12px 8px 12px;
+  border-radius: 6px;
+  background: rgba(0, 168, 157, 0.08);
+  border: 1px solid rgba(0, 168, 157, 0.2);
+  overflow: hidden;
+}
+
+.ocop-plan-banner.expanded {
+  background: rgba(0, 168, 157, 0.05);
+}
+
+/* Header - clickable disclosure */
+.ocop-plan-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.ocop-plan-banner-header:hover {
+  background: rgba(0, 168, 157, 0.1);
+}
+
+.ocop-plan-banner-chevron {
+  font-size: 10px;
+  color: #00A89D;
+  transition: transform 0.15s ease;
+}
+
+.ocop-plan-banner.expanded .ocop-plan-banner-chevron {
+  transform: rotate(0deg);
+}
+
+.ocop-plan-banner-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #00A89D;
+}
+
+/* Content area */
+.ocop-plan-banner-content {
+  padding: 0 12px 12px 12px;
+  max-height: 250px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  border-top: 1px solid rgba(0, 168, 157, 0.15);
+}
+
+.ocop-plan-banner-content h1,
+.ocop-plan-banner-content h2,
+.ocop-plan-banner-content h3 {
+  margin-top: 0.8em;
+  margin-bottom: 0.4em;
+  font-size: 14px;
+}
+
+.ocop-plan-banner-content h1:first-child,
+.ocop-plan-banner-content h2:first-child,
+.ocop-plan-banner-content h3:first-child {
+  margin-top: 0.5em;
+}
+
+.ocop-plan-banner-content p {
+  margin: 0.5em 0;
+}
+
+.ocop-plan-banner-content ul,
+.ocop-plan-banner-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.ocop-plan-banner-content code {
+  font-size: 12px;
+  padding: 2px 4px;
+  background: var(--background-primary);
+  border-radius: 3px;
+}
+
+.ocop-plan-banner-content pre {
+  padding: 8px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+
+/* ============================================
+   components/socratic-banner.css
+   ============================================ */
+/**
+ * SocraticBanner styles.
+ * Collapsible banner shown during an active Socratic dialogue session.
+ */
+
+.ocop-socratic-banner {
+  margin: 0 12px 8px 12px;
+  border-radius: 10px;
+  background: rgba(35, 40, 66, 0.92);
+  border: 1px solid rgba(124, 155, 255, 0.22);
+  border-left: 3px solid #7c9bff;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(124, 155, 255, 0.06);
+}
+
+.ocop-socratic-banner.expanded {
+  background: rgba(30, 35, 60, 0.95);
+}
+
+/* Header - clickable disclosure */
+.ocop-socratic-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  min-height: 44px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.ocop-socratic-banner-header:hover {
+  background: rgba(124, 155, 255, 0.08);
+}
+
+.ocop-socratic-banner-header:focus-visible {
+  outline: 2px solid rgba(124, 155, 255, 0.8);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.ocop-socratic-banner-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.ocop-socratic-banner-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5b4fc;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ocop-socratic-banner-topic {
+  font-weight: 400;
+  color: #6b7ea8;
+}
+
+.ocop-socratic-banner-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(124, 155, 255, 0.16);
+  color: #8fb4ff;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ocop-socratic-banner-chevron {
+  font-size: 10px;
+  color: #7c9bff;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+/* Quick actions: 힌트 / 모르겠어요 (PRD §9.1) */
+.ocop-socratic-banner-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 10px 12px;
+}
+
+.ocop-socratic-banner-action-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 155, 255, 0.28);
+  background: rgba(124, 155, 255, 0.1);
+  color: #a5b4fc;
+  cursor: pointer;
+}
+
+.ocop-socratic-banner-action-btn:hover {
+  background: rgba(124, 155, 255, 0.2);
+}
+
+/* Content area */
+.ocop-socratic-banner-content {
+  padding: 0 12px 12px 12px;
+  border-top: 1px solid rgba(124, 155, 255, 0.1);
+}
+
+/* 2-column rule card grid */
+.ocop-socratic-banner-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ocop-socratic-rule-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.ocop-socratic-rule-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
+
+.ocop-socratic-rule-card p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* Scope line */
+.ocop-socratic-banner-scope {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ocop-socratic-banner-header,
+  .ocop-socratic-banner-chevron {
+    transition: none;
+  }
+}
+
+
+/* ============================================
+   components/setup-wizard.css
+   ============================================ */
+/**
+ * SetupWizardModal styles.
+ */
+
+.ocop-setup-modal {
+  --setup-accent: #7C3AED;
+}
+
+.ocop-setup-modal .modal-content {
+  padding: 20px 24px 24px;
+}
+
+.ocop-setup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Status / phase labels */
+.ocop-setup-status {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0;
+}
+
+.ocop-setup-success {
+  font-size: 15px;
+  font-weight: 600;
+  color: #16A34A;
+  margin: 0;
+}
+
+.ocop-setup-warn {
+  font-size: 14px;
+  font-weight: 600;
+  color: #D97706;
+  margin: 0;
+}
+
+.ocop-setup-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.ocop-setup-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Live install log */
+.ocop-setup-log {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: var(--font-monospace);
+}
+
+.ocop-setup-log-line {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ocop-setup-log-line.ocop-setup-muted {
+  opacity: 0.6;
+}
+
+/* Steps list */
+.ocop-setup-steps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ocop-setup-steps li {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+
+/* Command copy row */
+.ocop-setup-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ocop-setup-cmd {
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 5px 10px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  color: var(--text-normal);
+  user-select: all;
+}
+
+.ocop-setup-copy-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ocop-setup-copy-btn:hover {
+  background: var(--interactive-hover);
+  color: var(--text-normal);
+}
+
+/* Primary action button */
+.ocop-setup-action-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* Skip / later link */
+.ocop-setup-skip-btn {
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.ocop-setup-skip-btn:hover {
+  color: var(--text-muted);
+}
+
+
+/* ============================================
+   components/quiz-answer-panel.css
+   ============================================ */
+/**
+ * QuizAnswerPanel styles.
+ * Reuses plan-approval pattern: monospace, caret, focused color.
+ */
+
+/* ============================================
+ * Quiz Answer Panel (replaces input area)
+ * ============================================ */
+
+.ocop-quiz-answer-panel {
+  padding: 10px;
+  min-height: 60px;
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ocop-quiz-answer-panel:focus {
+  outline: none;
+}
+
+/* Header: progress bar */
+.ocop-quiz-answer-header {
+  margin-bottom: 8px;
+}
+
+/* Options list */
+.ocop-quiz-answer-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.ocop-quiz-answer-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  cursor: pointer;
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+
+.ocop-quiz-answer-option:hover {
+  color: var(--interactive-accent);
+}
+
+.ocop-quiz-answer-option.focused {
+  color: var(--interactive-accent);
+}
+
+/* Caret */
+.ocop-quiz-answer-caret {
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--interactive-accent);
+  font-weight: bold;
+}
+
+/* Checkbox for multi-select */
+.ocop-quiz-answer-check {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+.ocop-quiz-answer-option.focused .ocop-quiz-answer-check {
+  color: var(--interactive-accent);
+}
+
+.ocop-quiz-answer-option.focused .ocop-quiz-answer-caret {
+  color: var(--interactive-accent);
+}
+
+/* Option label */
+.ocop-quiz-answer-label {
+  font-weight: 500;
+}
+
+/* Submit button (multi-select) */
+.ocop-quiz-answer-submit {
+  margin-top: 8px;
+  padding-left: 16px;
+}
+
+.ocop-quiz-answer-submit-btn {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.ocop-quiz-answer-submit-btn:hover:not(:disabled) {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ocop-quiz-answer-submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Quick actions: 힌트 / 모르겠어요 (PRD §8.2) */
+.ocop-quiz-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 16px;
+}
+
+.ocop-quiz-quick-action-btn {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ocop-quiz-quick-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* Free-text answer input */
+.ocop-quiz-answer-freetext {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ocop-quiz-answer-freetext-input {
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  outline: none;
+}
+
+.ocop-quiz-answer-freetext-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.ocop-quiz-answer-freetext-input::placeholder {
+  color: var(--text-faint);
+}
+
+
+/* ============================================
+   components/input.css
+   ============================================ */
+/* Input area */
+.ocop-input-container {
+  position: relative;
+  padding: 14px 0 0 0;
+}
+
+/* Chips row: file chips (left) + quiz/learning buttons (right) */
+.ocop-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ocop-chips-row .ocop-file-indicator {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.ocop-chips-row .ocop-learning-group {
+  flex-shrink: 0;
+}
+
+/* Input wrapper (border container) */
+.ocop-input-wrapper {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 70%, #0b1220 30%);
+  box-shadow: 0 -6px 24px rgba(2, 6, 23, 0.2);
+}
+
+/* Selection indicator (shown when text is selected in editor) */
+.ocop-selection-indicator {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: #e0f2fe;
+  font-size: 11px;
+  font-family: var(--font-monospace);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.96;
+  pointer-events: auto;
+  cursor: pointer;
+  white-space: nowrap;
+  z-index: 1;
+  background: linear-gradient(135deg, color-mix(in srgb, #38bdf8 22%, #0b1220) 0%, color-mix(in srgb, #06b6d4 18%, #0f172a) 100%);
+  border: 1px solid color-mix(in srgb, #38bdf8 36%, transparent);
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.24);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.ocop-selection-indicator:hover {
+  filter: brightness(1.08);
+}
+
+.ocop-input {
+  width: 100%;
+  min-height: 60px;
+  max-height: 200px;
+  resize: none;
+  padding: 12px 12px 10px 12px;
+  border: none !important;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: none !important;
+}
+
+.ocop-input:hover,
+.ocop-input:focus {
+  outline: none !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.ocop-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Input toolbar — model/thinking/web/tools/permission only (learning group moved to chips row) */
+.ocop-input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 6px 8px 8px 8px;
+  gap: 6px;
+}
+
+/* Learning group — Quiz + 학습 모드 grouped together */
+.ocop-learning-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px;
+  background: rgba(15, 20, 40, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+}
+
+.ocop-quiz-launcher {
+  display: flex;
+}
+
+.ocop-quiz-launcher-btn {
+  border: 1px solid color-mix(in srgb, #38bdf8 28%, var(--background-modifier-border));
+  background: color-mix(in srgb, #38bdf8 8%, var(--background-secondary));
+  color: #bae6fd;
+  border-radius: 7px;
+  padding: 5px 10px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.ocop-quiz-launcher-btn:hover {
+  background: color-mix(in srgb, #38bdf8 16%, var(--background-secondary));
+  border-color: #38bdf8;
+  transform: translateY(-1px);
+}
+
+.ocop-quiz-launcher-btn:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.8);
+  outline-offset: 2px;
+}
+
+/* 학습 모드 button */
+.ocop-socratic-launcher {
+  display: flex;
+}
+
+.ocop-socratic-launcher-btn {
+  border: 1px solid rgba(124, 155, 255, 0.28);
+  background: rgba(124, 155, 255, 0.08);
+  color: #a5b4fc;
+  border-radius: 7px;
+  padding: 5px 10px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ocop-socratic-launcher-btn:hover {
+  background: rgba(124, 155, 255, 0.16);
+  border-color: rgba(124, 155, 255, 0.5);
+  transform: translateY(-1px);
+}
+
+.ocop-socratic-launcher-btn.is-active {
+  background: rgba(47, 77, 136, 0.8);
+  border-color: #7c9bff;
+  color: #dbeafe;
+  box-shadow: 0 0 0 1px rgba(124, 155, 255, 0.2), 0 4px 12px rgba(47, 77, 136, 0.4);
+}
+
+.ocop-socratic-launcher-btn.is-active:hover {
+  background: rgba(59, 99, 177, 0.85);
+  transform: translateY(-1px);
+}
+
+.ocop-socratic-launcher-btn:focus-visible {
+  outline: 2px solid rgba(124, 155, 255, 0.8);
+  outline-offset: 2px;
+}
+
+/* File indicator (attached files) */
+.ocop-file-indicator {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.ocop-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px 4px 9px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, #111827 28%);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 74%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 200px;
+  cursor: pointer;
+}
+
+.ocop-file-chip-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-file-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ocop-file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+}
+
+.ocop-file-chip-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #38bdf8 14%, transparent);
+  color: #bae6fd;
+  font-size: 10px;
+  font-family: var(--font-monospace);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.ocop-file-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-file-chip-remove:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* Pin button on file chip */
+.ocop-file-chip-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-file-chip-pin svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ocop-file-chip-pin:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* Pinned state - show as active */
+.ocop-file-chip-pinned .ocop-file-chip-pin {
+  color: var(--interactive-accent);
+}
+
+.ocop-file-chip:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Current note chip (slightly different styling) */
+.ocop-file-chip.ocop-file-chip-current {
+  border-color: #38bdf8;
+  background: color-mix(in srgb, #38bdf8 12%, transparent);
+}
+
+.ocop-file-chip.ocop-file-chip-current .ocop-file-chip-badge {
+  background: color-mix(in srgb, #38bdf8 24%, transparent);
+}
+
+/* Attached file chip (from @-mention) */
+.ocop-file-chip.ocop-file-chip-attached {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+/* Pinned file chip (won't be auto-replaced) */
+.ocop-file-chip.ocop-file-chip-pinned {
+  border-color: #38bdf8;
+  border-width: 2px;
+  background: color-mix(in srgb, #38bdf8 14%, transparent);
+}
+
+.ocop-file-chip.ocop-file-chip-pinned .ocop-file-chip-badge {
+  background: color-mix(in srgb, #06b6d4 24%, transparent);
+  color: #cffafe;
+}
+
+.ocop-file-chip.ocop-file-chip-pinned .ocop-file-chip-icon {
+  color: #38bdf8;
+}
+
+/* Message Queue Indicator (shown below flavor text in thinking indicator) */
+.ocop-queue-indicator {
+  display: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: normal;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Light blue border when instruction mode is active */
+.ocop-input-instruction-mode {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ocop-quiz-launcher-btn,
+  .ocop-socratic-launcher-btn {
+    transition: none;
+  }
+}
+
+
+/* ============================================
+   components/context-footer.css
+   ============================================ */
+/* Context usage meter (inline in toolbar) */
+
+.ocop-context-meter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  cursor: default;
+}
+
+/* Custom tooltip */
+.ocop-context-meter::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.ocop-context-meter:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ocop-context-meter-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.ocop-context-meter-gauge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-meter-bg {
+  stroke: var(--background-modifier-border);
+}
+
+.ocop-meter-fill {
+  stroke: #67d7ff;
+  transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
+}
+
+.ocop-context-meter-percent {
+  font-size: 11px;
+  color: #67d7ff;
+  min-width: 24px;
+  text-align: right;
+  transition: color 0.3s ease;
+}
+
+/* Warning state (> 80%) - pale red */
+.ocop-context-meter.warning .ocop-meter-fill {
+  stroke: #E57373;
+}
+
+.ocop-context-meter.warning .ocop-context-meter-percent {
+  color: #E57373;
+}
+
+
+/* ============================================
+   toolbar/model-selector.css
+   ============================================ */
+/* Model selector */
+.ocop-model-selector {
+  position: relative;
+}
+
+.ocop-model-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, #0f172a 28%);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+}
+
+.ocop-model-label {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ocop-model-cost {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.ocop-model-chevron {
+  display: flex;
+  align-items: center;
+}
+
+.ocop-model-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ocop-model-dropdown {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  margin-bottom: 38px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0b1220 18%);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+  z-index: 1000;
+  width: 300px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.ocop-model-section-label {
+  margin: 6px 2px 2px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-family: var(--font-monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ocop-model-provider-label {
+  margin: 2px 4px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ocop-model-selector:hover .ocop-model-dropdown {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ocop-model-option {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-normal);
+  border-radius: 10px;
+  transition: background 0.1s ease, color 0.1s ease;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ocop-model-option:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-model-option.selected {
+  background: color-mix(in srgb, #38bdf8 12%, transparent);
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.ocop-model-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ocop-model-option-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ocop-model-option .ocop-model-desc {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-weight: normal;
+  opacity: 0.7;
+  white-space: normal;
+}
+
+.ocop-model-option-cost {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+
+/* ============================================
+   toolbar/thinking-selector.css
+   ============================================ */
+/* Thinking budget selector */
+.ocop-thinking-selector,
+.ocop-websearch-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  cursor: pointer;
+}
+
+.ocop-thinking-selector.is-disabled {
+  opacity: 0.72;
+}
+
+.ocop-thinking-label-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ocop-thinking-gears {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+/* Current selection (visible when collapsed) */
+.ocop-thinking-current {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #67d7ff;
+  font-weight: 500;
+  cursor: default;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.ocop-thinking-disabled {
+  color: var(--text-muted);
+}
+
+
+/* ============================================
+   toolbar/permission-toggle.css
+   ============================================ */
+/* Permission Mode Toggle */
+.ocop-permission-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 12px;
+  padding-right: 8px;
+}
+
+.ocop-permission-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 34px;
+  font-family: var(--font-monospace);
+  text-transform: uppercase;
+}
+
+.ocop-toggle-switch {
+  width: 32px;
+  height: 18px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background-modifier-border) 78%, #0f172a 22%);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.ocop-toggle-switch::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.ocop-toggle-switch:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-toggle-switch.active {
+  background: color-mix(in srgb, #2563eb 26%, #0f172a 74%);
+}
+
+.ocop-toggle-switch.active::after {
+  transform: translateX(14px);
+  background: #38bdf8;
+}
+
+/* Plan mode state */
+.ocop-permission-toggle.plan-mode {
+  cursor: pointer;
+}
+
+.ocop-permission-toggle.plan-mode .ocop-permission-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #06b6d4;
+  font-weight: 500;
+  min-width: auto;
+}
+
+.ocop-permission-toggle.plan-mode .ocop-toggle-switch {
+  display: block;
+  background: color-mix(in srgb, #06b6d4 22%, #0f172a 78%);
+}
+
+.ocop-permission-toggle.plan-mode .ocop-toggle-switch::after {
+  transform: translateX(7px);
+  background: #06b6d4;
+}
+
+.ocop-plan-mode-icon {
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 2px;
+  transform: scaleX(1.3);
+  margin-right: 2px;
+}
+
+.ocop-permission-toggle.plan-mode:hover .ocop-permission-label {
+  opacity: 0.8;
+}
+
+
+/* ============================================
+   toolbar/external-context.css
+   ============================================ */
+/* External Context Selector */
+.ocop-external-context-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.ocop-external-context-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ocop-external-context-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  transition: all 0.2s ease;
+}
+
+.ocop-external-context-icon-wrapper:hover .ocop-external-context-icon {
+  background: var(--background-modifier-hover);
+  opacity: 0.8;
+}
+
+.ocop-external-context-icon.active {
+  color: #38bdf8;
+  opacity: 1;
+  animation: external-context-glow 2s ease-in-out infinite;
+}
+
+.ocop-external-context-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-external-context-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 9px;
+  font-weight: 600;
+  color: #38bdf8;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.ocop-external-context-badge.visible {
+  opacity: 1;
+}
+
+.ocop-external-context-dropdown {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 100%;
+  margin-bottom: 4px;
+  min-width: 260px;
+  max-width: 320px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 100;
+}
+
+.ocop-external-context-selector:hover .ocop-external-context-dropdown {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ocop-external-context-header {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ocop-external-context-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ocop-external-context-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.ocop-external-context-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+  border-bottom: 1px solid var(--background-modifier-border-focus);
+}
+
+.ocop-external-context-item:last-child {
+  border-bottom: none;
+}
+
+.ocop-external-context-text {
+  flex: 1;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-external-context-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+
+.ocop-external-context-remove:hover {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+  opacity: 1;
+}
+
+.ocop-external-context-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+
+/* ============================================
+   toolbar/mcp-selector.css
+   ============================================ */
+/* MCP Server Selector */
+.ocop-mcp-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.ocop-mcp-selector-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ocop-mcp-selector-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  transition: all 0.2s ease;
+}
+
+.ocop-mcp-selector-icon-wrapper:hover .ocop-mcp-selector-icon {
+  background: var(--background-modifier-hover);
+  opacity: 0.8;
+}
+
+.ocop-mcp-selector-icon.active {
+  color: #38bdf8;
+  opacity: 1;
+  animation: mcp-glow 2s ease-in-out infinite;
+}
+
+.ocop-mcp-selector-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-mcp-selector-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 9px;
+  font-weight: 600;
+  color: #38bdf8;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.ocop-mcp-selector-badge.visible {
+  opacity: 1;
+}
+
+.ocop-mcp-selector-dropdown {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 100%;
+  margin-bottom: 4px;
+  min-width: 200px;
+  max-width: 280px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 100;
+}
+
+/* Bridge the gap between icon and dropdown to prevent hover breaks */
+.ocop-mcp-selector-dropdown::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 8px;
+}
+
+.ocop-mcp-selector-dropdown.visible,
+.ocop-mcp-selector:hover .ocop-mcp-selector-dropdown {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ocop-mcp-selector-header {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ocop-mcp-selector-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ocop-mcp-selector-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.ocop-mcp-selector-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ocop-mcp-selector-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-mcp-selector-item.enabled {
+  background: color-mix(in srgb, #38bdf8 10%, transparent);
+}
+
+.ocop-mcp-selector-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  color: #38bdf8;
+}
+
+.ocop-mcp-selector-item.enabled .ocop-mcp-selector-check {
+  background: color-mix(in srgb, #38bdf8 16%, transparent);
+  border-color: #38bdf8;
+}
+
+.ocop-mcp-selector-check svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ocop-mcp-selector-item-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ocop-mcp-selector-item-name {
+  font-size: 12px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-mcp-selector-cs-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #38bdf8 16%, transparent);
+  color: #38bdf8;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+
+/* ============================================
+   features/file-context.css
+   ============================================ */
+/* @ Mention dropdown */
+.ocop-mention-dropdown {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 -8px 24px rgba(2, 6, 23, 0.26);
+  z-index: 1000;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.ocop-mention-dropdown.visible {
+  display: block;
+}
+
+/* Fixed positioning for inline editor */
+.ocop-mention-dropdown-fixed {
+  position: fixed;
+  z-index: 10001;
+}
+
+.ocop-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.ocop-mention-item:hover,
+.ocop-mention-item.selected {
+  background: color-mix(in srgb, var(--background-modifier-hover) 70%, #111827 30%);
+}
+
+.ocop-mention-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ocop-mention-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-mention-path {
+  font-size: 13px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-mention-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Scrollbar for mention dropdown */
+.ocop-mention-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ocop-mention-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocop-mention-dropdown::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+/* MCP items in @-mention dropdown */
+.ocop-mention-item.mcp-server .ocop-mention-icon {
+  color: var(--interactive-accent);
+}
+
+.ocop-mention-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ocop-mention-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #38bdf8;
+}
+
+.ocop-mention-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Context file items in @-mention dropdown */
+.ocop-mention-item.context-file .ocop-mention-icon {
+  color: #67d7ff;
+}
+
+/* Context folder filter items in @-mention dropdown */
+.ocop-mention-item.context-folder .ocop-mention-icon {
+  color: #67d7ff;
+}
+
+.ocop-mention-name-folder {
+  color: #67d7ff;
+  font-weight: 600;
+}
+
+.ocop-mention-name-context {
+  color: var(--text-normal);
+}
+
+
+/* ============================================
+   features/file-link.css
+   ============================================ */
+/* Clickable file links that open files in Obsidian */
+.ocop-file-link {
+  color: var(--text-accent);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s ease;
+}
+
+.ocop-file-link:hover {
+  color: var(--text-accent-hover);
+  text-decoration: underline;
+}
+
+/* File link inside inline code */
+code .ocop-file-link {
+  color: var(--text-accent);
+}
+
+code .ocop-file-link:hover {
+  color: var(--text-accent-hover);
+}
+
+
+/* ============================================
+   features/image-context.css
+   ============================================ */
+/* Image Context - Preview & Attachments */
+
+/* Image preview container (in input area) */
+.ocop-image-preview {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 4px;
+}
+
+/* Individual image preview chip */
+.ocop-image-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  max-width: 200px;
+}
+
+.ocop-image-chip:hover {
+  border-color: var(--interactive-accent);
+}
+
+/* Image thumbnail */
+.ocop-image-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ocop-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Image info */
+.ocop-image-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.ocop-image-name {
+  font-size: 12px;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-image-size {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Remove button */
+.ocop-image-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.ocop-image-remove:hover {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+}
+
+/* Drop overlay - inside input wrapper */
+.ocop-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(217, 119, 87, 0.08);
+  border: 2px dashed #67d7ff;
+  border-radius: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.ocop-drop-overlay.visible {
+  display: flex;
+}
+
+.ocop-drop-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #67d7ff;
+}
+
+.ocop-drop-content svg {
+  opacity: 0.7;
+}
+
+.ocop-drop-content span {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Images in Messages (displayed above user bubble) */
+
+/* Images container - right-aligned above user message */
+.ocop-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+  padding-right: 4px;
+}
+
+/* Individual image in message - standardized size */
+.ocop-message-image {
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ocop-message-image:hover {
+  transform: scale(1.03);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ocop-message-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+/* ============================================
+   features/image-modal.css
+   ============================================ */
+/* Full-size Image Modal */
+.ocop-image-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  cursor: pointer;
+}
+
+.ocop-image-modal {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  cursor: default;
+}
+
+.ocop-image-modal img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ocop-image-modal-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--text-muted);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-image-modal-close:hover {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+}
+
+
+/* ============================================
+   features/inline-edit.css
+   ============================================ */
+/* Inline Edit (CM6 decorations) */
+
+/* Selection highlight (shared by inline edit and chat) */
+.cm-line .ocop-selection-highlight,
+.ocop-selection-highlight {
+  background: var(--text-selection) !important;
+  border-radius: 2px;
+  padding: 3px 0;
+  margin: -3px 0;
+}
+
+/* CM6 widget container - ensure transparent background */
+.cm-widgetBuffer,
+.cm-line:has(.ocop-inline-input-container) {
+  background: transparent !important;
+}
+
+/* Input container - fully transparent */
+.ocop-inline-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 2px 0;
+  background: transparent !important;
+}
+
+/* Input wrapper - contains input and spinner */
+.ocop-inline-input-wrap {
+  flex: 1;
+  position: relative;
+  background: transparent !important;
+  overflow: visible;
+}
+
+/* Input - fully transparent */
+.ocop-inline-input {
+  width: 100%;
+  padding: 4px 30px 4px 8px;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--background-modifier-border) !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--text-normal);
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, sans-serif) !important;
+  font-size: var(--font-ui-small, 13px) !important;
+}
+
+.ocop-inline-input:focus,
+.ocop-inline-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.ocop-inline-input::placeholder {
+  color: var(--text-faint);
+}
+
+.ocop-inline-input:disabled {
+  opacity: 0.6;
+}
+
+/* Spinner - inside input box on right */
+.ocop-inline-spinner {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: #67d7ff;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: ocop-inline-spin 0.8s linear infinite;
+}
+
+/* Agent reply - shown when agent asks clarifying question */
+.ocop-inline-agent-reply {
+  padding: 8px;
+  margin-bottom: 4px;
+  background: transparent;
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--background-modifier-border);
+  border-radius: 8px;
+  font-family: var(--font-interface, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-size: var(--font-ui-small, 13px);
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Inline Diff - replaces selection in place */
+.ocop-inline-diff-replace {
+  /* Inherit all font properties from document */
+  font-size: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+}
+
+/* Deleted text - red strikethrough */
+.ocop-diff-del {
+  background: rgba(255, 80, 80, 0.2);
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Inserted text - green background */
+.ocop-diff-ins {
+  background: rgba(80, 200, 80, 0.2);
+}
+
+/* Accept/Reject buttons inline with diff */
+.ocop-inline-diff-buttons {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 6px;
+  background: none !important;
+}
+
+.ocop-inline-diff-btn {
+  padding: 4px 6px;
+  border: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.ocop-inline-diff-btn.reject {
+  color: var(--color-red);
+}
+
+.ocop-inline-diff-btn.accept {
+  color: var(--color-green);
+}
+
+
+/* ============================================
+   features/diff.css
+   ============================================ */
+/* Write/Edit Diff Block - Subagent style */
+.ocop-write-edit-block {
+  margin: 4px 0;
+  background: transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ocop-write-edit-block::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.ocop-text-block+.ocop-write-edit-block {
+  margin-top: 8px;
+}
+
+.ocop-write-edit-block+.ocop-text-block {
+  margin-top: 8px;
+}
+
+.ocop-write-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  user-select: none;
+  background: transparent;
+}
+
+.ocop-write-edit-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-accent);
+  flex-shrink: 0;
+}
+
+.ocop-write-edit-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-write-edit-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-write-edit-stats {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.ocop-write-edit-stats .added {
+  color: var(--color-green);
+}
+
+.ocop-write-edit-stats .removed {
+  color: var(--color-red);
+  margin-left: 4px;
+}
+
+.ocop-write-edit-status {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Hide empty status on successful completion so stats align to right edge */
+.ocop-write-edit-block.done .ocop-write-edit-status:empty {
+  display: none;
+}
+
+.ocop-write-edit-status svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-write-edit-status.status-running .ocop-spinner {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-write-edit-status.status-completed {
+  color: var(--color-green);
+}
+
+.ocop-write-edit-status.status-error,
+.ocop-write-edit-status.status-blocked {
+  color: var(--color-red);
+}
+
+.ocop-write-edit-content {
+  padding: 0;
+  background: transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ocop-write-edit-content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.ocop-write-edit-diff-row {
+  display: flex;
+}
+
+.ocop-write-edit-diff {
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  background: transparent;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ocop-write-edit-diff::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.ocop-write-edit-loading,
+.ocop-write-edit-binary,
+.ocop-write-edit-error,
+.ocop-write-edit-done-text {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ocop-write-edit-error {
+  color: var(--color-red);
+}
+
+/* Diff line styling */
+.ocop-diff-hunk {
+  margin-bottom: 4px;
+}
+
+.ocop-diff-line {
+  display: flex;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ocop-diff-prefix {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.ocop-diff-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Diff colors - NO strikethrough for Write/Edit blocks */
+.ocop-diff-equal {
+  color: var(--text-muted);
+}
+
+.ocop-diff-delete {
+  background: rgba(255, 80, 80, 0.25);
+  color: var(--text-normal);
+}
+
+.ocop-diff-delete .ocop-diff-prefix {
+  color: var(--color-red);
+}
+
+.ocop-diff-insert {
+  background: rgba(80, 200, 80, 0.25);
+  color: var(--text-normal);
+}
+
+.ocop-diff-insert .ocop-diff-prefix {
+  color: var(--color-green);
+}
+
+/* Hunk separator */
+.ocop-diff-separator {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 0;
+  font-style: italic;
+  border-top: 1px dashed var(--background-modifier-border);
+  border-bottom: 1px dashed var(--background-modifier-border);
+  margin: 8px 0;
+  font-size: 11px;
+}
+
+.ocop-diff-no-changes {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 8px;
+}
+
+
+/* ============================================
+   features/slash-commands.css
+   ============================================ */
+/* Slash Command Dropdown */
+.ocop-slash-dropdown {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: var(--background-secondary);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.ocop-slash-dropdown.visible {
+  display: block;
+}
+
+/* Fixed positioning for inline editor */
+.ocop-slash-dropdown-fixed {
+  position: fixed;
+  z-index: 10001;
+}
+
+.ocop-slash-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ocop-slash-item:last-child {
+  border-bottom: none;
+}
+
+.ocop-slash-item:hover,
+.ocop-slash-item.selected {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-slash-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+}
+
+.ocop-slash-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+  font-style: italic;
+}
+
+.ocop-slash-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.ocop-slash-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Scrollbar */
+.ocop-slash-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ocop-slash-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocop-slash-dropdown::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+
+/* ============================================
+   modals/approval.css
+   ============================================ */
+/* Approval Modal */
+.ocop-approval-modal {
+  padding: 16px;
+}
+
+.ocop-approval-info {
+  margin-bottom: 12px;
+}
+
+.ocop-approval-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.ocop-approval-icon {
+  color: #67d7ff;
+}
+
+.ocop-approval-tool-name {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ocop-approval-desc {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border-radius: 6px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  color: var(--text-normal);
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+
+.ocop-approval-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ocop-approval-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-deny-btn {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+}
+
+.ocop-deny-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-allow-btn {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.ocop-allow-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-always-btn {
+  background: #67d7ff;
+  color: white;
+  border: none;
+}
+
+.ocop-always-btn:hover {
+  background: #50c8ef;
+}
+
+
+/* ============================================
+   modals/instruction.css
+   ============================================ */
+/* Instruction Mode */
+
+/* Instruction Confirm Modal */
+.ocop-instruction-modal {
+  max-width: 500px;
+}
+
+.ocop-instruction-section {
+  margin-bottom: 16px;
+}
+
+.ocop-instruction-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.ocop-instruction-original {
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-refined {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-clarification {
+  padding: 12px;
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ocop-instruction-edit-container {
+  margin-top: 6px;
+}
+
+.ocop-instruction-edit-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  resize: vertical;
+  min-height: 80px;
+}
+
+.ocop-instruction-edit-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ocop-instruction-response-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  resize: vertical;
+  min-height: 60px;
+}
+
+.ocop-instruction-response-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ocop-instruction-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.ocop-instruction-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.ocop-instruction-reject-btn {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.ocop-instruction-reject-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-instruction-edit-btn {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.ocop-instruction-edit-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-instruction-accept-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ocop-instruction-accept-btn:hover {
+  opacity: 0.9;
+}
+
+/* Instruction loading state */
+.ocop-instruction-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.ocop-instruction-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: ocop-instruction-spin 0.8s linear infinite;
+}
+
+/* Instruction modal content sections */
+.ocop-instruction-content-section {
+  margin: 8px 0;
+}
+
+.ocop-instruction-clarification-section,
+.ocop-instruction-confirmation-section {
+  margin-top: 8px;
+}
+
+
+/* ============================================
+   modals/mcp-modal.css
+   ============================================ */
+/* MCP Server Modal */
+.ocop-mcp-modal .modal-content {
+  width: 480px;
+  max-width: 90vw;
+}
+
+.ocop-mcp-type-fields {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.ocop-mcp-type-fields .setting-item {
+  padding: 8px 0;
+  border-top: none;
+}
+
+.ocop-mcp-type-fields .setting-item:first-child {
+  padding-top: 0;
+}
+
+.ocop-mcp-cmd-setting,
+.ocop-mcp-env-setting {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ocop-mcp-cmd-setting .setting-item-control,
+.ocop-mcp-env-setting .setting-item-control {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.ocop-mcp-cmd-textarea,
+.ocop-mcp-env-textarea {
+  width: 100%;
+  min-height: 50px;
+  resize: vertical;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ocop-mcp-cmd-textarea:focus,
+.ocop-mcp-env-textarea:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.ocop-mcp-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* MCP Test Modal */
+.ocop-mcp-test-modal {
+  width: 500px;
+  max-width: 90vw;
+}
+
+.ocop-mcp-test-modal .modal-content {
+  padding: 0 20px 20px 20px;
+}
+
+.ocop-mcp-test-modal .modal-title {
+  padding: 20px 20px 12px 20px;
+  margin: 0 -20px;
+}
+
+.ocop-mcp-test-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--text-muted);
+}
+
+.ocop-mcp-test-spinner {
+  width: 20px;
+  height: 20px;
+  animation: ocop-mcp-spin 1s linear infinite;
+}
+
+.ocop-mcp-test-spinner svg {
+  width: 100%;
+  height: 100%;
+}
+
+.ocop-mcp-test-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.ocop-mcp-test-icon {
+  display: flex;
+  align-items: center;
+}
+
+.ocop-mcp-test-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ocop-mcp-test-icon.success {
+  color: var(--color-green);
+}
+
+.ocop-mcp-test-icon.error {
+  color: var(--text-error);
+}
+
+.ocop-mcp-test-text {
+  font-weight: 500;
+}
+
+.ocop-mcp-test-error {
+  padding: 10px 12px;
+  background: rgba(var(--color-red-rgb), 0.1);
+  border: 1px solid var(--text-error);
+  border-radius: 6px;
+  color: var(--text-error);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.ocop-mcp-test-tools {
+  margin-bottom: 16px;
+}
+
+.ocop-mcp-test-tools-header {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.ocop-mcp-test-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.ocop-mcp-test-tool {
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.ocop-mcp-test-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ocop-mcp-test-tool-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.ocop-mcp-test-tool-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-mcp-test-tool-name {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.ocop-mcp-test-tool-toggle {
+  margin-left: auto;
+}
+
+.ocop-mcp-test-tool-toggle .checkbox-container {
+  display: flex;
+  align-items: center;
+}
+
+.ocop-mcp-test-tool-disabled {
+  opacity: 0.75;
+}
+
+.ocop-mcp-test-tool-disabled .ocop-mcp-test-tool-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.ocop-mcp-toggle-all-btn {
+  margin-right: 8px;
+}
+
+.ocop-mcp-toggle-all-btn.is-destructive {
+  background: rgba(var(--color-red-rgb), 0.1);
+  border-color: rgba(var(--color-red-rgb), 0.3);
+  color: var(--text-error);
+}
+
+.ocop-mcp-toggle-all-btn.is-destructive:hover {
+  background: rgba(var(--color-red-rgb), 0.2);
+}
+
+.ocop-mcp-test-tool-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.ocop-mcp-test-no-tools {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.ocop-mcp-test-buttons {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+
+/* ============================================
+   settings/base.css
+   ============================================ */
+/* Settings page - remove separator lines from setting items */
+.ocop-settings .setting-item {
+  border-top: none;
+}
+
+/* Settings section headings (via setHeading()) */
+.ocop-settings .setting-item-heading {
+  padding-top: 18px;
+  margin-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ocop-settings .setting-item-heading:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.ocop-settings .setting-item-heading .setting-item-name {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+/* Custom section descriptions - align with items */
+.ocop-slash-settings-desc,
+.ocop-mcp-settings-desc,
+.ocop-approved-desc,
+.ocop-skills-settings-desc {
+  padding: 0 12px;
+}
+
+/* Unified icon action buttons for settings */
+.ocop-settings-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-settings-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-settings-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-settings-delete-btn:hover {
+  color: var(--text-error);
+}
+
+.ocop-settings-advanced-wrapper {
+  margin-top: 18px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.ocop-settings-advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.ocop-settings-advanced-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-settings-advanced-title {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+
+.ocop-settings-advanced-toggle {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.ocop-settings-advanced-content {
+  padding-top: 8px;
+}
+
+/* Media folder input width */
+.ocop-settings-media-input {
+  width: 200px;
+}
+
+
+/* ============================================
+   settings/approved-actions.css
+   ============================================ */
+/* Settings - Approved Actions List */
+.ocop-approved-desc {
+  margin-bottom: 12px;
+}
+
+.ocop-approved-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.ocop-approved-list {
+  margin-bottom: 16px;
+}
+
+.ocop-approved-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.ocop-approved-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-approved-item-tool {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(217, 119, 87, 0.15);
+  color: #67d7ff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.ocop-approved-item-pattern {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--text-normal);
+  margin-top: 4px;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ocop-approved-item-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.ocop-approved-remove-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.ocop-approved-remove-btn:hover {
+  opacity: 0.9;
+}
+
+
+/* ============================================
+   settings/env-snippets.css
+   ============================================ */
+/* Environment Snippets Styles */
+.ocop-env-snippets-container {
+  margin-top: 16px;
+}
+
+.ocop-snippet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  margin-top: 16px;
+  padding: 0 12px;
+}
+
+.ocop-snippet-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+}
+
+.ocop-save-env-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.ocop-save-env-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-snippet-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.ocop-snippet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocop-snippet-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  transition: background-color 0.2s;
+}
+
+.ocop-snippet-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-snippet-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-snippet-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.ocop-snippet-description {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ocop-snippet-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
+.ocop-restore-snippet-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-restore-snippet-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-edit-snippet-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-edit-snippet-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-delete-snippet-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-delete-snippet-btn:hover {
+  opacity: 0.9;
+}
+
+/* Env Snippet Modal */
+.ocop-env-snippet-modal .modal-content {
+  max-width: 550px;
+  width: 550px;
+  padding: 16px;
+}
+
+.ocop-env-snippet-modal h2 {
+  margin: 0 0 16px 0;
+}
+
+.ocop-env-snippet-modal .setting-item {
+  padding: 8px 0;
+  margin: 0;
+}
+
+.ocop-env-snippet-modal .setting-item-info {
+  margin-bottom: 4px;
+}
+
+/* Full-width env vars textarea setting */
+.ocop-env-snippet-setting {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ocop-env-snippet-setting .setting-item-info {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.ocop-env-snippet-control {
+  width: 100%;
+}
+
+.ocop-env-snippet-control textarea {
+  width: 100%;
+  min-width: 100%;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.ocop-snippet-preview {
+  margin: 8px 0;
+  padding: 6px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.ocop-env-preview {
+  background: var(--background-primary);
+  padding: 6px;
+  border-radius: 4px;
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-muted);
+  max-height: 120px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.ocop-snippet-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.ocop-cancel-btn,
+.ocop-save-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-cancel-btn {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.ocop-cancel-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-save-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ocop-save-btn:hover {
+  opacity: 0.9;
+}
+
+
+/* ============================================
+   settings/slash-settings.css
+   ============================================ */
+/* Slash Command Settings */
+.ocop-slash-settings-desc {
+  margin-bottom: 12px;
+}
+
+.ocop-slash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 0 12px;
+}
+
+.ocop-slash-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+}
+
+.ocop-slash-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ocop-add-slash-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-add-slash-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-export-btn,
+.ocop-import-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-export-btn:hover,
+.ocop-import-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-slash-empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.ocop-slash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocop-slash-item-settings {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.ocop-slash-item-settings:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-slash-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-slash-item-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ocop-slash-item-name {
+  font-weight: 600;
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+}
+
+.ocop-slash-item-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ocop-slash-item-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.ocop-slash-item-preview {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-slash-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
+.ocop-edit-slash-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-edit-slash-btn:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.ocop-delete-slash-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-delete-slash-btn:hover {
+  opacity: 0.9;
+}
+
+/* Slash Command Modal */
+.ocop-slash-modal .modal-content {
+  max-width: 600px;
+  width: auto;
+}
+
+.ocop-slash-content-area {
+  width: 100%;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  resize: vertical;
+  margin-top: 8px;
+}
+
+.ocop-slash-content-area:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.ocop-slash-modal-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+
+/* ============================================
+   settings/mcp-settings.css
+   ============================================ */
+/* MCP Server Settings */
+.ocop-mcp-settings-desc {
+  margin-bottom: 12px;
+}
+
+.ocop-mcp-container {
+  margin-top: 8px;
+}
+
+.ocop-mcp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 0 12px;
+}
+
+.ocop-mcp-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+}
+
+.ocop-mcp-add-container {
+  position: relative;
+}
+
+.ocop-add-mcp-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+}
+
+.ocop-add-mcp-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.ocop-mcp-add-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background-color: var(--modal-background, var(--background-primary));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.ocop-mcp-add-dropdown.is-visible {
+  display: block;
+}
+
+.ocop-mcp-add-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-normal);
+}
+
+.ocop-mcp-add-option:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-mcp-add-option-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.ocop-mcp-add-option-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ocop-mcp-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.ocop-mcp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ocop-mcp-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.ocop-mcp-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-mcp-item-disabled {
+  opacity: 0.6;
+}
+
+.ocop-mcp-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.ocop-mcp-status-enabled {
+  background: var(--color-green);
+}
+
+.ocop-mcp-status-disabled {
+  background: var(--text-muted);
+}
+
+.ocop-mcp-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-mcp-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ocop-mcp-name {
+  font-weight: 600;
+}
+
+.ocop-mcp-type-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.ocop-mcp-context-saving-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.ocop-mcp-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-mcp-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ocop-mcp-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ocop-mcp-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ocop-mcp-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ocop-mcp-delete-btn:hover {
+  color: var(--text-error);
+}
+
+
+/* ============================================
+   settings/skills-settings.css
+   ============================================ */
+/* Settings - Skills List */
+.ocop-skills-settings-desc {
+  margin-bottom: 8px;
+}
+
+.ocop-skills-installed-desc {
+  margin-top: 16px;
+  margin-bottom: 12px;
+  padding: 0 12px;
+}
+
+.ocop-skills-list {
+  margin-bottom: 16px;
+}
+
+.ocop-skills-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.ocop-skills-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-skills-item-name {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(0, 180, 120, 0.15);
+  color: #00b478;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+  font-family: var(--font-monospace);
+}
+
+.ocop-skills-item-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ocop-skills-remove-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.ocop-skills-remove-btn:hover {
+  opacity: 0.9;
+}
+
+.ocop-skills-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* Status badge for skills */
+.ocop-skills-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ocop-skills-status-badge.installed {
+  background: rgba(0, 180, 120, 0.15);
+  color: #00b478;
+}
+
+.ocop-skills-status-badge.not-installed {
+  background: rgba(255, 170, 0, 0.15);
+  color: #ffaa00;
+}
+
+/* Built-in badge for bundled skills */
+.ocop-skills-builtin-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: rgba(100, 100, 100, 0.2);
+  color: var(--text-muted);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+
+/* ============================================
+   settings/skill-catalog.css
+   ============================================ */
+/* Settings - Skill Catalog Suggestions */
+.ocop-skill-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 12px 12px;
+}
+
+.ocop-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ocop-skill-chip:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.ocop-skill-chip-icon {
+  display: flex;
+  align-items: center;
+  color: inherit;
+}
+
+.ocop-skill-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+
+/* ============================================
+   settings/mcp-presets.css
+   ============================================ */
+/* MCP Preset Gallery */
+
+/* Recommended bundle callout */
+.ocop-mcp-recommended {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.ocop-mcp-recommended.is-installed {
+  border-color: var(--color-green);
+  opacity: 0.8;
+}
+
+.ocop-mcp-recommended-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.ocop-mcp-recommended-icon {
+  display: flex;
+  align-items: center;
+  color: var(--interactive-accent);
+}
+
+.ocop-mcp-recommended-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ocop-mcp-recommended-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.ocop-mcp-recommended-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s ease;
+}
+
+.ocop-mcp-recommended-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.ocop-mcp-recommended-installed {
+  font-size: 13px;
+  color: var(--color-green);
+  font-weight: 500;
+}
+
+/* Gallery section label */
+.ocop-mcp-gallery-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+  margin-bottom: 8px;
+}
+
+/* Preset card grid */
+.ocop-mcp-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ocop-mcp-preset-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color 0.15s ease;
+}
+
+.ocop-mcp-preset-card:hover {
+  border-color: var(--interactive-accent);
+}
+
+.ocop-mcp-preset-card.is-installed {
+  opacity: 0.6;
+}
+
+.ocop-mcp-preset-card.is-installed:hover {
+  border-color: var(--background-modifier-border);
+}
+
+/* Preset card icon */
+.ocop-mcp-preset-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.ocop-mcp-preset-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Preset card name */
+.ocop-mcp-preset-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+/* Preset card description */
+.ocop-mcp-preset-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 8px;
+  flex: 1;
+}
+
+/* API key badge */
+.ocop-mcp-preset-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border-radius: 4px;
+  width: fit-content;
+  margin-bottom: 8px;
+}
+
+/* Installed badge */
+.ocop-mcp-preset-installed-badge {
+  font-size: 12px;
+  color: var(--color-green);
+  font-weight: 500;
+  margin-top: auto;
+}
+
+/* Install button */
+.ocop-mcp-preset-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  margin-top: auto;
+  width: 100%;
+  transition: background 0.15s ease;
+}
+
+.ocop-mcp-preset-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* Gallery section wrapper */
+.ocop-mcp-gallery-section {
+  margin-bottom: 16px;
+}
+
+
+/* ============================================
+   accessibility.css
+   ============================================ */
+/* Accessibility - Focus Visible Styles */
+
+/* Collapsible headers - keyboard focus indicators */
+.ocop-tool-header:focus-visible,
+.ocop-thinking-header:focus-visible,
+.ocop-subagent-header:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Header buttons focus indicators */
+.ocop-header-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Action buttons in history dropdown */
+.ocop-action-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* History items focus indicator */
+.ocop-history-item-content:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* Approval modal buttons */
+.ocop-approval-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Toggle switch focus indicator */
+.ocop-toggle-switch:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Model selector button */
+.ocop-model-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Thinking budget selector */
+.ocop-thinking-current:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* File chips focus indicator */
+.ocop-file-chip:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Image chips focus indicator */
+.ocop-image-chip:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Remove buttons focus indicator */
+.ocop-file-chip-remove:focus-visible,
+.ocop-image-remove:focus-visible,
+.ocop-image-modal-close:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Settings buttons */
+.ocop-approved-remove-btn:focus-visible,
+.ocop-save-env-btn:focus-visible,
+.ocop-restore-snippet-btn:focus-visible,
+.ocop-edit-snippet-btn:focus-visible,
+.ocop-delete-snippet-btn:focus-visible,
+.ocop-cancel-btn:focus-visible,
+.ocop-save-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* Code language label (copy button) */
+.ocop-code-lang-label:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
