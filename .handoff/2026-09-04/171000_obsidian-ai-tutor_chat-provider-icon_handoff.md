@@ -37,3 +37,10 @@ Project: obsidian-ai-tutor | Task: chat-provider-icon | Scope: persistent-chat-p
 
 - In BRAT use `leeht1107/obsidian-ai-tutor`. The release asset triplet is required because BRAT installs `manifest.json`, `main.js`, and `styles.css`.
 - Do not add a provider abstraction, dynamic model list, proxy, daemon, or queue: the selector deliberately reuses current settings and direct native dispatch.
+
+## Follow-up UI defect repair (2026-09-04)
+
+- Toolbar controls now have one primary row (provider and model) plus a de-emphasized secondary row for optional controls; no capability was removed.
+- Native provider selection immediately changes the model control to `Native default` and suppresses Copilot options. The persisted Copilot model setting remains untouched, so the existing setting-driven Copilot/direct dispatch behavior is preserved when switching back.
+- Focused regression coverage asserts provider-aware model labels, provider refresh callback, and that the registered compass SVG markers are present in built `main.js`.
+- Verification: `npm test -- --runInBand tests/unit/features/chat/ObsidianCopilotView.test.ts` (5 passed), `npm run typecheck`, `npm run lint`, `npm run build`, and `git diff --check` passed. Visual QA by DOM/CSS inspection: primary actions are grouped in `.ocop-toolbar-primary`; secondary controls are in `.ocop-toolbar-secondary` with reduced opacity and separator; native model state is visibly muted and non-interactive.

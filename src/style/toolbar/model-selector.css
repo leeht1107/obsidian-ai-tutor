@@ -16,6 +16,12 @@
   border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
 }
 
+.ocop-model-btn.is-native-default {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.72;
+}
+
 .ocop-model-label {
   font-weight: 600;
   letter-spacing: 0.01em;

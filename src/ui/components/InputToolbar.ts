@@ -1,6 +1,7 @@
 import { Notice, setIcon } from 'obsidian';
 import * as os from 'os';
 
+import { type ProviderId } from '../../core/providers/providerRegistry';
 import type {
   CopilotMcpServer,
   CopilotModel,
@@ -18,6 +19,7 @@ import { findConflictingPath } from '../../utils/externalContext';
 
 export interface ToolbarSettings {
   model: CopilotModel;
+  selectedProvider: ProviderId;
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
   lastNonPlanPermissionMode?: 'agent' | 'ask';
@@ -92,6 +94,12 @@ function getProviderLabel(provider: string): string {
   return labels[provider] ?? provider;
 }
 
+/** The native CLIs own model choice; Copilot is the only provider with this list. */
+export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel): string {
+  if (provider !== 'copilot') return 'Native default';
+  return COPILOT_MODELS.find((option) => option.value === model)?.label ?? COPILOT_MODELS[0].label;
+}
+
 export class ModelSelector {
   private container: HTMLElement;
   private buttonEl: HTMLElement | null = null;
@@ -108,6 +116,10 @@ export class ModelSelector {
     return [...COPILOT_MODELS];
   }
 
+  private isCopilotSelected(): boolean {
+    return this.callbacks.getSettings().selectedProvider === 'copilot';
+  }
+
   private render() {
     this.container.empty();
     this.buttonEl = this.container.createDiv({ cls: 'ocop-model-btn' });
@@ -118,6 +130,15 @@ export class ModelSelector {
 
   updateDisplay() {
     if (!this.buttonEl) return;
+    if (!this.isCopilotSelected()) {
+      this.buttonEl.empty();
+      this.buttonEl.addClass('is-native-default');
+      this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
+      this.buttonEl.setAttribute('aria-label', 'Model selection is controlled by the selected provider');
+      return;
+    }
+    this.buttonEl.removeClass('is-native-default');
+    this.buttonEl.removeAttribute('aria-label');
     const currentModel = this.callbacks.getSettings().model;
     const models = this.getAvailableModels();
     const modelInfo = models.find((model) => model.value === currentModel) ?? models[0];
@@ -132,6 +153,11 @@ export class ModelSelector {
   renderOptions() {
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
+    if (!this.isCopilotSelected()) {
+      this.dropdownEl.setAttribute('aria-hidden', 'true');
+      return;
+    }
+    this.dropdownEl.removeAttribute('aria-hidden');
 
     const currentModel = this.callbacks.getSettings().model;
     const models = [...this.getAvailableModels()].sort((a, b) => {
@@ -916,6 +942,7 @@ export function createInputToolbar(
   learningGroupEl: HTMLElement,
   callbacks: ToolbarCallbacks
 ): {
+  primaryToolbarEl: HTMLElement;
   modelSelector: ModelSelector;
   thinkingBudgetSelector: ThinkingBudgetSelector;
   contextUsageMeter: ContextUsageMeter;
@@ -926,18 +953,21 @@ export function createInputToolbar(
   quizLauncherButton: QuizLauncherButton;
   socraticLauncherButton: SocraticLauncherButton;
 } {
-  const modelSelector = new ModelSelector(parentEl, callbacks);
-  const thinkingBudgetSelector = new ThinkingBudgetSelector(parentEl, callbacks);
-  const contextUsageMeter = new ContextUsageMeter(parentEl);
-  const externalContextSelector = new ExternalContextSelector(parentEl);
-  const webSearchToggle = new WebSearchToggle(parentEl);
-  const mcpServerSelector = new McpServerSelector(parentEl);
-  const permissionToggle = new PermissionToggle(parentEl, callbacks);
+  const primaryToolbarEl = parentEl.createDiv({ cls: 'ocop-toolbar-primary' });
+  const secondaryToolbarEl = parentEl.createDiv({ cls: 'ocop-toolbar-secondary' });
+  const modelSelector = new ModelSelector(primaryToolbarEl, callbacks);
+  const thinkingBudgetSelector = new ThinkingBudgetSelector(secondaryToolbarEl, callbacks);
+  const contextUsageMeter = new ContextUsageMeter(secondaryToolbarEl);
+  const externalContextSelector = new ExternalContextSelector(secondaryToolbarEl);
+  const webSearchToggle = new WebSearchToggle(secondaryToolbarEl);
+  const mcpServerSelector = new McpServerSelector(secondaryToolbarEl);
+  const permissionToggle = new PermissionToggle(secondaryToolbarEl, callbacks);
   const quizLauncherButton = new QuizLauncherButton(learningGroupEl, callbacks);
   const socraticLauncherButton = new SocraticLauncherButton(learningGroupEl, callbacks);
 
   return {
     modelSelector,
+    primaryToolbarEl,
     thinkingBudgetSelector,
     contextUsageMeter,
     externalContextSelector,

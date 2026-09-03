@@ -6718,6 +6718,11 @@ function getProviderLabel(provider) {
   };
   return (_a = labels[provider]) != null ? _a : provider;
 }
+function getModelSelectorLabel(provider, model) {
+  var _a, _b;
+  if (provider !== "copilot") return "Native default";
+  return (_b = (_a = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _a.label) != null ? _b : COPILOT_MODELS[0].label;
+}
 var ModelSelector = class {
   constructor(parentEl, callbacks) {
     this.buttonEl = null;
@@ -6729,6 +6734,9 @@ var ModelSelector = class {
   getAvailableModels() {
     return [...COPILOT_MODELS];
   }
+  isCopilotSelected() {
+    return this.callbacks.getSettings().selectedProvider === "copilot";
+  }
   render() {
     this.container.empty();
     this.buttonEl = this.container.createDiv({ cls: "ocop-model-btn" });
@@ -6739,6 +6747,15 @@ var ModelSelector = class {
   updateDisplay() {
     var _a;
     if (!this.buttonEl) return;
+    if (!this.isCopilotSelected()) {
+      this.buttonEl.empty();
+      this.buttonEl.addClass("is-native-default");
+      this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
+      this.buttonEl.setAttribute("aria-label", "Model selection is controlled by the selected provider");
+      return;
+    }
+    this.buttonEl.removeClass("is-native-default");
+    this.buttonEl.removeAttribute("aria-label");
     const currentModel = this.callbacks.getSettings().model;
     const models = this.getAvailableModels();
     const modelInfo = (_a = models.find((model) => model.value === currentModel)) != null ? _a : models[0];
@@ -6751,6 +6768,11 @@ var ModelSelector = class {
   renderOptions() {
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
+    if (!this.isCopilotSelected()) {
+      this.dropdownEl.setAttribute("aria-hidden", "true");
+      return;
+    }
+    this.dropdownEl.removeAttribute("aria-hidden");
     const currentModel = this.callbacks.getSettings().model;
     const models = [...this.getAvailableModels()].sort((a, b) => {
       const costDiff = getCostOrder(a.costLabel) - getCostOrder(b.costLabel);
@@ -7410,17 +7432,20 @@ var WebSearchToggle = class {
   }
 };
 function createInputToolbar(parentEl, learningGroupEl, callbacks) {
-  const modelSelector = new ModelSelector(parentEl, callbacks);
-  const thinkingBudgetSelector = new ThinkingBudgetSelector(parentEl, callbacks);
-  const contextUsageMeter = new ContextUsageMeter(parentEl);
-  const externalContextSelector = new ExternalContextSelector(parentEl);
-  const webSearchToggle = new WebSearchToggle(parentEl);
-  const mcpServerSelector = new McpServerSelector(parentEl);
-  const permissionToggle = new PermissionToggle(parentEl, callbacks);
+  const primaryToolbarEl = parentEl.createDiv({ cls: "ocop-toolbar-primary" });
+  const secondaryToolbarEl = parentEl.createDiv({ cls: "ocop-toolbar-secondary" });
+  const modelSelector = new ModelSelector(primaryToolbarEl, callbacks);
+  const thinkingBudgetSelector = new ThinkingBudgetSelector(secondaryToolbarEl, callbacks);
+  const contextUsageMeter = new ContextUsageMeter(secondaryToolbarEl);
+  const externalContextSelector = new ExternalContextSelector(secondaryToolbarEl);
+  const webSearchToggle = new WebSearchToggle(secondaryToolbarEl);
+  const mcpServerSelector = new McpServerSelector(secondaryToolbarEl);
+  const permissionToggle = new PermissionToggle(secondaryToolbarEl, callbacks);
   const quizLauncherButton = new QuizLauncherButton(learningGroupEl, callbacks);
   const socraticLauncherButton = new SocraticLauncherButton(learningGroupEl, callbacks);
   return {
     modelSelector,
+    primaryToolbarEl,
     thinkingBudgetSelector,
     contextUsageMeter,
     externalContextSelector,
@@ -18527,10 +18552,10 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       }
     );
     const inputToolbar = this.inputWrapper.createDiv({ cls: "ocop-input-toolbar" });
-    this.buildProviderSelector(inputToolbar);
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
       getSettings: () => ({
         model: this.plugin.settings.model,
+        selectedProvider: this.plugin.settings.selectedProvider,
         thinkingBudget: this.plugin.settings.thinkingBudget,
         permissionMode: this.plugin.settings.permissionMode,
         lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode
@@ -18629,6 +18654,11 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
         }));
       }
     });
+    this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
+      var _a2, _b;
+      (_a2 = this.modelSelector) == null ? void 0 : _a2.updateDisplay();
+      (_b = this.modelSelector) == null ? void 0 : _b.renderOptions();
+    });
     this.modelSelector = toolbarComponents.modelSelector;
     this.thinkingBudgetSelector = toolbarComponents.thinkingBudgetSelector;
     this.contextUsageMeter = toolbarComponents.contextUsageMeter;
@@ -18648,8 +18678,8 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       (_a2 = this.fileContextManager) == null ? void 0 : _a2.preScanExternalContexts();
     });
   }
-  buildProviderSelector(toolbar) {
-    createProviderSelector(toolbar, this.plugin);
+  buildProviderSelector(toolbar, onProviderChange) {
+    createProviderSelector(toolbar, this.plugin, onProviderChange);
   }
   initializeControllers() {
     var _a;
@@ -18928,7 +18958,7 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
     (_a = this.permissionToggle) == null ? void 0 : _a.setPlanModeActive(isPlanMode || isPlanModeRequested);
   }
 };
-function createProviderSelector(toolbar, plugin) {
+function createProviderSelector(toolbar, plugin, onProviderChange) {
   const label = toolbar.createEl("label", {
     cls: "ocop-provider-selector"
   });
@@ -18946,6 +18976,7 @@ function createProviderSelector(toolbar, plugin) {
     if (!PROVIDERS.some((item) => item.id === provider)) return;
     plugin.settings.selectedProvider = provider;
     await plugin.saveSettings();
+    onProviderChange == null ? void 0 : onProviderChange(provider);
   });
   return select;
 }

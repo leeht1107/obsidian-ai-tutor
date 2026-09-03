@@ -88,11 +88,35 @@
 
 /* Input toolbar — model/thinking/web/tools/permission only (learning group moved to chips row) */
 .ocop-input-toolbar {
+  padding: 6px 8px 8px;
+}
+
+/* Keep the composer action and optional controls visually separate. */
+.ocop-toolbar-primary,
+.ocop-toolbar-secondary {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 6px 8px 8px 8px;
+  min-width: 0;
+}
+
+.ocop-toolbar-primary {
   gap: 6px;
+}
+
+.ocop-toolbar-secondary {
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 42%, transparent);
+  opacity: 0.78;
+}
+
+.ocop-toolbar-secondary > * {
+  margin-left: 6px;
+}
+
+.ocop-toolbar-secondary > :first-child {
+  margin-left: 0;
 }
 
 /* Compact provider choice; persisted globally and used by the next request. */
