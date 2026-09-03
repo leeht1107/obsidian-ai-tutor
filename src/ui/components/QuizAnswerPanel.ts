@@ -13,12 +13,16 @@ type QuizAnswerPanelElement = HTMLElement & {
   [QUIZ_PANEL_DISMISS_KEY]?: () => void;
 };
 
+const QUIZ_STUCK_ANSWER = '모르겠어요. 정답과 핵심 개념을 알려주세요.';
+
 /** Options for creating the quiz answer panel. */
 export interface QuizAnswerPanelOptions {
   containerEl: HTMLElement;
   quizQuestion: QuizQuestionMeta;
   onAnswer: (answer: string) => void;
   onCancel: () => void;
+  /** Optional hint shortcut. Does not close the panel or resolve the answer. */
+  onHint?: () => void;
 }
 
 /** Find the input container and wrapper elements. */
@@ -38,6 +42,7 @@ export class QuizAnswerPanel {
   private panelEl: HTMLElement;
   private onAnswer: (answer: string) => void;
   private onCancel: () => void;
+  private onHint?: () => void;
   private isDestroyed = false;
   private currentOptionIndex = 0;
   private optionsEl: HTMLElement | null = null;
@@ -52,6 +57,7 @@ export class QuizAnswerPanel {
     this.quizQuestion = options.quizQuestion;
     this.onAnswer = options.onAnswer;
     this.onCancel = options.onCancel;
+    this.onHint = options.onHint;
 
     const { inputContainer, inputWrapper } = findInputElements(options.containerEl);
     this.inputContainer = inputContainer;
@@ -115,7 +121,44 @@ export class QuizAnswerPanel {
       panel.appendChild(this.optionsEl);
     }
 
+    panel.appendChild(this.createQuickActions());
+
     return panel;
+  }
+
+  /** Renders the 힌트 / 모르겠어요 shortcut row (PRD §8.2). */
+  private createQuickActions(): HTMLElement {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'ocop-quiz-quick-actions';
+
+    // Prevent Enter/Space on these buttons from bubbling into the panel's
+    // own keydown handler, which would otherwise re-submit the currently
+    // focused option (see handleKeyDown).
+    const stopActivationBubble = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.stopPropagation();
+      }
+    };
+
+    if (this.onHint) {
+      const hintBtn = document.createElement('button');
+      hintBtn.type = 'button';
+      hintBtn.className = 'ocop-quiz-quick-action-btn';
+      hintBtn.textContent = '💡 힌트';
+      hintBtn.addEventListener('keydown', stopActivationBubble);
+      hintBtn.addEventListener('click', () => this.onHint?.());
+      rowEl.appendChild(hintBtn);
+    }
+
+    const stuckBtn = document.createElement('button');
+    stuckBtn.type = 'button';
+    stuckBtn.className = 'ocop-quiz-quick-action-btn';
+    stuckBtn.textContent = '😵 모르겠어요';
+    stuckBtn.addEventListener('keydown', stopActivationBubble);
+    stuckBtn.addEventListener('click', () => this.submitAnswer(QUIZ_STUCK_ANSWER));
+    rowEl.appendChild(stuckBtn);
+
+    return rowEl;
   }
 
   private renderFreeTextInput(panel: HTMLElement): void {
@@ -362,7 +405,8 @@ export class QuizAnswerPanel {
  */
 export function showQuizAnswerPanel(
   containerEl: HTMLElement,
-  quizQuestion: QuizQuestionMeta
+  quizQuestion: QuizQuestionMeta,
+  onHint?: () => void
 ): Promise<{ answer: string } | { cancelled: true }> {
   return new Promise((resolve) => {
     new QuizAnswerPanel({
@@ -370,6 +414,7 @@ export function showQuizAnswerPanel(
       quizQuestion,
       onAnswer: (answer) => resolve({ answer }),
       onCancel: () => resolve({ cancelled: true }),
+      onHint,
     });
   });
 }

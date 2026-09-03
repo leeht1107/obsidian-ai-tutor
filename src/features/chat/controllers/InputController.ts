@@ -11,6 +11,7 @@ import { Notice, TFile } from 'obsidian';
 import type { SlashCommandManager } from '../../../core/commands';
 import {
   buildQuizContinuationPrompt,
+  buildQuizHintPrompt,
   buildSocraticContinuationPrompt,
   inferSocraticSupportLevel,
   parseQuizDisplayContent,
@@ -85,7 +86,7 @@ export interface InputControllerDeps {
   getComponent: () => Component;
   setPlanModeActive: (active: boolean) => void;
   getPlanBanner: () => PlanBanner | null;
-  showSocraticBanner?: (scopeLabel: string, focusText?: string) => void;
+  showSocraticBanner?: (scopeLabel: string, focusText?: string, onHint?: () => void, onStuck?: () => void) => void;
   hideSocraticBanner?: () => void;
   generateId: () => string;
   resetContextMeter: () => void;
@@ -144,6 +145,19 @@ export class InputController {
   private exitSocraticMode(): void {
     this.deps.state.socraticSession = null;
     this.deps.hideSocraticBanner?.();
+  }
+
+  /** Quiz 힌트 shortcut (PRD §8.2): asks for one hint without grading or advancing. */
+  private requestQuizHint(): void {
+    const { state } = this.deps;
+    if (state.isStreaming || !state.quizSession) return;
+    void this.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
+  }
+
+  /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
+  private sendSocraticShortcut(content: string): void {
+    if (!this.deps.state.socraticSession) return;
+    void this.sendMessage({ content });
   }
 
   private enableQuizExternalTools(): void {
@@ -231,6 +245,8 @@ export class InputController {
     displayContentOverride?: string;
     quizSessionInit?: QuizSessionInit;
     socraticSessionInit?: SocraticSessionInit;
+    /** Sends a non-advancing quiz hint request instead of grading the current answer. */
+    quizHintRequest?: boolean;
   }): Promise<void> {
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
@@ -376,7 +392,9 @@ export class InputController {
       };
       this.deps.showSocraticBanner?.(
         socraticSessionInit.scopeLabel,
-        socraticSessionInit.focusText
+        socraticSessionInit.focusText,
+        () => this.sendSocraticShortcut('힌트 주세요'),
+        () => this.sendSocraticShortcut('모르겠어요. 조금 더 설명해 주세요.')
       );
     }
 
@@ -527,14 +545,20 @@ export class InputController {
         quizSession.currentQuestion,
         quizSession.totalQuestions
       );
-      const quizControl = buildQuizContinuationPrompt({
-        currentQuestion: quizSession.currentQuestion,
-        totalQuestions: quizSession.totalQuestions,
-        difficulty: quizSession.difficulty,
-        sourceInstruction: quizSession.sourceInstruction,
-        focusText: quizSession.focusText,
-        questionContext,
-      });
+      const quizControl = options?.quizHintRequest
+        ? buildQuizHintPrompt({
+          sourceInstruction: quizSession.sourceInstruction,
+          focusText: quizSession.focusText,
+          questionContext,
+        })
+        : buildQuizContinuationPrompt({
+          currentQuestion: quizSession.currentQuestion,
+          totalQuestions: quizSession.totalQuestions,
+          difficulty: quizSession.difficulty,
+          sourceInstruction: quizSession.sourceInstruction,
+          focusText: quizSession.focusText,
+          questionContext,
+        });
       promptToSend = `${quizControl}
 
 ${promptToSend}`;
@@ -622,7 +646,7 @@ ${promptToSend}`;
       }
       state.activeSubagents.clear();
 
-      if (state.quizSession && !quizSessionInit && !wasInterrupted) {
+      if (state.quizSession && !quizSessionInit && !wasInterrupted && !options?.quizHintRequest) {
         if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
           state.quizSession = {
             ...state.quizSession,
@@ -651,10 +675,14 @@ ${promptToSend}`;
 
       // Show quiz answer panel if the assistant message has a quiz question
       let skipPostCompletionFollowups = false;
-      if (assistantMsg.quizQuestion && !wasInterrupted) {
+      if (assistantMsg.quizQuestion && !wasInterrupted && !options?.quizHintRequest) {
         const quizContainerEl = this.deps.getMessagesEl().parentElement;
         if (quizContainerEl) {
-          const result = await showQuizAnswerPanel(quizContainerEl, assistantMsg.quizQuestion);
+          const result = await showQuizAnswerPanel(
+            quizContainerEl,
+            assistantMsg.quizQuestion,
+            () => this.requestQuizHint()
+          );
           const isStillCurrentConversation = state.currentConversationId === conversationIdAtSend;
           const isAssistantMessageStillPresent = state.messages.some((msg) => msg.id === assistantMsg.id);
           if (!isStillCurrentConversation || !isAssistantMessageStillPresent) {

@@ -474,8 +474,8 @@ export class ObsidianCopilotView extends ItemView {
         this.updatePlanModeUiState();
       },
       getPlanBanner: () => this.planBanner,
-      showSocraticBanner: (scopeLabel, focusText) => {
-        this.socraticBanner?.show(scopeLabel, focusText);
+      showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
+        this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);
         this.socraticLauncherButton?.setActive(true);
       },
       hideSocraticBanner: () => {

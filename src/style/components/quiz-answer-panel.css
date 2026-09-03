@@ -107,6 +107,30 @@
   cursor: not-allowed;
 }
 
+/* Quick actions: 힌트 / 모르겠어요 (PRD §8.2) */
+.ocop-quiz-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-left: 16px;
+}
+
+.ocop-quiz-quick-action-btn {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ocop-quiz-quick-action-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 /* Free-text answer input */
 .ocop-quiz-answer-freetext {
   display: flex;

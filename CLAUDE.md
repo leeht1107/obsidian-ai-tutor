@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Provider foundation is verified and committed at `ac70b42`; receipt-backed learning-UX production is blocked because both Luna and Terra workers hit the same Codex endpoint 404 before work.
-- Next likely action: Restore a receipt-capable worker endpoint or authenticated alternate surface before a fresh bounded learning-UX task. agy remains receipt-blocked on Orca authentication/startup.
+- Status: Provider foundation and the minimal Phase 5 Quiz/Socratic hint/stuck slice are independently verified; Claude completed the latter after Luna and Terra Codex endpoint failures.
+- Next likely action: Produce deterministic direct-process performance evidence and completion documentation, then evaluate. agy remains receipt-blocked on Orca authentication/startup.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-03/145300_obsidian-ai-tutor_worker-runtime-blocker_handoff.md`
+- Living handoff: `.handoff/2026-09-03/150400_obsidian-ai-tutor_learning-ux_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 

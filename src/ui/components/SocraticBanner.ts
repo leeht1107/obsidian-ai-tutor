@@ -37,8 +37,11 @@ export class SocraticBanner {
 
   /**
    * Show the banner with the given session info.
+   * `onHint`/`onStuck` wire the 힌트/모르겠어요 shortcuts (PRD §9.1) — both are
+   * plain shortcuts for text the existing STUCK_PATTERNS-driven adaptive logic
+   * already understands, so they need no new Socratic engine.
    */
-  show(scopeLabel: string, focusText?: string): void {
+  show(scopeLabel: string, focusText?: string, onHint?: () => void, onStuck?: () => void): void {
     if (!this.containerEl) return;
 
     if (this.bannerEl) {
@@ -90,6 +93,10 @@ export class SocraticBanner {
 
     this.bannerEl.appendChild(headerEl);
 
+    if (onHint || onStuck) {
+      this.bannerEl.appendChild(this.createQuickActions(onHint, onStuck));
+    }
+
     // Content area (hidden by default)
     this.contentEl = document.createElement('div');
     this.contentEl.id = 'ocop-socratic-banner-content';
@@ -131,6 +138,32 @@ export class SocraticBanner {
     } else {
       this.containerEl.appendChild(this.bannerEl);
     }
+  }
+
+  /** Renders the always-visible 힌트 / 모르겠어요 shortcut row. */
+  private createQuickActions(onHint?: () => void, onStuck?: () => void): HTMLElement {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'ocop-socratic-banner-actions';
+
+    if (onHint) {
+      const hintBtn = document.createElement('button');
+      hintBtn.type = 'button';
+      hintBtn.className = 'ocop-socratic-banner-action-btn';
+      hintBtn.textContent = '💡 힌트';
+      hintBtn.addEventListener('click', () => onHint());
+      rowEl.appendChild(hintBtn);
+    }
+
+    if (onStuck) {
+      const stuckBtn = document.createElement('button');
+      stuckBtn.type = 'button';
+      stuckBtn.className = 'ocop-socratic-banner-action-btn';
+      stuckBtn.textContent = '😵 모르겠어요';
+      stuckBtn.addEventListener('click', () => onStuck());
+      rowEl.appendChild(stuckBtn);
+    }
+
+    return rowEl;
   }
 
   /**

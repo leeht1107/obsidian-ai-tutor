@@ -565,6 +565,27 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.quizSession?.currentQuestion).toBe(3);
     });
 
+    it('sends a non-advancing hint prompt for quizHintRequest and leaves the current question unchanged', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      deps.state.quizSession = {
+        totalQuestions: 5,
+        currentQuestion: 2,
+        scopeLabel: '/quiz · 현재 노트 · db.md · 5문제 · 중 · 전체 범위',
+        difficulty: '중',
+        sourceInstruction: 'Use only the current note as ground truth source material: @db.md',
+      };
+
+      await controller.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
+
+      const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
+      expect(prompt).toContain('QUIZ HINT REQUEST');
+      expect(prompt).toContain('Do NOT reveal the correct answer');
+      expect(prompt).not.toContain('You are continuing an active quiz');
+      expect(prompt).toContain('@db.md');
+      // The hint must not consume a turn — the student still needs to answer question 2.
+      expect(deps.state.quizSession?.currentQuestion).toBe(2);
+    });
+
     it('enables web search and context7 for high-difficulty quiz launches', () => {
       const setEnabled = jest.fn();
       const addMentionedServers = jest.fn();
@@ -621,7 +642,12 @@ describe('InputController - Message Queue', () => {
         expect(deps.state.socraticSession?.scopeLabel).toBe('학습 범위');
         expect(deps.state.socraticSession?.sourceInstruction).toBe('The following note is the source material for the dialogue: @db.md');
         expect(deps.state.socraticSession?.supportLevel).toBe(1);
-        expect(showSocraticBanner).toHaveBeenCalledWith('학습 범위', '트랜잭션');
+        expect(showSocraticBanner).toHaveBeenCalledWith(
+          '학습 범위',
+          '트랜잭션',
+          expect.any(Function),
+          expect.any(Function)
+        );
         expect(container.querySelector('.ocop-quiz-answer-panel')).toBeNull();
         expect(inputWrapper.style.display).toBe('');
       });

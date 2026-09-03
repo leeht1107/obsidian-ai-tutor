@@ -37,6 +37,12 @@ export interface QuizQuestionContext {
   questionText: string;
 }
 
+export interface QuizHintPromptInput {
+  sourceInstruction?: string;
+  focusText?: string;
+  questionContext?: QuizQuestionContext;
+}
+
 const DIFFICULTY_INSTRUCTIONS: Record<QuizDifficulty, string> = {
   '하': 'Ask simple recall/definition questions. Keep choices straightforward. Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.',
   '중': 'Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.',
@@ -189,6 +195,29 @@ End with: 💡 조교 한마디: encouragement + study tip based on error patter
 If ALL correct: congratulate and highlight the most important concept.
 
 All output must be in Korean. Do NOT ask another question. Do NOT skip steps 2 and 3.`;
+}
+
+/** Builds a non-advancing hint prompt for the QuizAnswerPanel's 힌트 shortcut. */
+export function buildQuizHintPrompt(input: QuizHintPromptInput): string {
+  const questionContextInstruction = input.questionContext
+    ? [
+      'Give a hint for this exact quiz question only, from the previous assistant turn:',
+      '<quiz_question_to_grade>',
+      input.questionContext.questionText,
+      '</quiz_question_to_grade>',
+    ].join('\n')
+    : '';
+
+  return [
+    '[QUIZ HINT REQUEST — MANDATORY]',
+    'The student is stuck on the current question and pressed the hint button.',
+    'Give exactly ONE source-grounded hint. Do NOT reveal the correct answer and do NOT eliminate any answer choices.',
+    'Do NOT grade the student, do NOT show a score, and do NOT output a "## {N}/{T}번 문제" header — the current question stays active and unanswered.',
+    questionContextInstruction,
+    input.sourceInstruction,
+    input.focusText ? `Stay focused on this topic: ${input.focusText}.` : '',
+    'Keep the hint to 1-2 short sentences in Korean.',
+  ].filter(Boolean).join('\n');
 }
 
 function isQuizDifficulty(value: string | undefined): value is QuizDifficulty {

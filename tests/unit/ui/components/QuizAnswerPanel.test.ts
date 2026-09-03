@@ -191,4 +191,86 @@ describe('QuizAnswerPanel', () => {
     expect(inputWrapper.style.display).toBe('none');
     (global as any).document = originalDocument;
   });
+
+  it('fires the hint shortcut without resolving the answer or closing the panel', () => {
+    const originalDocument = (global as any).document;
+    const mockDocument = createMockDocument();
+    (global as any).document = mockDocument;
+    const { container } = createQuizContainer(mockDocument);
+    const onAnswer = jest.fn();
+    const onCancel = jest.fn();
+    const onHint = jest.fn();
+
+    new QuizAnswerPanel({
+      containerEl: container as unknown as HTMLElement,
+      quizQuestion: createQuizQuestion(),
+      onAnswer,
+      onCancel,
+      onHint,
+    });
+
+    const hintBtn = container
+      .querySelectorAll('.ocop-quiz-quick-action-btn')
+      .find((el) => el.textContent.includes('힌트'));
+    expect(hintBtn).toBeDefined();
+
+    hintBtn!.dispatchEvent({ type: 'click' });
+
+    expect(onHint).toHaveBeenCalledTimes(1);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    // The panel is still mounted — the student hasn't answered yet.
+    expect(container.querySelector('.ocop-quiz-answer-panel')).not.toBeNull();
+
+    (global as any).document = originalDocument;
+  });
+
+  it('submits the fixed stuck answer and closes the panel like any other answer', () => {
+    const originalDocument = (global as any).document;
+    const mockDocument = createMockDocument();
+    (global as any).document = mockDocument;
+    const { container, inputWrapper } = createQuizContainer(mockDocument);
+    const onAnswer = jest.fn();
+
+    new QuizAnswerPanel({
+      containerEl: container as unknown as HTMLElement,
+      quizQuestion: createQuizQuestion(),
+      onAnswer,
+      onCancel: jest.fn(),
+    });
+
+    const stuckBtn = container
+      .querySelectorAll('.ocop-quiz-quick-action-btn')
+      .find((el) => el.textContent.includes('모르겠어요'));
+    expect(stuckBtn).toBeDefined();
+
+    stuckBtn!.dispatchEvent({ type: 'click' });
+
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer.mock.calls[0][0]).toContain('모르겠어요');
+    expect(container.querySelector('.ocop-quiz-answer-panel')).toBeNull();
+    expect(inputWrapper.style.display).toBe('');
+
+    (global as any).document = originalDocument;
+  });
+
+  it('omits the hint button when no onHint callback is provided, but always shows the stuck shortcut', () => {
+    const originalDocument = (global as any).document;
+    const mockDocument = createMockDocument();
+    (global as any).document = mockDocument;
+    const { container } = createQuizContainer(mockDocument);
+
+    new QuizAnswerPanel({
+      containerEl: container as unknown as HTMLElement,
+      quizQuestion: createQuizQuestion(),
+      onAnswer: jest.fn(),
+      onCancel: jest.fn(),
+    });
+
+    const buttons = container.querySelectorAll('.ocop-quiz-quick-action-btn');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('모르겠어요');
+
+    (global as any).document = originalDocument;
+  });
 });

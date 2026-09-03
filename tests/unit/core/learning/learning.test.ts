@@ -1,5 +1,6 @@
 import {
   buildQuizContinuationPrompt,
+  buildQuizHintPrompt,
   buildSocraticContinuationPrompt,
   buildSocraticPrompt,
   inferSocraticSupportLevel,
@@ -83,6 +84,39 @@ describe('learning helpers', () => {
       expect(prompt).toContain('<quiz_question_to_grade>');
       expect(prompt).toContain('D. 성능 향상');
       expect(prompt).toContain('source notes only as the answer key/ground truth');
+    });
+
+    it('keeps quiz hint requests from revealing the answer or advancing the question', () => {
+      const prompt = buildQuizHintPrompt({
+        sourceInstruction: 'Use only the current note as ground truth source material: @db.md',
+        focusText: 'CTE vs VIEW',
+        questionContext: {
+          questionNumber: 2,
+          totalQuestions: 5,
+          questionText: [
+            '## 2/5번 문제',
+            '',
+            '#### CTE와 VIEW의 차이로 옳은 것은?',
+            '',
+            'A. CTE는 영구 저장된다',
+            'B. VIEW는 세션에 한정된다',
+          ].join('\n'),
+        },
+      });
+
+      expect(prompt).toContain('Do NOT reveal the correct answer');
+      expect(prompt).toContain('Do NOT grade the student');
+      expect(prompt).toContain('do NOT output a "## {N}/{T}번 문제" header');
+      expect(prompt).toContain('<quiz_question_to_grade>');
+      expect(prompt).toContain('B. VIEW는 세션에 한정된다');
+      expect(prompt).toContain('@db.md');
+      expect(prompt).toContain('CTE vs VIEW');
+    });
+
+    it('still asks for exactly one hint when there is no prior question context', () => {
+      const prompt = buildQuizHintPrompt({});
+      expect(prompt).toContain('exactly ONE source-grounded hint');
+      expect(prompt).not.toContain('<quiz_question_to_grade>');
     });
 
     it('keeps Socratic continuations constrained to Korean', () => {

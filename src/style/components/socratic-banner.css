@@ -83,6 +83,27 @@
   flex-shrink: 0;
 }
 
+/* Quick actions: 힌트 / 모르겠어요 (PRD §9.1) */
+.ocop-socratic-banner-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 10px 12px;
+}
+
+.ocop-socratic-banner-action-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 155, 255, 0.28);
+  background: rgba(124, 155, 255, 0.1);
+  color: #a5b4fc;
+  cursor: pointer;
+}
+
+.ocop-socratic-banner-action-btn:hover {
+  background: rgba(124, 155, 255, 0.2);
+}
+
 /* Content area */
 .ocop-socratic-banner-content {
   padding: 0 12px 12px 12px;
