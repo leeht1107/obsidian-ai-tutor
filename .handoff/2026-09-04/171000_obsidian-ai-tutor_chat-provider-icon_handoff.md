@@ -17,7 +17,7 @@ Project: obsidian-ai-tutor | Task: chat-provider-icon | Scope: persistent-chat-p
 - Added a compact provider selector at the beginning of the chat toolbar. It persists the existing global `selectedProvider` setting, and the existing direct bridge reads that setting for the next request.
 - Replaced the inherited embedded icon with a native SVG: the Obsidian-purple compass star. No raster data or Copilot branding remains in the icon asset.
 - Added regression coverage for all four choices, persistence on change, and the SVG's semantic/vector form.
-- Rebuilt and force-tracked `main.js` and `styles.css`; release `0.1.1` must contain both plus `manifest.json` for BRAT.
+- Rebuilt and force-tracked `main.js` and `styles.css`; release `0.1.1` contains both plus `manifest.json` for BRAT.
 
 ## Lifecycle Receipts
 
@@ -31,7 +31,7 @@ Project: obsidian-ai-tutor | Task: chat-provider-icon | Scope: persistent-chat-p
 
 - `npm run typecheck`, `npm run lint`, `npm test -- --runInBand`, `npm run build`, and `git diff --check` passed.
 - Full Jest result: 48 suites / 917 tests passed. Direct dispatch p95: 0.420 ms.
-- After public release, verify the exact BRAT asset set with `gh release view 0.1.1 --repo leeht1107/obsidian-ai-tutor --json assets`.
+- Public verification: `main` and release tag `0.1.1` resolve to `8b4b76f5dd751b8f77a9aaa9eef3dedfa17910a4`; `manifest.json`, `main.js`, and `styles.css` raw tag URLs each returned HTTP 200.
 
 ## Resume Guidance
 
