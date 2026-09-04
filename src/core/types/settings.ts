@@ -135,6 +135,7 @@ export interface KeyboardNavigationSettings {
 export interface ObsidianCopilotSettings {
   selectedProvider: SelectedProvider;
   providerCliPaths: Partial<Record<SelectedProvider, string>>;
+  providerModels?: Partial<Record<SelectedProvider, string>>;
   userName: string;
   enableBlocklist: boolean;
   blockedCommands: PlatformBlockedCommands;
@@ -164,6 +165,7 @@ export interface ObsidianCopilotSettings {
 export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   selectedProvider: 'copilot',
   providerCliPaths: {},
+  providerModels: {},
   userName: '',
   enableBlocklist: true,
   blockedCommands: getDefaultBlockedCommands(),

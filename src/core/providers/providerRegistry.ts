@@ -24,15 +24,23 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
   { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', status: 'manual-setup' },
 ];
 
+/** Concise verified aliases; an empty list means the CLI owns discovery. */
+export const NATIVE_PROVIDER_MODELS: Readonly<Record<Exclude<ProviderId, 'copilot'>, readonly string[]>> = {
+  claude: ['sonnet', 'opus', 'haiku'],
+  codex: ['gpt-5.4', 'o3'],
+  agy: [],
+};
+
 export function getProviderDescriptor(id: ProviderId): ProviderDescriptor {
   return PROVIDERS.find((provider) => provider.id === id) ?? PROVIDERS[0];
 }
 
-export function buildNativeProviderCommand(id: ProviderId, prompt: string): { command: string; args: string[] } {
+export function buildNativeProviderCommand(id: ProviderId, prompt: string, model = ''): { command: string; args: string[] } {
+  const selectedModel = model.trim();
   switch (id) {
-    case 'claude': return { command: 'claude', args: ['-p', prompt, '--output-format', 'stream-json', '--verbose'] };
-    case 'codex': return { command: 'codex', args: ['exec', '--json', prompt] };
-    case 'agy': return { command: 'agy', args: ['-p', prompt] };
+    case 'claude': return { command: 'claude', args: ['-p', ...(selectedModel ? ['--model', selectedModel] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
+    case 'codex': return { command: 'codex', args: ['exec', ...(selectedModel ? ['--model', selectedModel] : []), '--json', prompt] };
+    case 'agy': return { command: 'agy', args: [...(selectedModel ? ['--model', selectedModel] : []), '-p', prompt] };
     case 'copilot': return { command: 'copilot', args: ['-p', prompt] };
   }
 }

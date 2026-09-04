@@ -677,14 +677,15 @@ function getProviderDescriptor(id) {
   var _a;
   return (_a = PROVIDERS.find((provider) => provider.id === id)) != null ? _a : PROVIDERS[0];
 }
-function buildNativeProviderCommand(id, prompt) {
+function buildNativeProviderCommand(id, prompt, model = "") {
+  const selectedModel = model.trim();
   switch (id) {
     case "claude":
-      return { command: "claude", args: ["-p", prompt, "--output-format", "stream-json", "--verbose"] };
+      return { command: "claude", args: ["-p", ...selectedModel ? ["--model", selectedModel] : [], prompt, "--output-format", "stream-json", "--verbose"] };
     case "codex":
-      return { command: "codex", args: ["exec", "--json", prompt] };
+      return { command: "codex", args: ["exec", ...selectedModel ? ["--model", selectedModel] : [], "--json", prompt] };
     case "agy":
-      return { command: "agy", args: ["-p", prompt] };
+      return { command: "agy", args: [...selectedModel ? ["--model", selectedModel] : [], "-p", prompt] };
     case "copilot":
       return { command: "copilot", args: ["-p", prompt] };
   }
@@ -709,7 +710,7 @@ function isFile(candidate) {
     return false;
   }
 }
-var fs4, path4, PROVIDERS;
+var fs4, path4, PROVIDERS, NATIVE_PROVIDER_MODELS;
 var init_providerRegistry = __esm({
   "src/core/providers/providerRegistry.ts"() {
     fs4 = __toESM(require("fs"));
@@ -721,6 +722,11 @@ var init_providerRegistry = __esm({
       { id: "codex", label: "OpenAI Codex", command: "codex", loginCommand: "codex login", installCommand: "npm install -g @openai/codex", windowsInstallCommand: "npm install -g @openai/codex", status: "ready" },
       { id: "agy", label: "Antigravity (agy)", command: "agy", loginCommand: "agy", status: "manual-setup" }
     ];
+    NATIVE_PROVIDER_MODELS = {
+      claude: ["sonnet", "opus", "haiku"],
+      codex: ["gpt-5.4", "o3"],
+      agy: []
+    };
   }
 });
 
@@ -1779,6 +1785,7 @@ function getBashToolBlockedCommands(commands) {
 var DEFAULT_SETTINGS = {
   selectedProvider: "copilot",
   providerCliPaths: {},
+  providerModels: {},
   userName: "",
   enableBlocklist: true,
   blockedCommands: getDefaultBlockedCommands(),
@@ -2278,6 +2285,23 @@ User: ${injectedPrompt}` : historyContext;
       args.push("--available-tools", ...finalTools);
     }
   }
+  /** Lists account-available Antigravity models only when the selector requests them. */
+  async listNativeProviderModels(provider) {
+    if (provider !== "agy") return [];
+    const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
+    const cliPath = findProviderCliPath(provider, configuredPath);
+    if (!cliPath) throw new Error("agy CLI not found");
+    return new Promise((resolve5, reject) => {
+      (0, import_child_process.execFile)(cliPath, ["models"], { cwd: this.getWorkingDirectory(), env: process.env }, (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        const models = stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(line));
+        resolve5([...new Set(models)]);
+      });
+    });
+  }
   async *query(prompt, _images, conversationHistory, queryOptions) {
     var _a, _b, _c;
     if (this.plugin.settings.selectedProvider !== "copilot") {
@@ -2387,7 +2411,7 @@ User: ${injectedPrompt}` : historyContext;
   }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e, _f;
     const provider = this.plugin.settings.selectedProvider;
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
@@ -2396,7 +2420,8 @@ User: ${injectedPrompt}` : historyContext;
       return;
     }
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
-    const native = buildNativeProviderCommand(provider, fullPrompt);
+    const modelOverride = ((_a = queryOptions == null ? void 0 : queryOptions.model) == null ? void 0 : _a.trim()) || ((_c = (_b = this.plugin.settings.providerModels) == null ? void 0 : _b[provider]) == null ? void 0 : _c.trim()) || "";
+    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
     const child = (0, import_child_process.spawn)(command, args, {
@@ -2418,10 +2443,10 @@ User: ${injectedPrompt}` : historyContext;
     let errorOutput = "";
     let closed = false;
     let resolveClose = null;
-    (_a = child.stdout) == null ? void 0 : _a.on("data", (data) => {
+    (_d = child.stdout) == null ? void 0 : _d.on("data", (data) => {
       output += data.toString();
     });
-    (_b = child.stderr) == null ? void 0 : _b.on("data", (data) => {
+    (_e = child.stderr) == null ? void 0 : _e.on("data", (data) => {
       errorOutput += data.toString();
     });
     child.on("close", () => {
@@ -2433,7 +2458,7 @@ User: ${injectedPrompt}` : historyContext;
       closed = true;
       resolveClose == null ? void 0 : resolveClose();
     });
-    (_c = child.stdin) == null ? void 0 : _c.end();
+    (_f = child.stdin) == null ? void 0 : _f.end();
     try {
       if (!closed) await new Promise((resolve5) => {
         resolveClose = resolve5;
@@ -6681,6 +6706,7 @@ var ImageContextManager = class {
 // src/ui/components/InputToolbar.ts
 var import_obsidian5 = require("obsidian");
 var os5 = __toESM(require("os"));
+init_providerRegistry();
 function getProviderGroup(model) {
   if (model === "auto") return "recommended";
   if (model.startsWith("gpt-")) return "openai";
@@ -6724,15 +6750,17 @@ function getProviderLabel(provider) {
   };
   return (_a = labels[provider]) != null ? _a : provider;
 }
-function getModelSelectorLabel(provider, model) {
-  var _a, _b;
-  if (provider !== "copilot") return "CLI \uAE30\uBCF8 \uBAA8\uB378";
-  return (_b = (_a = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _a.label) != null ? _b : COPILOT_MODELS[0].label;
+function getModelSelectorLabel(provider, model, providerModels) {
+  var _a, _b, _c;
+  if (provider !== "copilot") return ((_a = providerModels == null ? void 0 : providerModels[provider]) == null ? void 0 : _a.trim()) || "CLI \uAE30\uBCF8 \uBAA8\uB378";
+  return (_c = (_b = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _b.label) != null ? _c : COPILOT_MODELS[0].label;
 }
 var ModelSelector = class {
   constructor(parentEl, callbacks) {
     this.buttonEl = null;
     this.dropdownEl = null;
+    this.nativeModels = /* @__PURE__ */ new Map();
+    this.nativeModelsLoading = false;
     this.callbacks = callbacks;
     this.container = parentEl.createDiv({ cls: "ocop-model-selector" });
     this.render();
@@ -6753,10 +6781,10 @@ var ModelSelector = class {
     this.buttonEl.addEventListener("click", (event) => {
       var _a, _b;
       event.stopPropagation();
-      if (!this.isCopilotSelected()) return;
       const isOpen = ((_a = this.buttonEl) == null ? void 0 : _a.getAttribute("aria-expanded")) === "true";
       (_b = this.buttonEl) == null ? void 0 : _b.setAttribute("aria-expanded", String(!isOpen));
       this.container.toggleClass("is-open", !isOpen);
+      if (!isOpen) void this.loadNativeModelsIfNeeded();
     });
     this.buttonEl.addEventListener("keydown", (event) => {
       var _a;
@@ -6768,6 +6796,27 @@ var ModelSelector = class {
     this.dropdownEl = this.container.createDiv({ cls: "ocop-model-dropdown" });
     this.renderOptions();
   }
+  async loadNativeModelsIfNeeded() {
+    const provider = this.callbacks.getSettings().selectedProvider;
+    if (provider === "copilot" || this.nativeModels.has(provider) || this.nativeModelsLoading) return;
+    const staticModels = NATIVE_PROVIDER_MODELS[provider];
+    if (staticModels.length > 0) {
+      this.nativeModels.set(provider, [...staticModels]);
+      this.renderOptions();
+      return;
+    }
+    if (!this.callbacks.getNativeProviderModels) return;
+    this.nativeModelsLoading = true;
+    this.renderOptions();
+    try {
+      this.nativeModels.set(provider, await this.callbacks.getNativeProviderModels(provider));
+    } catch (e) {
+      this.nativeModels.set(provider, []);
+    } finally {
+      this.nativeModelsLoading = false;
+      this.renderOptions();
+    }
+  }
   updateDisplay() {
     var _a;
     if (!this.buttonEl) return;
@@ -6775,7 +6824,7 @@ var ModelSelector = class {
       this.container.style.display = "";
       this.buttonEl.empty();
       this.buttonEl.addClass("is-native-default");
-      this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
+      this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model, this.callbacks.getSettings().providerModels) });
       this.buttonEl.setAttribute("aria-label", "CLI \uAE30\uBCF8 \uBAA8\uB378. \uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
       this.buttonEl.setAttribute("title", "\uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
       this.buttonEl.removeAttribute("role");
@@ -6799,10 +6848,21 @@ var ModelSelector = class {
     }
   }
   renderOptions() {
+    var _a;
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
     if (!this.isCopilotSelected()) {
-      this.dropdownEl.setAttribute("aria-hidden", "true");
+      this.dropdownEl.removeAttribute("aria-hidden");
+      const provider = this.callbacks.getSettings().selectedProvider;
+      const models2 = (_a = this.nativeModels.get(provider)) != null ? _a : NATIVE_PROVIDER_MODELS[provider];
+      if (this.nativeModelsLoading) {
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "\uBAA8\uB378 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911..." });
+      } else if (models2.length === 0) {
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "CLI \uAE30\uBCF8 \uBAA8\uB378 \uC0AC\uC6A9 (\uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4)" });
+      } else {
+        for (const model of models2) this.addNativeModelOption(model);
+      }
+      this.addNativeModelEntry(provider);
       return;
     }
     this.dropdownEl.removeAttribute("aria-hidden");
@@ -6845,6 +6905,23 @@ var ModelSelector = class {
         this.renderOptions();
       });
     }
+  }
+  addNativeModelOption(model) {
+    const option = this.dropdownEl.createEl("button", { cls: "ocop-model-option", attr: { type: "button" } });
+    option.createSpan({ cls: "ocop-model-option-label", text: model });
+    option.addEventListener("click", () => {
+      var _a, _b;
+      void ((_b = (_a = this.callbacks).onProviderModelChange) == null ? void 0 : _b.call(_a, this.callbacks.getSettings().selectedProvider, model));
+    });
+  }
+  addNativeModelEntry(provider) {
+    const input = this.dropdownEl.createEl("input", { cls: "ocop-model-direct-input", attr: { type: "text", placeholder: "\uBAA8\uB378 ID \uC9C1\uC811 \uC785\uB825", "aria-label": "\uBAA8\uB378 ID \uC9C1\uC811 \uC785\uB825" } });
+    input.addEventListener("keydown", (event) => {
+      var _a, _b;
+      if (event.key !== "Enter") return;
+      const model = input.value.trim();
+      if (model) void ((_b = (_a = this.callbacks).onProviderModelChange) == null ? void 0 : _b.call(_a, provider, model));
+    });
   }
 };
 var ThinkingBudgetSelector = class {
@@ -18596,7 +18673,8 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
         selectedProvider: this.plugin.settings.selectedProvider,
         thinkingBudget: this.plugin.settings.thinkingBudget,
         permissionMode: this.plugin.settings.permissionMode,
-        lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode
+        lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode,
+        providerModels: this.plugin.settings.providerModels
       }),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => {
@@ -18616,6 +18694,15 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
         (_b = this.modelSelector) == null ? void 0 : _b.updateDisplay();
         (_c = this.modelSelector) == null ? void 0 : _c.renderOptions();
       },
+      onProviderModelChange: async (provider, model) => {
+        var _a2, _b, _c, _d;
+        (_b = (_a2 = this.plugin.settings).providerModels) != null ? _b : _a2.providerModels = {};
+        this.plugin.settings.providerModels[provider] = model.trim();
+        await this.plugin.saveSettings();
+        (_c = this.modelSelector) == null ? void 0 : _c.updateDisplay();
+        (_d = this.modelSelector) == null ? void 0 : _d.renderOptions();
+      },
+      getNativeProviderModels: (provider) => this.plugin.agentService.listNativeProviderModels(provider),
       onThinkingBudgetChange: async (budget) => {
         this.plugin.settings.thinkingBudget = budget;
         await this.plugin.saveSettings();

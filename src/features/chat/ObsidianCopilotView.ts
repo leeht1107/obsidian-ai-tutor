@@ -277,6 +277,7 @@ export class ObsidianCopilotView extends ItemView {
         thinkingBudget: this.plugin.settings.thinkingBudget,
         permissionMode: this.plugin.settings.permissionMode,
         lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode,
+        providerModels: this.plugin.settings.providerModels,
       }),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => this.state.planModeState?.agentInitiated ?? false,
@@ -292,6 +293,14 @@ export class ObsidianCopilotView extends ItemView {
         this.modelSelector?.updateDisplay();
         this.modelSelector?.renderOptions();
       },
+      onProviderModelChange: async (provider, model) => {
+        this.plugin.settings.providerModels ??= {};
+        this.plugin.settings.providerModels[provider] = model.trim();
+        await this.plugin.saveSettings();
+        this.modelSelector?.updateDisplay();
+        this.modelSelector?.renderOptions();
+      },
+      getNativeProviderModels: (provider) => this.plugin.agentService.listNativeProviderModels(provider),
       onThinkingBudgetChange: async (budget: ThinkingBudget) => {
         this.plugin.settings.thinkingBudget = budget;
         await this.plugin.saveSettings();

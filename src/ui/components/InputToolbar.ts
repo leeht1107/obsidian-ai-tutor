@@ -1,7 +1,7 @@
 import { Notice, setIcon } from 'obsidian';
 import * as os from 'os';
 
-import { type ProviderId } from '../../core/providers/providerRegistry';
+import { NATIVE_PROVIDER_MODELS, type ProviderId } from '../../core/providers/providerRegistry';
 import type {
   CopilotMcpServer,
   CopilotModel,
@@ -23,10 +23,13 @@ export interface ToolbarSettings {
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
   lastNonPlanPermissionMode?: 'agent' | 'ask';
+  providerModels?: Partial<Record<ProviderId, string>>;
 }
 
 export interface ToolbarCallbacks {
   onModelChange: (model: CopilotModel) => Promise<void>;
+  onProviderModelChange?: (provider: ProviderId, model: string) => Promise<void>;
+  getNativeProviderModels?: (provider: Exclude<ProviderId, 'copilot'>) => Promise<string[]>;
   onThinkingBudgetChange: (budget: ThinkingBudget) => Promise<void>;
   onPermissionModeChange: (mode: PermissionMode) => Promise<void>;
   onOpenQuiz?: () => Promise<void>;
@@ -95,8 +98,8 @@ function getProviderLabel(provider: string): string {
 }
 
 /** The native CLIs own model choice; Copilot is the only provider with this list. */
-export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel): string {
-  if (provider !== 'copilot') return 'CLI 기본 모델';
+export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel, providerModels?: Partial<Record<ProviderId, string>>): string {
+  if (provider !== 'copilot') return providerModels?.[provider]?.trim() || 'CLI 기본 모델';
   return COPILOT_MODELS.find((option) => option.value === model)?.label ?? COPILOT_MODELS[0].label;
 }
 
@@ -105,6 +108,8 @@ export class ModelSelector {
   private buttonEl: HTMLElement | null = null;
   private dropdownEl: HTMLElement | null = null;
   private callbacks: ToolbarCallbacks;
+  private nativeModels = new Map<Exclude<ProviderId, 'copilot'>, string[]>();
+  private nativeModelsLoading = false;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
     this.callbacks = callbacks;
@@ -129,10 +134,10 @@ export class ModelSelector {
     this.buttonEl.setAttribute('aria-expanded', 'false');
     this.buttonEl.addEventListener('click', (event) => {
       event.stopPropagation();
-      if (!this.isCopilotSelected()) return;
       const isOpen = this.buttonEl?.getAttribute('aria-expanded') === 'true';
       this.buttonEl?.setAttribute('aria-expanded', String(!isOpen));
       this.container.toggleClass('is-open', !isOpen);
+      if (!isOpen) void this.loadNativeModelsIfNeeded();
     });
     this.buttonEl.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -144,13 +149,35 @@ export class ModelSelector {
     this.renderOptions();
   }
 
+  private async loadNativeModelsIfNeeded(): Promise<void> {
+    const provider = this.callbacks.getSettings().selectedProvider;
+    if (provider === 'copilot' || this.nativeModels.has(provider) || this.nativeModelsLoading) return;
+    const staticModels = NATIVE_PROVIDER_MODELS[provider];
+    if (staticModels.length > 0) {
+      this.nativeModels.set(provider, [...staticModels]);
+      this.renderOptions();
+      return;
+    }
+    if (!this.callbacks.getNativeProviderModels) return;
+    this.nativeModelsLoading = true;
+    this.renderOptions();
+    try {
+      this.nativeModels.set(provider, await this.callbacks.getNativeProviderModels(provider));
+    } catch {
+      this.nativeModels.set(provider, []);
+    } finally {
+      this.nativeModelsLoading = false;
+      this.renderOptions();
+    }
+  }
+
   updateDisplay() {
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
       this.container.style.display = '';
       this.buttonEl.empty();
       this.buttonEl.addClass('is-native-default');
-      this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
+      this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model, this.callbacks.getSettings().providerModels) });
       this.buttonEl.setAttribute('aria-label', 'CLI 기본 모델. 선택한 CLI가 모델과 사고 방식을 제어합니다.');
       this.buttonEl.setAttribute('title', '선택한 CLI가 모델과 사고 방식을 제어합니다.');
       this.buttonEl.removeAttribute('role');
@@ -179,7 +206,17 @@ export class ModelSelector {
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
     if (!this.isCopilotSelected()) {
-      this.dropdownEl.setAttribute('aria-hidden', 'true');
+      this.dropdownEl.removeAttribute('aria-hidden');
+      const provider = this.callbacks.getSettings().selectedProvider as Exclude<ProviderId, 'copilot'>;
+      const models = this.nativeModels.get(provider) ?? NATIVE_PROVIDER_MODELS[provider];
+      if (this.nativeModelsLoading) {
+        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: '모델 목록을 불러오는 중...' });
+      } else if (models.length === 0) {
+        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: 'CLI 기본 모델 사용 (목록을 불러오지 못했습니다)' });
+      } else {
+        for (const model of models) this.addNativeModelOption(model);
+      }
+      this.addNativeModelEntry(provider);
       return;
     }
     this.dropdownEl.removeAttribute('aria-hidden');
@@ -228,6 +265,21 @@ export class ModelSelector {
         this.renderOptions();
       });
     }
+  }
+
+  private addNativeModelOption(model: string): void {
+    const option = this.dropdownEl!.createEl('button', { cls: 'ocop-model-option', attr: { type: 'button' } });
+    option.createSpan({ cls: 'ocop-model-option-label', text: model });
+    option.addEventListener('click', () => { void this.callbacks.onProviderModelChange?.(this.callbacks.getSettings().selectedProvider as Exclude<ProviderId, 'copilot'>, model); });
+  }
+
+  private addNativeModelEntry(provider: Exclude<ProviderId, 'copilot'>): void {
+    const input = this.dropdownEl!.createEl('input', { cls: 'ocop-model-direct-input', attr: { type: 'text', placeholder: '모델 ID 직접 입력', 'aria-label': '모델 ID 직접 입력' } });
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      const model = (input as HTMLInputElement).value.trim();
+      if (model) void this.callbacks.onProviderModelChange?.(provider, model);
+    });
   }
 }
 

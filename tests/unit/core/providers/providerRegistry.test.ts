@@ -17,4 +17,11 @@ describe('provider registry', () => {
     expect(getProviderDescriptor('agy').installCommand).toBeUndefined();
     expect(getProviderDescriptor('agy').status).toBe('manual-setup');
   });
+
+  it('passes only explicit native model overrides with each CLI contract', () => {
+    expect(buildNativeProviderCommand('claude', 'hello', 'opus').args).toEqual(['-p', '--model', 'opus', 'hello', '--output-format', 'stream-json', '--verbose']);
+    expect(buildNativeProviderCommand('codex', 'hello', 'o3').args).toEqual(['exec', '--model', 'o3', '--json', 'hello']);
+    expect(buildNativeProviderCommand('agy', 'hello', 'gemini-pro').args).toEqual(['--model', 'gemini-pro', '-p', 'hello']);
+    expect(buildNativeProviderCommand('agy', 'hello', '   ').args).toEqual(['-p', 'hello']);
+  });
 });
