@@ -2916,6 +2916,7 @@
 .ocop-toolbar-secondary {
   display: flex;
   align-items: center;
+  width: 100%;
   min-width: 0;
 }
 
@@ -3441,6 +3442,11 @@
 }
 
 .ocop-model-selector:hover .ocop-model-dropdown {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ocop-model-selector.is-open .ocop-model-dropdown {
   opacity: 1;
   visibility: visible;
 }

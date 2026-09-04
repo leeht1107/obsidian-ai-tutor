@@ -6726,7 +6726,7 @@ function getProviderLabel(provider) {
 }
 function getModelSelectorLabel(provider, model) {
   var _a, _b;
-  if (provider !== "copilot") return "CLI default";
+  if (provider !== "copilot") return "CLI \uAE30\uBCF8 \uBAA8\uB378";
   return (_b = (_a = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _a.label) != null ? _b : COPILOT_MODELS[0].label;
 }
 var ModelSelector = class {
@@ -6746,6 +6746,24 @@ var ModelSelector = class {
   render() {
     this.container.empty();
     this.buttonEl = this.container.createDiv({ cls: "ocop-model-btn" });
+    this.buttonEl.setAttribute("role", "button");
+    this.buttonEl.setAttribute("tabindex", "0");
+    this.buttonEl.setAttribute("aria-haspopup", "listbox");
+    this.buttonEl.setAttribute("aria-expanded", "false");
+    this.buttonEl.addEventListener("click", (event) => {
+      var _a, _b;
+      event.stopPropagation();
+      if (!this.isCopilotSelected()) return;
+      const isOpen = ((_a = this.buttonEl) == null ? void 0 : _a.getAttribute("aria-expanded")) === "true";
+      (_b = this.buttonEl) == null ? void 0 : _b.setAttribute("aria-expanded", String(!isOpen));
+      this.container.toggleClass("is-open", !isOpen);
+    });
+    this.buttonEl.addEventListener("keydown", (event) => {
+      var _a;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      (_a = this.buttonEl) == null ? void 0 : _a.click();
+    });
     this.updateDisplay();
     this.dropdownEl = this.container.createDiv({ cls: "ocop-model-dropdown" });
     this.renderOptions();
@@ -6754,16 +6772,23 @@ var ModelSelector = class {
     var _a;
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
-      this.container.style.display = "none";
+      this.container.style.display = "";
       this.buttonEl.empty();
       this.buttonEl.addClass("is-native-default");
       this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
-      this.buttonEl.setAttribute("aria-label", "Model selection is controlled by the selected provider");
+      this.buttonEl.setAttribute("aria-label", "CLI \uAE30\uBCF8 \uBAA8\uB378. \uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
+      this.buttonEl.setAttribute("title", "\uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
+      this.buttonEl.removeAttribute("role");
+      this.buttonEl.removeAttribute("tabindex");
+      this.buttonEl.removeAttribute("aria-haspopup");
+      this.buttonEl.removeAttribute("aria-expanded");
+      this.container.removeClass("is-open");
       return;
     }
     this.container.style.display = "";
     this.buttonEl.removeClass("is-native-default");
-    this.buttonEl.removeAttribute("aria-label");
+    this.buttonEl.setAttribute("aria-label", "\uBAA8\uB378 \uC120\uD0DD");
+    this.buttonEl.removeAttribute("title");
     const currentModel = this.callbacks.getSettings().model;
     const models = this.getAvailableModels();
     const modelInfo = (_a = models.find((model) => model.value === currentModel)) != null ? _a : models[0];

@@ -87,6 +87,11 @@
   visibility: visible;
 }
 
+.ocop-model-selector.is-open .ocop-model-dropdown {
+  opacity: 1;
+  visibility: visible;
+}
+
 .ocop-model-option {
   padding: 8px 10px;
   cursor: pointer;

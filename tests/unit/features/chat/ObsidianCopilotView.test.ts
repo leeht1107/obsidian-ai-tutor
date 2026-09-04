@@ -6,10 +6,11 @@ import * as providerRegistry from '../../../../src/core/providers/providerRegist
 import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
 import { createProviderSelector } from '../../../../src/features/chat/ObsidianCopilotView';
-import { getModelSelectorLabel, ThinkingBudgetSelector } from '../../../../src/ui/components/InputToolbar';
+import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector } from '../../../../src/ui/components/InputToolbar';
 
 describe('chat provider selector', () => {
   const makeElement = (): any => {
+    const attributes: Record<string, string> = {};
     const element: any = {
       children: [],
       listeners: {},
@@ -47,8 +48,9 @@ describe('chat provider selector', () => {
     });
     element.emit = (event: string) => element.listeners[event]?.({ stopPropagation: jest.fn() });
     Object.assign(element, {
-    setAttribute: jest.fn(),
-    removeAttribute: jest.fn(),
+    setAttribute: jest.fn((name: string, value: string) => { attributes[name] = value; }),
+    getAttribute: jest.fn((name: string) => attributes[name] ?? null),
+    removeAttribute: jest.fn((name: string) => { delete attributes[name]; }),
     empty: jest.fn(),
     hasClass: jest.fn().mockReturnValue(false),
     addClass: jest.fn(),
@@ -56,8 +58,10 @@ describe('chat provider selector', () => {
     setText: jest.fn(),
     contains: jest.fn().mockReturnValue(false),
     classList: { toggle: jest.fn() },
+    toggleClass: jest.fn(),
     style: {},
     });
+    element.click = jest.fn();
     return element;
   };
 
@@ -161,9 +165,32 @@ describe('chat provider selector', () => {
 
   it('never presents a Copilot model as active for native providers', () => {
     expect(getModelSelectorLabel('copilot', 'gpt-5.4')).toBe('gpt-5.4');
-    expect(getModelSelectorLabel('claude', 'gpt-5.4')).toBe('CLI default');
-    expect(getModelSelectorLabel('codex', 'claude-opus-4.8')).toBe('CLI default');
-    expect(getModelSelectorLabel('agy', 'gpt-5.5')).toBe('CLI default');
+    expect(getModelSelectorLabel('claude', 'gpt-5.4')).toBe('CLI 기본 모델');
+    expect(getModelSelectorLabel('codex', 'claude-opus-4.8')).toBe('CLI 기본 모델');
+    expect(getModelSelectorLabel('agy', 'gpt-5.5')).toBe('CLI 기본 모델');
+  });
+
+  it('shows native CLI model state and gives Copilot a keyboard-accessible dropdown control', () => {
+    const settings: any = { selectedProvider: 'claude', model: 'gpt-5.4', thinkingBudget: 'off', permissionMode: 'agent' };
+    const callbacks = { getSettings: () => settings, onModelChange: jest.fn().mockResolvedValue(undefined), onThinkingBudgetChange: jest.fn(), onPermissionModeChange: jest.fn() };
+    const nativeParent = makeElement();
+    new ModelSelector(nativeParent, callbacks);
+    const nativeButton = nativeParent.children[0].children[0];
+    expect(nativeParent.children[0].style.display).toBe('');
+    expect(nativeButton.children[0].elementOptions.text).toBe('CLI 기본 모델');
+    expect(nativeButton.elementOptions.attr).toBeUndefined();
+    expect(nativeButton.getAttribute('title')).toContain('선택한 CLI');
+    expect(nativeButton.getAttribute('role')).toBeNull();
+
+    settings.selectedProvider = 'copilot';
+    const copilotParent = makeElement();
+    new ModelSelector(copilotParent, callbacks);
+    const copilotButton = copilotParent.children[0].children[0];
+    expect(copilotButton.getAttribute('role')).toBe('button');
+    expect(copilotButton.getAttribute('tabindex')).toBe('0');
+    expect(copilotButton.getAttribute('aria-haspopup')).toBe('listbox');
+    copilotButton.listeners.click({ stopPropagation: jest.fn() });
+    expect(copilotButton.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('hides the thinking selector and stored budget for native providers', () => {
@@ -185,6 +212,7 @@ describe('chat toolbar layout', () => {
     const toolbarBlock = stylesheet.match(/\.ocop-input-toolbar\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(toolbarBlock).toMatch(/display:\s*flex;/);
     expect(toolbarBlock).toMatch(/flex-direction:\s*column;/);
+    expect(stylesheet).toMatch(/\.ocop-toolbar-primary,\s*\.ocop-toolbar-secondary\s*\{[\s\S]*?width:\s*100%;/);
   });
 });
 

@@ -96,7 +96,7 @@ function getProviderLabel(provider: string): string {
 
 /** The native CLIs own model choice; Copilot is the only provider with this list. */
 export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel): string {
-  if (provider !== 'copilot') return 'CLI default';
+  if (provider !== 'copilot') return 'CLI 기본 모델';
   return COPILOT_MODELS.find((option) => option.value === model)?.label ?? COPILOT_MODELS[0].label;
 }
 
@@ -123,6 +123,22 @@ export class ModelSelector {
   private render() {
     this.container.empty();
     this.buttonEl = this.container.createDiv({ cls: 'ocop-model-btn' });
+    this.buttonEl.setAttribute('role', 'button');
+    this.buttonEl.setAttribute('tabindex', '0');
+    this.buttonEl.setAttribute('aria-haspopup', 'listbox');
+    this.buttonEl.setAttribute('aria-expanded', 'false');
+    this.buttonEl.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!this.isCopilotSelected()) return;
+      const isOpen = this.buttonEl?.getAttribute('aria-expanded') === 'true';
+      this.buttonEl?.setAttribute('aria-expanded', String(!isOpen));
+      this.container.toggleClass('is-open', !isOpen);
+    });
+    this.buttonEl.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      this.buttonEl?.click();
+    });
     this.updateDisplay();
     this.dropdownEl = this.container.createDiv({ cls: 'ocop-model-dropdown' });
     this.renderOptions();
@@ -131,16 +147,23 @@ export class ModelSelector {
   updateDisplay() {
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
-      this.container.style.display = 'none';
+      this.container.style.display = '';
       this.buttonEl.empty();
       this.buttonEl.addClass('is-native-default');
       this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model) });
-      this.buttonEl.setAttribute('aria-label', 'Model selection is controlled by the selected provider');
+      this.buttonEl.setAttribute('aria-label', 'CLI 기본 모델. 선택한 CLI가 모델과 사고 방식을 제어합니다.');
+      this.buttonEl.setAttribute('title', '선택한 CLI가 모델과 사고 방식을 제어합니다.');
+      this.buttonEl.removeAttribute('role');
+      this.buttonEl.removeAttribute('tabindex');
+      this.buttonEl.removeAttribute('aria-haspopup');
+      this.buttonEl.removeAttribute('aria-expanded');
+      this.container.removeClass('is-open');
       return;
     }
     this.container.style.display = '';
     this.buttonEl.removeClass('is-native-default');
-    this.buttonEl.removeAttribute('aria-label');
+    this.buttonEl.setAttribute('aria-label', '모델 선택');
+    this.buttonEl.removeAttribute('title');
     const currentModel = this.callbacks.getSettings().model;
     const models = this.getAvailableModels();
     const modelInfo = models.find((model) => model.value === currentModel) ?? models[0];
