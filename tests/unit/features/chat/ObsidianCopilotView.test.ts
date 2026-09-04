@@ -4,6 +4,7 @@ import * as path from 'path';
 import { COPILOT_ICON_SVG } from '../../../../src/assets/icon';
 import * as providerRegistry from '../../../../src/core/providers/providerRegistry';
 import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
+import * as readiness from '../../../../src/core/setup/providerReadiness';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
 import { createProviderSelector } from '../../../../src/features/chat/ObsidianCopilotView';
 import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector, toToolbarSettings } from '../../../../src/ui/components/InputToolbar';
@@ -215,6 +216,55 @@ describe('chat provider selector', () => {
     expect(container.children[1].empty).toHaveBeenCalled();
     expect(selector).toBeTruthy();
   });
+
+  it('asks the CLI whether it is logged in instead of trusting the binary', async () => {
+    // The badge used to read 준비됨 straight off findProviderCliPath, so a
+    // logged-out CLI showed green and only failed when the student hit send.
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
+      .mockImplementation((id) => (id === 'claude' ? '/usr/local/bin/claude' : null));
+    const probe = jest.spyOn(readiness, 'checkProviderReadiness')
+      .mockResolvedValue({ state: 'logged-out' });
+
+    const toolbar = makeElement();
+    createProviderSelector(toolbar, {
+      settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as any);
+
+    const popover = toolbar.children[0].children[1];
+    const options = popover.children.filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option');
+    const claudeStatus = options[1].children.find(
+      (child: any) => String(child.elementOptions?.cls ?? '').includes('ocop-provider-option-status')
+    );
+
+    // Nothing is claimed before the CLI has answered.
+    expect(claudeStatus.elementOptions.text).toBe('확인 중…');
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(probe).toHaveBeenCalledWith('claude', expect.any(Object));
+    expect(claudeStatus.setText).toHaveBeenCalledWith('로그인 필요');
+    findPath.mockRestore();
+    probe.mockRestore();
+  });
+
+  it('does not probe a provider whose binary is missing', async () => {
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
+    const probe = jest.spyOn(readiness, 'checkProviderReadiness')
+      .mockResolvedValue({ state: 'logged-in' });
+
+    const toolbar = makeElement();
+    createProviderSelector(toolbar, {
+      settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as any);
+
+    expect(probe).not.toHaveBeenCalled();
+    findPath.mockRestore();
+    probe.mockRestore();
+  });
+
 });
 
 describe('chat toolbar layout', () => {

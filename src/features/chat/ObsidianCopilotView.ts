@@ -3,6 +3,7 @@ import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
 import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
+import { checkProviderReadiness, isReadyState, readinessLabel } from '../../core/setup/providerReadiness';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
   COPILOT_MODELS,
@@ -722,12 +723,26 @@ export function createProviderSelector(
     popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI 제공자' });
     for (const provider of PROVIDERS) {
       const configuredPath = plugin.settings.providerCliPaths?.[provider.id] || '';
+      // Installed only decides whether the option can be picked. Whether it will
+      // actually work is a separate question, asked of the CLI below.
       const ready = !!findProviderCliPath(provider.id, configuredPath);
       const option = popover.createEl('button', { cls: 'ocop-provider-option', attr: { type: 'button', 'aria-pressed': String(plugin.settings.selectedProvider === provider.id) } });
       const mark = option.createSpan({ cls: 'ocop-provider-mark' });
       mark.innerHTML = PROVIDER_MARKS[provider.id];
       option.createSpan({ cls: 'ocop-provider-option-name', text: provider.label });
-      option.createSpan({ cls: ready ? 'ocop-provider-option-status is-ready' : 'ocop-provider-option-status', text: ready ? '준비됨' : '설정 필요' });
+      const statusEl = option.createSpan({
+        cls: 'ocop-provider-option-status',
+        text: ready ? '확인 중…' : '설치 필요',
+      });
+      if (ready) {
+        // Runs on popover open only, never on a timer. Two CLIs can answer this
+        // (claude, codex); the rest resolve to 확인 불가 without spawning.
+        void checkProviderReadiness(provider.id, { cliPath: configuredPath || undefined })
+          .then(({ state }) => {
+            statusEl.setText(readinessLabel(state));
+            statusEl.toggleClass('is-ready', isReadyState(state));
+          });
+      }
       option.addEventListener('click', async (event) => {
         event.stopPropagation();
         if (ready) {

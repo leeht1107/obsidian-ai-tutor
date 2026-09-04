@@ -146,3 +146,31 @@
 .ocop-setup-skip-btn:hover {
   color: var(--text-muted);
 }
+
+/* Device-code login: the code has to be readable across a lecture room. */
+.ocop-setup-device-code {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 8px;
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+  user-select: all;
+}
+
+.ocop-setup-code-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
