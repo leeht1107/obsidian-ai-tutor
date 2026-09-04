@@ -2,6 +2,7 @@
 
 | Project | Task | Status | Tier1 | Path | Updated |
 |---------|------|--------|-------|------|---------|
+| obsidian-ai-tutor | brat-0.1.6 | COMPLETE | 0 | 2026-09-04/191500_obsidian-ai-tutor_brat-0.1.6_handoff.md | 2026-09-04 19:15 |
 | obsidian-ai-tutor | brat-0.1.5 | COMPLETE | 0 | 2026-09-04/182500_obsidian-ai-tutor_brat-0.1.5_handoff.md | 2026-09-04 18:25 |
 | obsidian-ai-tutor | chat-provider-icon | COMPLETE | 0 | 2026-09-04/171000_obsidian-ai-tutor_chat-provider-icon_handoff.md | 2026-09-04 17:10 |
 | obsidian-ai-tutor | brat-distribution-repair | COMPLETE | 0 | 2026-09-04/163000_obsidian-ai-tutor_brat-distribution_handoff.md | 2026-09-04 16:30 |
