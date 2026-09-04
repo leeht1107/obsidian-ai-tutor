@@ -892,7 +892,9 @@ export class CopilotBridgeService {
     const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride, effortOverride);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
-    const child = spawn(command, args, {
+    let child: ChildProcess;
+    try {
+      child = spawn(command, args, {
       cwd: this.getWorkingDirectory(),
       // Do not pass the legacy Copilot token setting to another provider.
       env: (() => {
@@ -905,26 +907,76 @@ export class CopilotBridgeService {
       })(),
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: !cmdShim && process.platform === 'win32',
-    });
+      });
+    } catch (error) {
+      yield { type: 'error', content: `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}` };
+      return;
+    }
     this.currentProcess = child;
-    let output = '';
+    // Parsed chunks are handed over as the child produces them. These CLIs are asked for a
+    // streaming format, so buffering to exit would hide a token that was ready seconds earlier.
+    const pending: StreamChunk[] = [];
+    let lineBuffer = '';
     let errorOutput = '';
+    let exitCode: number | null = null;
+    let closeSignal: NodeJS.Signals | null = null;
     let closed = false;
-    let resolveClose: (() => void) | null = null;
-    child.stdout?.on('data', (data: Buffer) => { output += data.toString(); });
+    let wake: (() => void) | null = null;
+    const signal = () => { const resume = wake; wake = null; resume?.(); };
+
+    child.stdout?.on('data', (data: Buffer) => {
+      lineBuffer += data.toString();
+      const lines = lineBuffer.split(/\r?\n/);
+      // The last element is whatever came after the final newline — possibly half a line.
+      lineBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const chunk = this.parseNativeProviderLine(provider, trimmed);
+        if (chunk) pending.push(chunk);
+      }
+      signal();
+    });
     child.stderr?.on('data', (data: Buffer) => { errorOutput += data.toString(); });
-    child.on('close', () => { closed = true; resolveClose?.(); });
-    child.on('error', (error) => { errorOutput = error.message; closed = true; resolveClose?.(); });
+    child.on('close', (code, receivedSignal) => { exitCode = code; closeSignal = receivedSignal; closed = true; signal(); });
+    child.on('error', (error) => { errorOutput = error.message; exitCode = 1; closed = true; signal(); });
     child.stdin?.end();
+
     try {
-      if (!closed) await new Promise<void>((resolve) => { resolveClose = resolve; });
-      for (const line of output.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-        const chunk = this.parseNativeProviderLine(provider, line);
+      for (;;) {
+        while (pending.length) yield pending.shift() as StreamChunk;
+        if (closed) break;
+        // Re-checked inside the executor so a close that lands between the drain and the
+        // await cannot leave us waiting on a signal that already fired.
+        await new Promise<void>((resolve) => {
+          if (closed || pending.length) { resolve(); return; }
+          wake = resolve;
+        });
+      }
+      const tail = lineBuffer.trim();
+      if (tail) {
+        const chunk = this.parseNativeProviderLine(provider, tail);
         if (chunk) yield chunk;
       }
-      if (errorOutput.trim()) yield { type: 'error', content: errorOutput.trim() };
+      // Only a failed run's stderr is an error. All three CLIs write ordinary notices there
+      // on success (codex prints "Reading additional input from stdin..." on every run),
+      // and surfacing those as an error bubble made healthy runs look broken. A user-
+      // requested stop is not a failure either, even though SIGTERM reports code === null.
+      if (!this.wasInterrupted && exitCode !== 0) {
+        // Never silent: a CLI that dies without writing to stderr would otherwise render
+        // as an empty but successful answer.
+        yield {
+          type: 'error',
+          content: errorOutput.trim()
+            || (closeSignal
+              ? `${provider} CLI was terminated (${closeSignal}).`
+              : `${provider} CLI exited with code ${exitCode}.`),
+        };
+      }
       yield { type: 'done' };
     } finally {
+      // Abandoning the iterator must not leave a CLI running with no owner.
+      if (!closed) child.kill('SIGTERM');
       if (this.currentProcess === child) this.currentProcess = null;
     }
   }

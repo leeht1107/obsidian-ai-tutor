@@ -2523,52 +2523,94 @@ User: ${injectedPrompt}` : historyContext;
     const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride, effortOverride);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
-    const child = (0, import_child_process.spawn)(command, args, {
-      cwd: this.getWorkingDirectory(),
-      // Do not pass the legacy Copilot token setting to another provider.
-      env: (() => {
-        const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
-        return {
-          ...process.env,
-          ...customEnv,
-          PATH: getEnhancedPath(customEnv.PATH, cliPath)
-        };
-      })(),
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: !cmdShim && process.platform === "win32"
-    });
+    let child;
+    try {
+      child = (0, import_child_process.spawn)(command, args, {
+        cwd: this.getWorkingDirectory(),
+        // Do not pass the legacy Copilot token setting to another provider.
+        env: (() => {
+          const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+          return {
+            ...process.env,
+            ...customEnv,
+            PATH: getEnhancedPath(customEnv.PATH, cliPath)
+          };
+        })(),
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: !cmdShim && process.platform === "win32"
+      });
+    } catch (error) {
+      yield { type: "error", content: `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}` };
+      return;
+    }
     this.currentProcess = child;
-    let output = "";
+    const pending = [];
+    let lineBuffer = "";
     let errorOutput = "";
+    let exitCode = null;
+    let closeSignal = null;
     let closed = false;
-    let resolveClose = null;
+    let wake = null;
+    const signal = () => {
+      const resume = wake;
+      wake = null;
+      resume == null ? void 0 : resume();
+    };
     (_f = child.stdout) == null ? void 0 : _f.on("data", (data) => {
-      output += data.toString();
+      var _a2;
+      lineBuffer += data.toString();
+      const lines = lineBuffer.split(/\r?\n/);
+      lineBuffer = (_a2 = lines.pop()) != null ? _a2 : "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const chunk = this.parseNativeProviderLine(provider, trimmed);
+        if (chunk) pending.push(chunk);
+      }
+      signal();
     });
     (_g = child.stderr) == null ? void 0 : _g.on("data", (data) => {
       errorOutput += data.toString();
     });
-    child.on("close", () => {
+    child.on("close", (code, receivedSignal) => {
+      exitCode = code;
+      closeSignal = receivedSignal;
       closed = true;
-      resolveClose == null ? void 0 : resolveClose();
+      signal();
     });
     child.on("error", (error) => {
       errorOutput = error.message;
+      exitCode = 1;
       closed = true;
-      resolveClose == null ? void 0 : resolveClose();
+      signal();
     });
     (_h = child.stdin) == null ? void 0 : _h.end();
     try {
-      if (!closed) await new Promise((resolve5) => {
-        resolveClose = resolve5;
-      });
-      for (const line of output.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-        const chunk = this.parseNativeProviderLine(provider, line);
+      for (; ; ) {
+        while (pending.length) yield pending.shift();
+        if (closed) break;
+        await new Promise((resolve5) => {
+          if (closed || pending.length) {
+            resolve5();
+            return;
+          }
+          wake = resolve5;
+        });
+      }
+      const tail = lineBuffer.trim();
+      if (tail) {
+        const chunk = this.parseNativeProviderLine(provider, tail);
         if (chunk) yield chunk;
       }
-      if (errorOutput.trim()) yield { type: "error", content: errorOutput.trim() };
+      if (!this.wasInterrupted && exitCode !== 0) {
+        yield {
+          type: "error",
+          content: errorOutput.trim() || (closeSignal ? `${provider} CLI was terminated (${closeSignal}).` : `${provider} CLI exited with code ${exitCode}.`)
+        };
+      }
       yield { type: "done" };
     } finally {
+      if (!closed) child.kill("SIGTERM");
       if (this.currentProcess === child) this.currentProcess = null;
     }
   }
