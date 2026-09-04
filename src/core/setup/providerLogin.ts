@@ -21,6 +21,7 @@ import { type ChildProcess,spawn } from 'child_process';
 
 import { getEnhancedPath } from '../../utils/env';
 import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import { isWindows, killTree } from './processTree';
 
 /** Terminal colour codes; the CLIs emit them even when stdout is a pipe. */
 // eslint-disable-next-line no-control-regex -- matching the ESC byte is the point
@@ -144,12 +145,23 @@ export function startProviderLogin(
   const child: ChildProcess = spawn(cliPath, [...recipe.args], {
     env: { ...process.env, ...options.env, PATH: getEnhancedPath() },
     stdio: ['pipe', 'pipe', 'pipe'],
+    // Own the whole tree: a login CLI spawns helpers, and killing only the
+    // direct pid leaves them running after a cancel or a timeout.
+    detached: !isWindows,
   });
 
-  const timer = setTimeout(() => {
+  /** Idempotent: closing every stream is what lets the event loop drain. */
+  const teardown = () => {
+    child.stdin?.end();
+    child.stdin?.destroy();
     child.stdout?.destroy();
     child.stderr?.destroy();
-    child.kill('SIGKILL');
+    killTree(child);
+    child.unref();
+  };
+
+  const timer = setTimeout(() => {
+    teardown();
     finish({ success: false, exitCode: null, output, error: '로그인 시간이 초과됐습니다.' });
   }, timeoutMs);
 
@@ -159,9 +171,12 @@ export function startProviderLogin(
     onEvent({ type: 'output', text });
     if (!announcedCode) {
       const { url, code } = parseDeviceCode(output);
-      // Wait for both when the CLI is going to print both; a URL alone early in
-      // the stream would be announced before the code arrives.
-      if (url && code) {
+      // A paste-back CLI never prints a code — the browser gives it to the
+      // student — so requiring both would hide the only link they have and
+      // strand them on the waiting screen. A device-code CLI does print both,
+      // and there waiting avoids announcing a URL before its code arrives.
+      const ready = recipe.expectsPastedCode ? Boolean(url) : Boolean(url && code);
+      if (ready) {
         announcedCode = true;
         onEvent({ type: 'device-code', url, code });
       }
@@ -185,10 +200,7 @@ export function startProviderLogin(
     },
     cancel() {
       if (settled) return;
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      child.kill('SIGKILL');
-      child.unref();
+      teardown();
       finish({ success: false, exitCode: null, output, error: '사용자가 취소했습니다.' });
     },
     done,

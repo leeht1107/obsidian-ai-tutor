@@ -20,9 +20,10 @@ import {
 } from '../../core/setup/AutoSetupService';
 import {
   detectPackageManager,
-  installNode,
   NODE_DOWNLOAD_URL,
+  type NodeInstallSession,
   type PackageManager,
+  startNodeInstall,
 } from '../../core/setup/nodeInstall';
 import {
   canDriveLogin,
@@ -33,7 +34,13 @@ import {
 import { checkProviderReadiness } from '../../core/setup/providerReadiness';
 import type ObsidianCopilotPlugin from '../../main';
 
-type Phase = 'choose' | 'node' | 'installing' | 'login' | 'done' | 'manual' | 'error';
+/**
+ * 'unverified' exists because copilot and agy expose no way to ask whether they
+ * are logged in. Sending those students to 'done' would reprint the exact lie
+ * this change removed; blocking them at 'login' forever would be worse, since
+ * no amount of retrying can produce a confirmation.
+ */
+type Phase = 'choose' | 'node' | 'installing' | 'login' | 'done' | 'unverified' | 'manual' | 'error';
 
 const MAX_LOG_LINES = 6;
 
@@ -51,6 +58,9 @@ export class SetupWizardModal extends Modal {
   private loginSession: LoginSession | null = null;
   private loginBusy = false;
   private loginFailure = '';
+  private nodeSession: NodeInstallSession | null = null;
+  /** Set in onClose; every render and phase change checks it. */
+  private closed = false;
 
   constructor(app: App, private plugin: ObsidianCopilotPlugin) {
     super(app);
@@ -64,6 +74,9 @@ export class SetupWizardModal extends Modal {
   }
 
   private render() {
+    // A login or install can finish after the student closed the wizard; writing
+    // into an emptied modal then throws or resurrects dead UI.
+    if (this.closed) return;
     this.contentEl.empty();
     switch (this.phase) {
       case 'choose':     this.renderChoose();     break;
@@ -71,6 +84,7 @@ export class SetupWizardModal extends Modal {
       case 'installing': this.renderInstalling(); break;
       case 'login':      this.renderLogin();      break;
       case 'done':       this.renderDone();       break;
+      case 'unverified': this.renderUnverified(); break;
       case 'manual':     this.renderManual();     break;
       case 'error':      this.renderError();      break;
     }
@@ -144,10 +158,13 @@ export class SetupWizardModal extends Modal {
   }
 
   private async runNodeInstall() {
-    const result = await installNode((line) => {
+    this.nodeSession = startNodeInstall((line) => {
       this.nodeLog.push(line);
       if (this.phase === 'node') this.render();
     }, this.packageManager);
+    const result = await this.nodeSession.done;
+    this.nodeSession = null;
+    if (this.closed) return;
 
     if (!result.success) {
       this.errorDetail = result.error ?? 'Node.js 설치에 실패했습니다.';
@@ -217,12 +234,20 @@ export class SetupWizardModal extends Modal {
       return;
     }
 
-    if (this.deviceCode?.code) {
-      wrap.createEl('p', {
-        text: '아래 페이지를 열고 이 코드를 입력하세요.',
-        cls: 'ocop-setup-desc',
-      });
-      wrap.createDiv({ cls: 'ocop-setup-device-code', text: this.deviceCode.code });
+    if (this.deviceCode?.code || this.deviceCode?.url) {
+      if (this.deviceCode.code) {
+        wrap.createEl('p', {
+          text: '아래 페이지를 열고 이 코드를 입력하세요.',
+          cls: 'ocop-setup-desc',
+        });
+        wrap.createDiv({ cls: 'ocop-setup-device-code', text: this.deviceCode.code });
+      } else {
+        // A paste-back CLI prints only the link; the browser supplies the code.
+        wrap.createEl('p', {
+          text: '아래 페이지에서 로그인한 뒤, 화면에 나오는 코드를 밑에 붙여넣으세요.',
+          cls: 'ocop-setup-desc',
+        });
+      }
       if (this.deviceCode.url) {
         const open = wrap.createEl('button', { text: '페이지 열기', cls: 'mod-cta ocop-setup-action-btn' });
         const url = this.deviceCode.url;
@@ -303,8 +328,13 @@ export class SetupWizardModal extends Modal {
     this.loginSession = null;
 
     const state = await this.readCurrentLoginState();
-    if (state === 'logged-in' || (state === 'unknown' && outcome.success)) {
+    if (this.closed) return;
+    if (state === 'logged-in') {
       this.phase = 'done';
+    } else if (state === 'unknown' && outcome.success) {
+      // The CLI exited cleanly but cannot be asked to confirm. Say exactly that
+      // rather than claiming the setup is finished.
+      this.phase = 'unverified';
     } else {
       this.loginFailure = outcome.error
         ?? (state === 'logged-out' ? '아직 로그인되지 않았습니다. 다시 시도해 주세요.' : '로그인을 확인하지 못했습니다.');
@@ -328,6 +358,20 @@ export class SetupWizardModal extends Modal {
     });
     const button = wrap.createEl('button', { text: '시작하기', cls: 'mod-cta ocop-setup-action-btn' });
     button.addEventListener('click', () => this.close());
+  }
+
+  private renderUnverified() {
+    const descriptor = getProviderDescriptor(this.provider);
+    const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
+    wrap.createEl('p', { text: '로그인 여부를 확인할 수 없습니다', cls: 'ocop-setup-warn' });
+    wrap.createEl('p', {
+      text: `${descriptor.label}에는 로그인 상태를 물어볼 수 있는 명령이 없습니다. 설치는 끝났으니 대화를 시작해 보시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
+      cls: 'ocop-setup-desc',
+    });
+    this.renderCmdRow(wrap, descriptor.loginCommand);
+    const start = wrap.createEl('button', { text: '그래도 시작하기', cls: 'mod-cta ocop-setup-action-btn' });
+    start.addEventListener('click', () => this.close());
+    this.renderRecheckButton(wrap);
   }
 
   // ── Phase: manual ───────────────────────────────────────────────────────────
@@ -383,9 +427,12 @@ export class SetupWizardModal extends Modal {
       return;
     }
     const state = await this.readCurrentLoginState();
-    // 'unknown' means the CLI offers no way to ask; the binary being present is
-    // then the most that can honestly be checked.
-    this.phase = state === 'logged-out' ? 'login' : 'done';
+    if (this.closed) return;
+    // 'unknown' is not success: the CLI offers no way to ask, so the student is
+    // told that instead of being shown a completion screen.
+    if (state === 'logged-in') this.phase = 'done';
+    else if (state === 'logged-out') this.phase = 'login';
+    else this.phase = 'unverified';
     this.render();
   }
 
@@ -420,7 +467,10 @@ export class SetupWizardModal extends Modal {
   }
 
   onClose() {
+    this.closed = true;
     this.loginSession?.cancel();
+    // Otherwise brew or winget keeps installing with no window and no stop.
+    this.nodeSession?.cancel();
     this.contentEl.empty();
   }
 }

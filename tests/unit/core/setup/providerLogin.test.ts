@@ -155,6 +155,54 @@ describe('provider login driver', () => {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
+
+  it('shows the login URL for a paste-back CLI that never prints a code', async () => {
+    if (isWindows) return;
+    // claude's browser flow prints a link; the CODE comes from the browser, not
+    // stdout. Requiring both left the student on a spinner with no link.
+    const cli = writeCli(dir, 'claude-url-only', [
+      '#!/bin/sh',
+      "printf 'Open this link to sign in:\\n'",
+      "printf '  https://claude.ai/oauth/authorize?x=1\\n'",
+      'sleep 0.3',
+      'exit 0',
+    ].join('\n'));
+    let announced: { url?: string; code?: string } | null = null;
+    const session = startProviderLogin('claude', (event) => {
+      if (event.type === 'device-code') announced = { url: event.url, code: event.code };
+    }, { cliPath: cli });
+    await session.done;
+    expect(announced).toEqual({ url: 'https://claude.ai/oauth/authorize?x=1', code: undefined });
+  });
+
+  it('kills processes the login CLI started, not just the CLI itself', async () => {
+    if (isWindows) return;
+    const pidFile = path.join(dir, 'descendant.pid');
+    // A login CLI spawns helpers. Killing only the direct pid leaves them alive.
+    const cli = writeCli(dir, 'codex-with-helper', [
+      '#!/bin/sh',
+      'sleep 60 &',
+      'echo $! > "$PIDFILE"',
+      'wait',
+    ].join('\n'));
+    const session = startProviderLogin('codex', () => { /* ignore */ }, {
+      cliPath: cli,
+      env: { PIDFILE: pidFile },
+    });
+    // Give the fixture a moment to record its helper pid.
+    await new Promise((r) => setTimeout(r, 400));
+    const descendantPid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    expect(Number.isFinite(descendantPid)).toBe(true);
+
+    session.cancel();
+    await session.done;
+    await new Promise((r) => setTimeout(r, 300));
+
+    let alive = true;
+    try { process.kill(descendantPid, 0); } catch { alive = false; }
+    expect(alive).toBe(false);
+  });
+
   it('surfaces a non-zero exit instead of reporting success', async () => {
     if (isWindows) return;
     const cli = writeCli(dir, 'codex-fail', '#!/bin/sh\necho "login failed" >&2\nexit 4\n');

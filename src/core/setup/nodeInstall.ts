@@ -15,8 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { getEnhancedPath } from '../../utils/env';
-
-const isWindows = process.platform === 'win32';
+import { isWindows, killTree } from './processTree';
 
 export type PackageManagerId = 'brew' | 'winget';
 
@@ -80,40 +79,95 @@ export interface NodeInstallResult {
   error?: string;
 }
 
+export interface NodeInstallSession {
+  /** Stop the installer and resolve `done` as cancelled. Safe to call twice. */
+  cancel(): void;
+  done: Promise<NodeInstallResult>;
+}
+
+/** A package install can genuinely take minutes; this only bounds a hang. */
+const NODE_INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
+
 /**
  * Install Node.js with the detected package manager, streaming its output.
  *
- * Resolves rather than rejects on failure — this drives a wizard step and the
- * student needs to see the reason, not a stack trace.
+ * Returns a session rather than a bare promise so the wizard can stop the
+ * install when the student closes it. Without that, closing the modal left
+ * brew or winget running with no UI and no way to stop it.
+ *
+ * Resolves rather than rejects on every failure path — this drives a wizard
+ * step and the student needs to see the reason, not a stack trace.
  */
+export function startNodeInstall(
+  onProgress: (line: string) => void,
+  manager: PackageManager | null = detectPackageManager()
+): NodeInstallSession {
+  if (!manager) {
+    return {
+      cancel: () => { /* nothing was started */ },
+      done: Promise.resolve({ success: false, error: 'Homebrew도 winget도 찾지 못했습니다.' }),
+    };
+  }
+
+  let settled = false;
+  let resolveDone: (result: NodeInstallResult) => void;
+  const done = new Promise<NodeInstallResult>((resolve) => { resolveDone = resolve; });
+  const finish = (result: NodeInstallResult) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolveDone(result);
+  };
+
+  const child = spawn(manager.binPath, [...manager.installArgs], {
+    env: { ...process.env, PATH: getEnhancedPath() },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // brew drives sub-processes; own the group so cancel really stops the work.
+    detached: !isWindows,
+  });
+
+  const teardown = () => {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    killTree(child);
+    child.unref();
+  };
+
+  const timer = setTimeout(() => {
+    teardown();
+    finish({ success: false, error: '설치 시간이 초과됐습니다.' });
+  }, NODE_INSTALL_TIMEOUT_MS);
+
+  const errors: string[] = [];
+  child.stdout?.on('data', (chunk: Buffer) => {
+    const line = chunk.toString().trim();
+    if (line) onProgress(line);
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    const line = chunk.toString().trim();
+    // brew writes ordinary progress to stderr, so this is shown, not buried.
+    if (line) { onProgress(line); errors.push(line); }
+  });
+
+  child.on('error', (err: Error) => finish({ success: false, error: err.message }));
+  child.on('close', (code) => finish(code === 0
+    ? { success: true }
+    : { success: false, error: errors.slice(-5).join('\n') || `종료 코드 ${code ?? '?'}` }));
+
+  return {
+    cancel() {
+      if (settled) return;
+      teardown();
+      finish({ success: false, error: '설치를 취소했습니다.' });
+    },
+    done,
+  };
+}
+
+/** Convenience wrapper for callers that cannot cancel. */
 export async function installNode(
   onProgress: (line: string) => void,
   manager: PackageManager | null = detectPackageManager()
 ): Promise<NodeInstallResult> {
-  if (!manager) {
-    return { success: false, error: 'Homebrew도 winget도 찾지 못했습니다.' };
-  }
-
-  return new Promise<NodeInstallResult>((resolve) => {
-    const child = spawn(manager.binPath, [...manager.installArgs], {
-      env: { ...process.env, PATH: getEnhancedPath() },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const errors: string[] = [];
-    child.stdout?.on('data', (chunk: Buffer) => {
-      const line = chunk.toString().trim();
-      if (line) onProgress(line);
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      const line = chunk.toString().trim();
-      // brew writes ordinary progress to stderr, so this is shown, not buried.
-      if (line) { onProgress(line); errors.push(line); }
-    });
-
-    child.on('error', (err: Error) => resolve({ success: false, error: err.message }));
-    child.on('close', (code) => resolve(code === 0
-      ? { success: true }
-      : { success: false, error: errors.slice(-5).join('\n') || `종료 코드 ${code ?? '?'}` }));
-  });
+  return startNodeInstall(onProgress, manager).done;
 }

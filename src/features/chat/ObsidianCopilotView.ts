@@ -717,7 +717,9 @@ export function createProviderSelector(
     button.createSpan({ cls: 'ocop-provider-btn-chevron', text: '⌄' });
   };
   const close = () => { popover.removeClass('is-visible'); button.setAttribute('aria-expanded', 'false'); };
-  const renderPopover = () => {
+  // Probing spawns real CLI processes, so it is confined to an explicit open.
+  // The initial render below builds the same markup with probing switched off.
+  const renderPopover = (probe = true) => {
     popover.empty();
     setupHint = null;
     popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI 제공자' });
@@ -734,9 +736,10 @@ export function createProviderSelector(
         cls: 'ocop-provider-option-status',
         text: ready ? '확인 중…' : '설치 필요',
       });
-      if (ready) {
-        // Runs on popover open only, never on a timer. Two CLIs can answer this
-        // (claude, codex); the rest resolve to 확인 불가 without spawning.
+      if (ready && probe) {
+        // Runs on popover open only, never on a timer and never at construction.
+        // Two CLIs can answer this (claude, codex); the rest resolve to
+        // 확인 불가 without spawning anything.
         void checkProviderReadiness(provider.id, { cliPath: configuredPath || undefined })
           .then(({ state }) => {
             statusEl.setText(readinessLabel(state));
@@ -757,7 +760,7 @@ export function createProviderSelector(
     }
     if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: '모델과 추론 강도는 오른쪽 모델 버튼에서 선택합니다.' });
   };
-  updateButton(); renderPopover();
+  updateButton(); renderPopover(false);
   const firstToolbarChild = toolbar.firstElementChild;
   if (firstToolbarChild && firstToolbarChild !== container) toolbar.insertBefore(container, firstToolbarChild);
   button.addEventListener('click', (event) => { event.stopPropagation(); if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); } });

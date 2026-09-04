@@ -15,6 +15,7 @@ import { spawn } from 'child_process';
 
 import { getEnhancedPath } from '../../utils/env';
 import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import { isWindows, killTree } from './processTree';
 
 export type LoginState =
   /** The CLI says it is authenticated. */
@@ -108,14 +109,17 @@ export async function checkProviderReadiness(
     const child = spawn(cliPath, [...probe.args], {
       env: { ...process.env, PATH: getEnhancedPath() },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Own the tree so a status command that spawns a helper cannot outlive
+      // the timeout below.
+      detached: !isWindows,
     });
 
     const timer = setTimeout(() => {
-      // Detach the streams as well as killing the child: a killed process whose
+      // Detach the streams as well as killing the tree: a killed process whose
       // stdio is still piped keeps the event loop alive.
       child.stdout?.destroy();
       child.stderr?.destroy();
-      child.kill('SIGKILL');
+      killTree(child);
       child.unref();
       finish({ state: 'unknown' });
     }, timeoutMs);

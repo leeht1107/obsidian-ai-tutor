@@ -231,8 +231,16 @@ describe('chat provider selector', () => {
       saveSettings: jest.fn().mockResolvedValue(undefined),
     } as any);
 
-    const popover = toolbar.children[0].children[1];
-    const options = popover.children.filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option');
+    // Probing happens on open, so open the menu.
+    const container = toolbar.children[0];
+    container.children[0].emit('click');
+
+    const popover = container.children[1];
+    // The mock's empty() does not drop children, so take the newest render's
+    // four provider rows rather than the ones built before the menu opened.
+    const options = popover.children
+      .filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option')
+      .slice(-4);
     const claudeStatus = options[1].children.find(
       (child: any) => String(child.elementOptions?.cls ?? '').includes('ocop-provider-option-status')
     );
@@ -245,6 +253,31 @@ describe('chat provider selector', () => {
 
     expect(probe).toHaveBeenCalledWith('claude', expect.any(Object));
     expect(claudeStatus.setText).toHaveBeenCalledWith('로그인 필요');
+    findPath.mockRestore();
+    probe.mockRestore();
+  });
+
+  it('spawns no CLI process just because the chat view loaded', async () => {
+    // Building the toolbar used to fire a readiness probe per installed provider,
+    // so opening the view spawned real processes before anyone clicked anything.
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
+      .mockReturnValue('/usr/local/bin/anything');
+    const probe = jest.spyOn(readiness, 'checkProviderReadiness')
+      .mockResolvedValue({ state: 'logged-in' });
+
+    const toolbar = makeElement();
+    createProviderSelector(toolbar, {
+      settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as any);
+
+    expect(probe).not.toHaveBeenCalled();
+
+    // Opening the menu is what asks.
+    const container = toolbar.children[0];
+    container.children[0].emit('click');
+    expect(probe).toHaveBeenCalled();
+
     findPath.mockRestore();
     probe.mockRestore();
   });

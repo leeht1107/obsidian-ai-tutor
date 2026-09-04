@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { detectPackageManager, installNode, NODE_DOWNLOAD_URL } from '@/core/setup/nodeInstall';
+import { detectPackageManager, installNode, NODE_DOWNLOAD_URL, startNodeInstall } from '@/core/setup/nodeInstall';
 
 const isWindows = process.platform === 'win32';
 
@@ -64,5 +64,36 @@ describe('Node.js install', () => {
       id: 'brew', binPath: bin, installArgs: ['install', 'node'], displayCommand: 'brew install node',
     });
     expect(lines.join('\n')).toContain('Fetching node');
+  });
+});
+
+describe('Node.js install cancellation', () => {
+  let dir: string;
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nodecancel-')); });
+  afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('stops an install in progress instead of leaving it running', async () => {
+    if (process.platform === 'win32') return;
+    // Closing the wizard used to leave brew installing with no UI and no stop.
+    const p = path.join(dir, 'brew-slow');
+    fs.writeFileSync(p, '#!/bin/sh\nsleep 60\n');
+    fs.chmodSync(p, 0o755);
+
+    const session = startNodeInstall(() => { /* ignore */ }, {
+      id: 'brew', binPath: p, installArgs: ['install', 'node'], displayCommand: 'brew install node',
+    });
+    const started = Date.now();
+    session.cancel();
+    const result = await session.done;
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('취소');
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it('reports no package manager without spawning a session', async () => {
+    const session = startNodeInstall(() => { /* ignore */ }, null);
+    await expect(session.done).resolves.toMatchObject({ success: false });
+    expect(() => session.cancel()).not.toThrow();
   });
 });
