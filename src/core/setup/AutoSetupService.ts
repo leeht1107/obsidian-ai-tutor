@@ -12,6 +12,7 @@ import * as path from 'path';
 import { findCopilotCLIPath } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
 import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
+import { killTree } from './processTree';
 
 const isWindows = process.platform === 'win32';
 
@@ -123,22 +124,71 @@ export async function installCopilotCLI(
   });
 }
 
+export interface InstallSession {
+  /** Stop the installer and resolve `done` as cancelled. Safe to call twice. */
+  cancel(): void;
+  done: Promise<InstallResult>;
+}
+
+/**
+ * Cancellable form of {@link installProviderCLI}.
+ *
+ * The wizard needs this because closing it mid-install otherwise leaves a global
+ * npm install running with no window and no way to stop it.
+ */
+export function startProviderInstall(providerId: ProviderId, onProgress: (msg: string) => void): InstallSession {
+  const descriptor = getProviderDescriptor(providerId);
+  const packageName = providerId === 'copilot'
+    ? '@github/copilot'
+    : descriptor.installCommand?.split(' ').slice(3).join(' ');
+  const npmPath = findNpmPath();
+
+  if (!packageName || !npmPath) {
+    const error = !packageName
+      ? '이 provider는 공식 package-manager 설치 명령이 없어 수동 설치가 필요합니다.'
+      : 'npm을 찾을 수 없습니다.';
+    return { cancel: () => { /* nothing started */ }, done: Promise.resolve({ success: false, error }) };
+  }
+
+  let settled = false;
+  let resolveDone: (result: InstallResult) => void;
+  const done = new Promise<InstallResult>((resolve) => { resolveDone = resolve; });
+  const finish = (result: InstallResult) => {
+    if (settled) return;
+    settled = true;
+    resolveDone(result);
+  };
+
+  const child = spawn(npmPath, ['install', '-g', packageName], {
+    env: { ...process.env, PATH: getEnhancedPath() },
+    // shell:true is needed on Windows for the .cmd shim, and rules out detaching.
+    shell: isWindows,
+    detached: !isWindows,
+  });
+
+  child.stdout?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) onProgress(line); });
+  const errors: string[] = [];
+  child.stderr?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) errors.push(line); });
+
+  child.on('error', (error: Error) => finish({ success: false, error: error.message }));
+  child.on('close', (code: number | null) => finish(code === 0
+    ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
+    : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` }));
+
+  return {
+    cancel() {
+      if (settled) return;
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      killTree(child);
+      child.unref();
+      finish({ success: false, error: '설치를 취소했습니다.' });
+    },
+    done,
+  };
+}
+
 /** Installs only a provider with a verified npm recipe; script-only providers stay manual. */
 export async function installProviderCLI(providerId: ProviderId, onProgress: (msg: string) => void): Promise<InstallResult> {
-  if (providerId === 'copilot') return installCopilotCLI(onProgress);
-  const descriptor = getProviderDescriptor(providerId);
-  if (!descriptor.installCommand) return { success: false, error: '이 provider는 공식 package-manager 설치 명령이 없어 수동 설치가 필요합니다.' };
-  const npmPath = findNpmPath();
-  if (!npmPath) return { success: false, error: 'npm을 찾을 수 없습니다.' };
-  const packageName = descriptor.installCommand.split(' ').slice(3).join(' ');
-  return new Promise<InstallResult>((resolve) => {
-    const proc = spawn(npmPath, ['install', '-g', packageName], { env: { ...process.env, PATH: getEnhancedPath() }, shell: isWindows });
-    proc.stdout?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) onProgress(line); });
-    const errors: string[] = [];
-    proc.stderr?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) errors.push(line); });
-    proc.on('close', (code: number | null) => resolve(code === 0
-      ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
-      : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` }));
-    proc.on('error', (error: Error) => resolve({ success: false, error: error.message }));
-  });
+  return startProviderInstall(providerId, onProgress).done;
 }

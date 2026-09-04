@@ -5,8 +5,10 @@
  * wizard only sends a student to a terminal for agy, which is the one CLI with
  * no login command at all.
  *
- * Everything the CLIs are asked to do was captured from the real binaries on
- * 2026-09-04; see
+ * Evidence is uneven and the code should be read that way: codex's login was
+ * captured headlessly from the real binary, claude's is inherited and was never
+ * executed here, copilot's is documented from --help only, and the Windows
+ * winget path has never run. See
  * .claude/artifacts/provider-model-ux-20260904/install-login-evidence.md
  */
 
@@ -15,8 +17,9 @@ import { type App, Modal, Notice } from 'obsidian';
 import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../../core/providers/providerRegistry';
 import {
   checkProviderSetupStatus,
-  installProviderCLI,
+  type InstallSession,
   markShownThisSession,
+  startProviderInstall,
 } from '../../core/setup/AutoSetupService';
 import {
   detectPackageManager,
@@ -31,7 +34,7 @@ import {
   type LoginSession,
   startProviderLogin,
 } from '../../core/setup/providerLogin';
-import { checkProviderReadiness } from '../../core/setup/providerReadiness';
+import { checkProviderReadiness, hasLoginCheck } from '../../core/setup/providerReadiness';
 import type ObsidianCopilotPlugin from '../../main';
 
 /**
@@ -59,6 +62,9 @@ export class SetupWizardModal extends Modal {
   private loginBusy = false;
   private loginFailure = '';
   private nodeSession: NodeInstallSession | null = null;
+  private cliInstallSession: InstallSession | null = null;
+  /** Kept across re-renders so streaming output cannot wipe what was typed. */
+  private pastedCode = '';
   /** Set in onClose; every render and phase change checks it. */
   private closed = false;
 
@@ -115,7 +121,13 @@ export class SetupWizardModal extends Modal {
 
     if (cliFound) {
       // The binary existing says nothing about being logged in, so ask the CLI.
-      this.phase = (await this.readCurrentLoginState()) === 'logged-in' ? 'done' : 'login';
+      const state = await this.readCurrentLoginState();
+      if (this.closed) return;
+      if (state === 'logged-in') this.phase = 'done';
+      // An unaskable CLI has nothing to log into here; sending it to the login
+      // screen would offer a button that cannot resolve anything.
+      else if (state === 'unknown') this.phase = 'unverified';
+      else this.phase = 'login';
     } else if (!npmFound) {
       // Node.js is the missing piece. The plugin can install it on a machine
       // with a package manager instead of handing over a download link.
@@ -147,17 +159,22 @@ export class SetupWizardModal extends Modal {
 
     this.renderLog(wrap, this.nodeLog);
 
-    const button = wrap.createEl('button', { text: 'Node.js 설치', cls: 'mod-cta ocop-setup-action-btn' });
-    button.addEventListener('click', () => {
-      button.disabled = true;
-      void this.runNodeInstall();
+    const running = this.nodeSession !== null;
+    const button = wrap.createEl('button', {
+      text: running ? '설치 중…' : 'Node.js 설치',
+      cls: 'mod-cta ocop-setup-action-btn',
     });
+    // Disabling the DOM node is not enough: every progress line re-renders this
+    // button, so a second click could start a competing install.
+    button.disabled = running;
+    button.addEventListener('click', () => { void this.runNodeInstall(); });
 
     const skip = wrap.createEl('button', { text: '직접 설치할게요', cls: 'ocop-setup-skip-btn' });
     skip.addEventListener('click', () => { this.phase = 'manual'; this.render(); });
   }
 
   private async runNodeInstall() {
+    if (this.closed || this.nodeSession) return;
     this.nodeSession = startNodeInstall((line) => {
       this.nodeLog.push(line);
       if (this.phase === 'node') this.render();
@@ -198,11 +215,17 @@ export class SetupWizardModal extends Modal {
   }
 
   private async runInstall() {
-    const result = await installProviderCLI(this.provider, (msg) => {
+    if (this.closed || this.cliInstallSession) return;
+    const session = startProviderInstall(this.provider, (msg) => {
       if (!msg) return;
       this.installLog.push(msg);
       if (this.phase === 'installing') this.render();
     });
+    this.cliInstallSession = session;
+    const result = await session.done;
+    // Ignore a result from an install this modal no longer owns.
+    if (this.closed || this.cliInstallSession !== session) return;
+    this.cliInstallSession = null;
 
     if (result.success) {
       // Drop the cached null path so the CLI just installed is actually found.
@@ -274,10 +297,15 @@ export class SetupWizardModal extends Modal {
       const row = wrap.createDiv({ cls: 'ocop-setup-cmd-row' });
       const input = row.createEl('input', { cls: 'ocop-setup-code-input' });
       input.placeholder = '브라우저에서 받은 코드';
+      // The CLI keeps printing while the student types, and each line re-renders
+      // this row, so the value has to survive outside the element.
+      input.value = this.pastedCode;
+      input.addEventListener('input', () => { this.pastedCode = input.value; });
       const submit = row.createEl('button', { text: '코드 입력', cls: 'mod-cta ocop-setup-copy-btn' });
       submit.addEventListener('click', () => {
-        if (!input.value.trim()) return;
-        this.loginSession?.submitCode(input.value);
+        if (!this.pastedCode.trim()) return;
+        this.loginSession?.submitCode(this.pastedCode);
+        this.pastedCode = '';
         input.value = '';
       });
     }
@@ -326,6 +354,8 @@ export class SetupWizardModal extends Modal {
     const outcome = await session.done;
     this.loginBusy = false;
     this.loginSession = null;
+    // Closing or cancelling must not leave a status probe running behind it.
+    if (this.closed) return;
 
     const state = await this.readCurrentLoginState();
     if (this.closed) return;
@@ -364,8 +394,11 @@ export class SetupWizardModal extends Modal {
     const descriptor = getProviderDescriptor(this.provider);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
     wrap.createEl('p', { text: '로그인 여부를 확인할 수 없습니다', cls: 'ocop-setup-warn' });
+    // Two different situations reach here and they need different advice.
     wrap.createEl('p', {
-      text: `${descriptor.label}에는 로그인 상태를 물어볼 수 있는 명령이 없습니다. 설치는 끝났으니 대화를 시작해 보시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
+      text: hasLoginCheck(this.provider)
+        ? `${descriptor.label}의 로그인 상태를 확인하는 명령이 응답하지 않았습니다. 잠시 후 다시 확인해 보세요.`
+        : `${descriptor.label}에는 로그인 상태를 물어볼 수 있는 명령이 없습니다. 설치는 끝났으니 대화를 시작해 보시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
       cls: 'ocop-setup-desc',
     });
     this.renderCmdRow(wrap, descriptor.loginCommand);
@@ -469,8 +502,9 @@ export class SetupWizardModal extends Modal {
   onClose() {
     this.closed = true;
     this.loginSession?.cancel();
-    // Otherwise brew or winget keeps installing with no window and no stop.
+    // Otherwise brew, winget or npm keeps installing with no window and no stop.
     this.nodeSession?.cancel();
+    this.cliInstallSession?.cancel();
     this.contentEl.empty();
   }
 }

@@ -1,23 +1,24 @@
 jest.mock('@/core/setup/AutoSetupService', () => ({
   checkProviderSetupStatus: jest.fn(),
   installProviderCLI: jest.fn(),
+  startProviderInstall: jest.fn(),
   markShownThisSession: jest.fn(),
 }));
 
 import { App } from 'obsidian';
 
-import { checkProviderSetupStatus, installProviderCLI } from '@/core/setup/AutoSetupService';
+import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { SetupWizardModal } from '@/ui/modals/SetupWizardModal';
 
 describe('SetupWizardModal provider choice', () => {
   const setupStatus = checkProviderSetupStatus as jest.MockedFunction<typeof checkProviderSetupStatus>;
-  const install = installProviderCLI as jest.MockedFunction<typeof installProviderCLI>;
+  const install = startProviderInstall as jest.MockedFunction<typeof startProviderInstall>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     setupStatus.mockReturnValue({ cliFound: false, npmFound: true, status: 'ready' });
-    install.mockReturnValue(new Promise(() => undefined));
+    install.mockReturnValue({ cancel: jest.fn(), done: new Promise(() => undefined) });
   });
 
   function makeWizard(): SetupWizardModal {

@@ -724,7 +724,10 @@ export function createProviderSelector(
     setupHint = null;
     popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI 제공자' });
     for (const provider of PROVIDERS) {
-      const configuredPath = plugin.settings.providerCliPaths?.[provider.id] || '';
+      // The legacy copilotCliPath setting still holds the path for upgraded
+      // installs; ignoring it showed an installed copilot as 설치 필요.
+      const configuredPath = plugin.settings.providerCliPaths?.[provider.id]
+        || (provider.id === 'copilot' ? plugin.settings.copilotCliPath || '' : '');
       // Installed only decides whether the option can be picked. Whether it will
       // actually work is a separate question, asked of the CLI below.
       const ready = !!findProviderCliPath(provider.id, configuredPath);

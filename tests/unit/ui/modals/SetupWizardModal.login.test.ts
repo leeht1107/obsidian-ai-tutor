@@ -1,6 +1,7 @@
 jest.mock('@/core/setup/AutoSetupService', () => ({
   checkProviderSetupStatus: jest.fn(),
   installProviderCLI: jest.fn(),
+  startProviderInstall: jest.fn(),
   markShownThisSession: jest.fn(),
 }));
 jest.mock('@/core/setup/nodeInstall', () => ({
@@ -21,7 +22,7 @@ jest.mock('@/core/setup/providerReadiness', () => ({
 
 import { App } from 'obsidian';
 
-import { checkProviderSetupStatus, installProviderCLI } from '@/core/setup/AutoSetupService';
+import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager, installNode, startNodeInstall } from '@/core/setup/nodeInstall';
 import { canDriveLogin, getLoginRecipe, startProviderLogin } from '@/core/setup/providerLogin';
 import { checkProviderReadiness } from '@/core/setup/providerReadiness';
@@ -35,7 +36,7 @@ import { SetupWizardModal } from '@/ui/modals/SetupWizardModal';
  */
 describe('SetupWizardModal — install and login are actually driven', () => {
   const setupStatus = checkProviderSetupStatus as jest.MockedFunction<typeof checkProviderSetupStatus>;
-  const install = installProviderCLI as jest.MockedFunction<typeof installProviderCLI>;
+  const install = startProviderInstall as jest.MockedFunction<typeof startProviderInstall>;
   const detectPm = detectPackageManager as jest.MockedFunction<typeof detectPackageManager>;
   const nodeInstall = installNode as jest.MockedFunction<typeof installNode>;
   const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
@@ -46,7 +47,7 @@ describe('SetupWizardModal — install and login are actually driven', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupStatus.mockReturnValue({ cliFound: false, npmFound: true, status: 'ready' });
-    install.mockResolvedValue({ success: true, cliPath: '/usr/local/bin/codex' });
+    install.mockReturnValue({ cancel: jest.fn(), done: Promise.resolve({ success: true, cliPath: '/usr/local/bin/codex' }) });
     detectPm.mockReturnValue(null);
     nodeInstall.mockResolvedValue({ success: true });
     canDrive.mockReturnValue(true);
@@ -145,7 +146,7 @@ describe('SetupWizardModal — install and login are actually driven', () => {
  */
 describe('SetupWizardModal — review regressions', () => {
   const setupStatus = checkProviderSetupStatus as jest.MockedFunction<typeof checkProviderSetupStatus>;
-  const install = installProviderCLI as jest.MockedFunction<typeof installProviderCLI>;
+  const install = startProviderInstall as jest.MockedFunction<typeof startProviderInstall>;
   const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
   const startLogin = startProviderLogin as jest.MockedFunction<typeof startProviderLogin>;
   const recipe = getLoginRecipe as jest.MockedFunction<typeof getLoginRecipe>;
@@ -156,7 +157,7 @@ describe('SetupWizardModal — review regressions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupStatus.mockReturnValue({ cliFound: false, npmFound: true, status: 'ready' });
-    install.mockResolvedValue({ success: true, cliPath: '/usr/local/bin/codex' });
+    install.mockReturnValue({ cancel: jest.fn(), done: Promise.resolve({ success: true, cliPath: '/usr/local/bin/codex' }) });
     canDrive.mockReturnValue(true);
     recipe.mockReturnValue({ args: ['login', '--device-auth'], expectsPastedCode: false });
     readiness.mockResolvedValue({ state: 'logged-in' });
@@ -229,6 +230,93 @@ describe('SetupWizardModal — review regressions', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1);
     resolveInstall({ success: true });
+  });
+
+
+  it('cannot be tricked into two concurrent Node.js installs by a progress redraw', async () => {
+    // Every progress line re-renders the button, so disabling the DOM node alone
+    // let a second click start a competing install.
+    const cancel = jest.fn();
+    startNode.mockReturnValue({ cancel, done: new Promise(() => undefined) });
+    setupStatus.mockReturnValue({ cliFound: false, npmFound: false, status: 'ready' });
+    detectPm.mockReturnValue({
+      id: 'brew', binPath: '/opt/homebrew/bin/brew',
+      installArgs: ['install', 'node'], displayCommand: 'brew install node',
+    });
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+
+    void wizard.runNodeInstall();
+    await Promise.resolve();
+    void wizard.runNodeInstall();
+    await Promise.resolve();
+
+    expect(startNode).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a running CLI install when the student closes the wizard', async () => {
+    const cancel = jest.fn();
+    install.mockReturnValue({ cancel, done: new Promise(() => undefined) });
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    await Promise.resolve();
+
+    closeForReal(wizard);
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not probe login status after the student closed the wizard', async () => {
+    let finishLogin: (r: any) => void = () => undefined;
+    startLogin.mockReturnValue({
+      submitCode: jest.fn(), cancel: jest.fn(),
+      done: new Promise((r) => { finishLogin = r; }),
+    });
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    await wizard.runInstall();
+    const loginDone = wizard.beginLogin();
+
+    closeForReal(wizard);
+    readiness.mockClear();
+    finishLogin({ success: false, exitCode: null, output: '', error: 'cancelled' });
+    await loginDone;
+
+    // A status check here spawns a real CLI behind a closed window.
+    expect(readiness).not.toHaveBeenCalled();
+  });
+
+  it('sends an installed but unaskable provider to the unverified screen, not to login', async () => {
+    // agy and copilot have no login command to drive; offering one is a dead end.
+    setupStatus.mockReturnValue({ cliFound: true, npmFound: true, status: 'ready' });
+    readiness.mockResolvedValue({ state: 'unknown' });
+    const wizard = makeWizard();
+
+    await wizard.chooseProvider('agy');
+
+    expect(wizard.phase).toBe('unverified');
+  });
+
+  it('keeps a half-typed code when the CLI prints another line', () => {
+    // Each line of CLI output re-renders this row. Holding the value only in the
+    // input element meant streaming output erased what the student was typing.
+    recipe.mockReturnValue({ args: ['auth', 'login'], expectsPastedCode: true });
+    const wizard = makeWizard();
+    wizard.phase = 'login';
+    wizard.loginBusy = true;
+    wizard.pastedCode = 'HALF-TYPED';
+
+    wizard.render();
+
+    // The obsidian mock does not track children, so read the element it handed
+    // back for the input row.
+    const wrap = wizard.contentEl.createDiv.mock.results[0].value;
+    const inputRow = wrap.createDiv.mock.results
+      .map((r: any) => r.value)
+      .find((el: any) => el.createEl.mock.calls.some((call: any[]) => call[0] === 'input'));
+    expect(inputRow).toBeDefined();
+    const input = inputRow.createEl.mock.results[0].value;
+    expect(input.value).toBe('HALF-TYPED');
   });
 
   it('does not write into the modal after it has been closed', async () => {
