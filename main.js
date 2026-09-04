@@ -6940,6 +6940,32 @@ var ImageContextManager = class {
 var import_obsidian5 = require("obsidian");
 var os5 = __toESM(require("os"));
 init_providerRegistry();
+
+// src/utils/folderDialog.ts
+function readDialog(candidate) {
+  const dialog = candidate == null ? void 0 : candidate.dialog;
+  const hasPicker = typeof (dialog == null ? void 0 : dialog.showOpenDialog) === "function";
+  return hasPicker ? dialog : null;
+}
+function resolveFolderDialog(moduleRequire) {
+  if (typeof moduleRequire !== "function") return null;
+  for (const attempt of [
+    () => readDialog(moduleRequire("@electron/remote")),
+    () => {
+      var _a;
+      return readDialog((_a = moduleRequire("electron")) == null ? void 0 : _a.remote);
+    }
+  ]) {
+    try {
+      const dialog = attempt();
+      if (dialog) return dialog;
+    } catch (e) {
+    }
+  }
+  return null;
+}
+
+// src/ui/components/InputToolbar.ts
 function toToolbarSettings(settings) {
   return {
     model: settings.model,
@@ -7471,6 +7497,9 @@ var ExternalContextSelector = class {
     const iconWrapper = this.container.createDiv({ cls: "ocop-external-context-icon-wrapper" });
     this.iconEl = iconWrapper.createDiv({ cls: "ocop-external-context-icon" });
     (0, import_obsidian5.setIcon)(this.iconEl, "folder");
+    iconWrapper.setAttribute("aria-label", "\uBCF4\uAD00\uD568 \uBC16 \uD3F4\uB354\uB97C \uCEE8\uD14D\uC2A4\uD2B8\uB85C \uCD94\uAC00");
+    iconWrapper.setAttribute("title", "\uBCF4\uAD00\uD568 \uBC16 \uD3F4\uB354\uB97C \uCEE8\uD14D\uC2A4\uD2B8\uB85C \uCD94\uAC00");
+    iconWrapper.createSpan({ cls: "ocop-external-context-caption", text: "\uD3F4\uB354" });
     this.badgeEl = iconWrapper.createDiv({ cls: "ocop-external-context-badge" });
     this.updateDisplay();
     iconWrapper.addEventListener("click", (event) => {
@@ -7482,13 +7511,13 @@ var ExternalContextSelector = class {
   }
   async openFolderPicker() {
     var _a;
+    const dialog = resolveFolderDialog(window.require);
+    if (!dialog) {
+      new import_obsidian5.Notice("\uC774 Obsidian \uBE4C\uB4DC\uC5D0\uC11C\uB294 \uD3F4\uB354 \uC120\uD0DD\uCC3D\uC744 \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", 5e3);
+      return;
+    }
     try {
-      const electronRequire = window.require;
-      const remote = electronRequire == null ? void 0 : electronRequire("electron").remote;
-      if (!remote) {
-        throw new Error("Electron remote API is not available");
-      }
-      const result = await remote.dialog.showOpenDialog({
+      const result = await dialog.showOpenDialog({
         properties: ["openDirectory"],
         title: "Select External Context"
       });
@@ -7509,6 +7538,7 @@ var ExternalContextSelector = class {
       }
     } catch (error) {
       console.error("Failed to open folder picker:", error);
+      new import_obsidian5.Notice("\uD3F4\uB354\uB97C \uC5EC\uB294 \uC911 \uBB38\uC81C\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.", 5e3);
     }
   }
   showConflictNotice(newPath, conflict) {

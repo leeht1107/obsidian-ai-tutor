@@ -3903,6 +3903,13 @@
   height: 14px;
 }
 
+/* The bare folder glyph gave no hint of its purpose. */
+.ocop-external-context-caption {
+  margin-left: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
 
 /* ============================================
    toolbar/mcp-selector.css

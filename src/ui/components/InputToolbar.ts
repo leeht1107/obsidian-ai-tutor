@@ -24,6 +24,7 @@ import {
 import { CHECK_ICON_SVG, MCP_ICON_SVG } from '../../features/chat/constants';
 import type { McpService } from '../../features/mcp/McpService';
 import { findConflictingPath } from '../../utils/externalContext';
+import { resolveFolderDialog } from '../../utils/folderDialog';
 
 export interface ToolbarSettings {
   model: CopilotModel;
@@ -76,17 +77,6 @@ export interface ToolbarCallbacks {
 }
 
 type CostBucket = 'best' | '0x' | '0.33x' | '1x' | '3x';
-
-type ElectronRequire = (moduleName: 'electron') => {
-  remote?: {
-    dialog: {
-      showOpenDialog(options: { properties: string[]; title: string }): Promise<{
-        canceled: boolean;
-        filePaths: string[];
-      }>;
-    };
-  };
-};
 
 function getProviderGroup(model: CopilotModel): string {
   if (model === 'auto') return 'recommended';
@@ -677,6 +667,9 @@ export class ExternalContextSelector {
     const iconWrapper = this.container.createDiv({ cls: 'ocop-external-context-icon-wrapper' });
     this.iconEl = iconWrapper.createDiv({ cls: 'ocop-external-context-icon' });
     setIcon(this.iconEl, 'folder');
+    iconWrapper.setAttribute('aria-label', '보관함 밖 폴더를 컨텍스트로 추가');
+    iconWrapper.setAttribute('title', '보관함 밖 폴더를 컨텍스트로 추가');
+    iconWrapper.createSpan({ cls: 'ocop-external-context-caption', text: '폴더' });
     this.badgeEl = iconWrapper.createDiv({ cls: 'ocop-external-context-badge' });
     this.updateDisplay();
 
@@ -690,13 +683,14 @@ export class ExternalContextSelector {
   }
 
   private async openFolderPicker() {
+    const dialog = resolveFolderDialog((window as Window & { require?: (m: string) => unknown }).require);
+    if (!dialog) {
+      // Previously this threw into a console-only catch, so the button looked inert.
+      new Notice('이 Obsidian 빌드에서는 폴더 선택창을 열 수 없습니다.', 5000);
+      return;
+    }
     try {
-      const electronRequire = (window as Window & { require?: ElectronRequire }).require;
-      const remote = electronRequire?.('electron').remote;
-      if (!remote) {
-        throw new Error('Electron remote API is not available');
-      }
-      const result = await remote.dialog.showOpenDialog({
+      const result = await dialog.showOpenDialog({
         properties: ['openDirectory'],
         title: 'Select External Context',
       });
@@ -720,6 +714,7 @@ export class ExternalContextSelector {
       }
     } catch (error) {
       console.error('Failed to open folder picker:', error);
+      new Notice('폴더를 여는 중 문제가 발생했습니다.', 5000);
     }
   }
 
