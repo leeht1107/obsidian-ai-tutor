@@ -10,6 +10,7 @@ import * as path from 'path';
 
 import { saveImageToCache } from '../../core/images/imageCache';
 import type { ImageAttachment, ImageMediaType } from '../../core/types';
+import { dropCarriesAttachable, readDroppedVaultRefs } from '../../utils/dropPayload';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
@@ -24,6 +25,11 @@ const IMAGE_EXTENSIONS: Record<string, ImageMediaType> = {
 /** Callbacks for image context interactions. */
 export interface ImageContextCallbacks {
   onImagesChanged: () => void;
+  /**
+   * Non-image references from the same drop. Images become attachments here; anything else
+   * is a file the user wants as context, which only the vault-aware caller can resolve.
+   */
+  onVaultRefsDropped?: (refs: string[]) => void;
 }
 
 /** Manages image attachments via drag/drop and paste. */
@@ -121,7 +127,7 @@ export class ImageContextManager {
     svg.appendChild(polyline);
     svg.appendChild(line);
     dropContent.appendChild(svg);
-    dropContent.createSpan({ text: 'Drop image here' });
+    dropContent.createSpan({ text: '노트나 이미지를 여기에 놓으세요' });
 
     const dropZone = inputWrapper;
 
@@ -135,7 +141,7 @@ export class ImageContextManager {
     e.preventDefault();
     e.stopPropagation();
 
-    if (e.dataTransfer?.types.includes('Files')) {
+    if (dropCarriesAttachable(e.dataTransfer?.types)) {
       this.dropOverlay?.addClass('visible');
     }
   }
@@ -172,14 +178,19 @@ export class ImageContextManager {
     this.dropOverlay?.removeClass('visible');
 
     const files = e.dataTransfer?.files;
-    if (!files) return;
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (this.isImageFile(file)) {
-        await this.addImageFromFile(file, 'drop');
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (this.isImageFile(file)) {
+          await this.addImageFromFile(file, 'drop');
+        }
       }
     }
+
+    // Everything that was not an image is a context reference — a note dragged from the
+    // file explorer, or a file dropped from the OS. Previously these were silently dropped.
+    const refs = readDroppedVaultRefs(e.dataTransfer);
+    if (refs.length > 0) this.callbacks.onVaultRefsDropped?.(refs);
   }
 
   private setupPasteHandler() {

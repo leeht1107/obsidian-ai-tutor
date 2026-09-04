@@ -6428,6 +6428,24 @@ var FileContextManager = class {
     }
     return null;
   }
+  /**
+   * Resolves a dropped reference to a vault path. Accepts a vault-relative path, a bare
+   * note name, or an absolute path that happens to sit inside the vault; returns null when
+   * nothing matches, so the caller can say so instead of dropping it on the floor.
+   */
+  resolveDroppedRef(rawRef) {
+    const normalized = this.normalizePathForVault(rawRef);
+    for (const candidate of [normalized, rawRef]) {
+      if (!candidate) continue;
+      const resolved = this.resolveVaultMentionPath(candidate);
+      if (resolved) return resolved;
+      if (!/\.[A-Za-z0-9]{1,8}$/.test(candidate)) {
+        const withExtension = this.resolveVaultMentionPath(`${candidate}.md`);
+        if (withExtension) return withExtension;
+      }
+    }
+    return null;
+  }
   /** Cleans up event listeners (call on view close). */
   destroy() {
     if (this.deleteEventRef) this.app.vault.offref(this.deleteEventRef);
@@ -6550,6 +6568,77 @@ var FileContextManager = class {
 // src/ui/components/ImageContext.ts
 var import_obsidian4 = require("obsidian");
 var path10 = __toESM(require("path"));
+
+// src/utils/dropPayload.ts
+var WIKILINK = /\[\[([^\]]+)\]\]/g;
+var MARKDOWN_LINK = /\[[^\]]*\]\(([^)]+)\)/g;
+var BARE_REFERENCE = /^[\w.\-가-힣][\w./\-\s가-힣]*$/;
+function isImage(file) {
+  var _a;
+  if ((_a = file.type) == null ? void 0 : _a.startsWith("image/")) return true;
+  return /\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i.test(file.name);
+}
+function stripWikilinkDecoration(target) {
+  return target.split("|")[0].split("#")[0].trim();
+}
+function fromObsidianUrl(line) {
+  if (!line.startsWith("obsidian://")) return null;
+  const file = /[?&]file=([^&]+)/.exec(line);
+  if (!file) return null;
+  try {
+    return decodeURIComponent(file[1]);
+  } catch (e) {
+    return file[1];
+  }
+}
+function dropCarriesAttachable(types) {
+  if (!types) return false;
+  return types.includes("Files") || types.includes("text/plain") || types.includes("text/uri-list");
+}
+function readDroppedVaultRefs(payload) {
+  var _a, _b;
+  if (!payload) return [];
+  const refs = [];
+  const push = (value) => {
+    const trimmed = value == null ? void 0 : value.trim();
+    if (trimmed && !refs.includes(trimmed)) refs.push(trimmed);
+  };
+  const files = payload.files;
+  if (files && files.length > 0) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file || isImage(file)) continue;
+      push(file.path || file.name);
+    }
+    return refs;
+  }
+  const text = (_b = (_a = payload.getData) == null ? void 0 : _a.call(payload, "text/plain")) != null ? _b : "";
+  if (!text.trim()) return refs;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const url = fromObsidianUrl(trimmed);
+    if (url) {
+      push(url);
+      continue;
+    }
+    let matched = false;
+    for (const match of trimmed.matchAll(WIKILINK)) {
+      push(stripWikilinkDecoration(match[1]));
+      matched = true;
+    }
+    for (const match of trimmed.matchAll(MARKDOWN_LINK)) {
+      push(match[1]);
+      matched = true;
+    }
+    if (matched) continue;
+    if (!BARE_REFERENCE.test(trimmed)) continue;
+    if (trimmed.includes("/") || /\.[A-Za-z0-9]{1,8}$/.test(trimmed)) push(trimmed);
+  }
+  return refs;
+}
+
+// src/ui/components/ImageContext.ts
 var MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 var IMAGE_EXTENSIONS = {
   ".jpg": "image/jpeg",
@@ -6628,7 +6717,7 @@ var ImageContextManager = class {
     svg.appendChild(polyline);
     svg.appendChild(line);
     dropContent.appendChild(svg);
-    dropContent.createSpan({ text: "Drop image here" });
+    dropContent.createSpan({ text: "\uB178\uD2B8\uB098 \uC774\uBBF8\uC9C0\uB97C \uC5EC\uAE30\uC5D0 \uB193\uC73C\uC138\uC694" });
     const dropZone = inputWrapper;
     dropZone.addEventListener("dragenter", (e) => this.handleDragEnter(e));
     dropZone.addEventListener("dragover", (e) => this.handleDragOver(e));
@@ -6639,7 +6728,7 @@ var ImageContextManager = class {
     var _a, _b;
     e.preventDefault();
     e.stopPropagation();
-    if ((_a = e.dataTransfer) == null ? void 0 : _a.types.includes("Files")) {
+    if (dropCarriesAttachable((_a = e.dataTransfer) == null ? void 0 : _a.types)) {
       (_b = this.dropOverlay) == null ? void 0 : _b.addClass("visible");
     }
   }
@@ -6662,18 +6751,21 @@ var ImageContextManager = class {
     }
   }
   async handleDrop(e) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     e.preventDefault();
     e.stopPropagation();
     (_a = this.dropOverlay) == null ? void 0 : _a.removeClass("visible");
     const files = (_b = e.dataTransfer) == null ? void 0 : _b.files;
-    if (!files) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (this.isImageFile(file)) {
-        await this.addImageFromFile(file, "drop");
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (this.isImageFile(file)) {
+          await this.addImageFromFile(file, "drop");
+        }
       }
     }
+    const refs = readDroppedVaultRefs(e.dataTransfer);
+    if (refs.length > 0) (_d = (_c = this.callbacks).onVaultRefsDropped) == null ? void 0 : _d.call(_c, refs);
   }
   setupPasteHandler() {
     this.inputEl.addEventListener("paste", async (e) => {
@@ -18879,7 +18971,8 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
         onImagesChanged: () => {
           var _a2;
           return (_a2 = this.renderer) == null ? void 0 : _a2.scrollToBottomIfNeeded();
-        }
+        },
+        onVaultRefsDropped: (refs) => this.attachDroppedRefs(refs)
       }
     );
     const vaultPath = getVaultPath(this.plugin.app);
@@ -19331,6 +19424,31 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       var _a;
       (_a = this.selectionController) == null ? void 0 : _a.showHighlight();
     });
+  }
+  /**
+   * Turns what was dropped into context chips. A reference the vault cannot resolve is
+   * reported rather than ignored — silently swallowing the drop is what made the old
+   * behaviour read as "drag and drop does nothing".
+   */
+  attachDroppedRefs(refs) {
+    var _a;
+    const manager = this.fileContextManager;
+    if (!manager) return;
+    const unresolved = [];
+    let attached = 0;
+    for (const ref of refs) {
+      const resolved = manager.resolveDroppedRef(ref);
+      if (!resolved) {
+        unresolved.push(ref);
+        continue;
+      }
+      manager.attachFileFromCommand(resolved);
+      attached += 1;
+    }
+    if (attached > 0) (_a = this.renderer) == null ? void 0 : _a.scrollToBottomIfNeeded();
+    if (unresolved.length > 0) {
+      new import_obsidian28.Notice(`\uBCF4\uAD00\uD568\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uB294 \uD30C\uC77C\uC785\uB2C8\uB2E4: ${unresolved.join(", ")}`, 5e3);
+    }
   }
   generateId() {
     return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;

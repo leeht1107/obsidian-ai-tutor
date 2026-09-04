@@ -313,6 +313,26 @@ export class FileContextManager {
     return null;
   }
 
+  /**
+   * Resolves a dropped reference to a vault path. Accepts a vault-relative path, a bare
+   * note name, or an absolute path that happens to sit inside the vault; returns null when
+   * nothing matches, so the caller can say so instead of dropping it on the floor.
+   */
+  resolveDroppedRef(rawRef: string): string | null {
+    const normalized = this.normalizePathForVault(rawRef);
+    for (const candidate of [normalized, rawRef]) {
+      if (!candidate) continue;
+      const resolved = this.resolveVaultMentionPath(candidate);
+      if (resolved) return resolved;
+      // A wikilink usually omits the extension.
+      if (!/\.[A-Za-z0-9]{1,8}$/.test(candidate)) {
+        const withExtension = this.resolveVaultMentionPath(`${candidate}.md`);
+        if (withExtension) return withExtension;
+      }
+    }
+    return null;
+  }
+
   /** Cleans up event listeners (call on view close). */
   destroy() {
     if (this.deleteEventRef) this.app.vault.offref(this.deleteEventRef);

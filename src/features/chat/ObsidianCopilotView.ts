@@ -1,5 +1,5 @@
 import type { WorkspaceLeaf } from 'obsidian';
-import { ItemView, setIcon } from 'obsidian';
+import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
 import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
@@ -239,6 +239,7 @@ export class ObsidianCopilotView extends ItemView {
       this.inputEl,
       {
         onImagesChanged: () => this.renderer?.scrollToBottomIfNeeded(),
+        onVaultRefsDropped: (refs) => this.attachDroppedRefs(refs),
       }
     );
 
@@ -674,6 +675,28 @@ export class ObsidianCopilotView extends ItemView {
     this.registerDomEvent(inputEl, 'focus', () => {
       this.selectionController?.showHighlight();
     });
+  }
+
+  /**
+   * Turns what was dropped into context chips. A reference the vault cannot resolve is
+   * reported rather than ignored — silently swallowing the drop is what made the old
+   * behaviour read as "drag and drop does nothing".
+   */
+  private attachDroppedRefs(refs: string[]): void {
+    const manager = this.fileContextManager;
+    if (!manager) return;
+    const unresolved: string[] = [];
+    let attached = 0;
+    for (const ref of refs) {
+      const resolved = manager.resolveDroppedRef(ref);
+      if (!resolved) { unresolved.push(ref); continue; }
+      manager.attachFileFromCommand(resolved);
+      attached += 1;
+    }
+    if (attached > 0) this.renderer?.scrollToBottomIfNeeded();
+    if (unresolved.length > 0) {
+      new Notice(`보관함에서 찾을 수 없는 파일입니다: ${unresolved.join(', ')}`, 5000);
+    }
   }
 
   private generateId(): string {
