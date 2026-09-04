@@ -18,8 +18,6 @@ export interface SystemPromptSettings {
   planMode?: boolean;
   /** Approved plan content to append (from plan mode approval). */
   appendedPlan?: string;
-  /** Names of currently enabled MCP servers. */
-  mcpServers?: string[];
 }
 
 /** Returns the base system prompt with core instructions. */
@@ -295,25 +293,6 @@ ${formattedPaths}
 When user refers to a folder by name (e.g., "check Workspace"), use the corresponding absolute path.`;
 }
 
-/** Returns MCP server instructions when servers are available. */
-function getMcpServersInstructions(servers: string[]): string {
-  if (!servers || servers.length === 0) return '';
-  const list = servers.map((s) => `- ${s}`).join('\n');
-  return `
-
-## Available MCP Servers
-
-The following MCP servers are active and their tools are directly callable by YOU in this turn:
-
-${list}
-
-**CRITICAL rules for MCP tools:**
-1. Call MCP tools **directly** in your current turn — do NOT delegate them to a task/subagent.
-2. If the user mentions an MCP server by name (e.g. "context7로 조사해줘", "use context7", "context7 이용해서"), you MUST invoke that server's tools yourself immediately.
-3. Do NOT say "I cannot use context7" or "I am limited to local search" — these servers are available to you right now.
-4. Do NOT spawn a task/subagent just to call an MCP server tool. Call it directly.`;
-}
-
 /** Returns editor context instructions (only included when selection exists). */
 function getEditorContextInstructions(): string {
   return `
@@ -371,7 +350,6 @@ export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
   prompt += getImageInstructions(settings.mediaFolder || '');
   prompt += getExportInstructions(settings.allowedExportPaths || []);
   prompt += getExternalContextInstructions(settings.externalContextPaths || []);
-  prompt += getMcpServersInstructions(settings.mcpServers || []);
 
   if (settings.customPrompt?.trim()) {
     prompt += '\n\n## Custom Instructions\n\n' + settings.customPrompt.trim();

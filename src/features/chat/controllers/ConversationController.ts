@@ -9,7 +9,7 @@ import { setIcon } from 'obsidian';
 
 import type { Conversation } from '../../../core/types';
 import type ObsidianCopilotPlugin from '../../../main';
-import { dismissQuizAnswerPanel, type ExternalContextSelector, extractLastTodosFromMessages, type FileContextManager, type ImageContextManager, type McpServerSelector, type TodoPanel } from '../../../ui';
+import { dismissQuizAnswerPanel, type ExternalContextSelector, extractLastTodosFromMessages, type FileContextManager, type ImageContextManager, type TodoPanel } from '../../../ui';
 import type { MessageRenderer } from '../rendering/MessageRenderer';
 import type { AsyncSubagentManager } from '../services/AsyncSubagentManager';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
@@ -35,7 +35,6 @@ export interface ConversationControllerDeps {
   getInputEl: () => HTMLTextAreaElement;
   getFileContextManager: () => FileContextManager | null;
   getImageContextManager: () => ImageContextManager | null;
-  getMcpServerSelector: () => McpServerSelector | null;
   getExternalContextSelector: () => ExternalContextSelector | null;
   clearQueuedMessage: () => void;
   /** Get current approved plan content from agent service. */
@@ -137,7 +136,6 @@ export class ConversationController {
     fileCtx?.autoAttachActiveFile();
 
     this.deps.getImageContextManager()?.clearImages();
-    this.deps.getMcpServerSelector()?.resetToDefaults();
     this.deps.getExternalContextSelector()?.clearExternalContexts();
     this.deps.clearQueuedMessage();
 
@@ -199,14 +197,6 @@ export class ConversationController {
       externalContextSelector?.setExternalContexts(conversation.externalContextPaths);
     } else {
       externalContextSelector?.clearExternalContexts();
-    }
-
-    // Restore enabled MCP servers (or reset to defaults for new conversation)
-    const mcpServerSelector = this.deps.getMcpServerSelector();
-    if (conversation.enabledMcpServers && conversation.enabledMcpServers.length > 0) {
-      mcpServerSelector?.setEnabledServers(conversation.enabledMcpServers);
-    } else {
-      mcpServerSelector?.resetToDefaults();
     }
 
     const welcomeEl = renderer.renderMessages(
@@ -280,14 +270,6 @@ export class ConversationController {
       externalContextSelector?.clearExternalContexts();
     }
 
-    // Restore enabled MCP servers (or reset to defaults if none saved)
-    const mcpServerSelector = this.deps.getMcpServerSelector();
-    if (conversation.enabledMcpServers && conversation.enabledMcpServers.length > 0) {
-      mcpServerSelector?.setEnabledServers(conversation.enabledMcpServers);
-    } else {
-      mcpServerSelector?.resetToDefaults();
-    }
-
     const welcomeEl = renderer.renderMessages(
       state.messages,
       () => this.getGreeting()
@@ -319,8 +301,6 @@ export class ConversationController {
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = externalContextSelector?.getExternalContexts() ?? [];
     const approvedPlan = this.deps.getApprovedPlan();
-    const mcpServerSelector = this.deps.getMcpServerSelector();
-    const enabledMcpServers = mcpServerSelector ? Array.from(mcpServerSelector.getEnabledServers()) : [];
 
     const updates: Partial<Conversation> = {
       messages: state.getPersistedMessages(),
@@ -331,7 +311,6 @@ export class ConversationController {
       approvedPlan: approvedPlan ?? undefined,
       pendingPlanContent: state.pendingPlanContent ?? undefined,
       isInPlanMode: state.planModeState?.isActive ?? undefined,
-      enabledMcpServers: enabledMcpServers.length > 0 ? enabledMcpServers : undefined,
       quizSession: state.quizSession ?? undefined,
       socraticSession: state.socraticSession ?? undefined,
     };

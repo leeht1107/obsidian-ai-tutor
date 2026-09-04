@@ -199,7 +199,7 @@ export class QuizSetupModal extends Modal {
           });
       });
 
-    const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-mcp-buttons' });
+    const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-setup-modal-buttons' });
     const cancelBtn = buttonsEl.createEl('button', { text: 'Cancel', cls: 'ocop-cancel-btn' });
     cancelBtn.addEventListener('click', () => this.finish(null));
     const createBtn = buttonsEl.createEl('button', { text: 'Create quiz', cls: 'ocop-save-btn mod-cta' });

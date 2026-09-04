@@ -2,7 +2,6 @@
  * Storage module barrel export.
  */
 
-export { MCP_CONFIG_PATH, McpStorage } from './McpStorage';
 export { SESSIONS_PATH, SessionStorage } from './SessionStorage';
 export { SETTINGS_PATH, SettingsStorage, type StoredSettings } from './SettingsStorage';
 export { COMMANDS_PATH, SlashCommandStorage } from './SlashCommandStorage';

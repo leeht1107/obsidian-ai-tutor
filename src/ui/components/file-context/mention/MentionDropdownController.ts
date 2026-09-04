@@ -5,11 +5,8 @@
 import type { TFile } from 'obsidian';
 import { setIcon } from 'obsidian';
 
-import { MCP_ICON_SVG } from '../../../../features/chat/constants';
-import type { McpService } from '../../../../features/mcp/McpService';
 import { getFolderName, normalizePathForComparison } from '../../../../utils/externalContext';
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
-import { extractMcpMentions } from '../../../../utils/mcp';
 import { splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
@@ -22,10 +19,6 @@ export interface MentionDropdownCallbacks {
   onAttachFile: (path: string) => void;
   /** Attach context file with display name to absolute path mapping. */
   onAttachContextFile?: (displayName: string, absolutePath: string) => void;
-  onMcpMentionChange?: (servers: Set<string>) => void;
-  getMentionedMcpServers: () => Set<string>;
-  setMentionedMcpServers: (mentions: Set<string>) => boolean;
-  addMentionedMcpServer: (name: string) => void;
   getExternalContexts: () => string[];
   getCachedMarkdownFiles: () => TFile[];
   normalizePathForVault: (path: string | undefined | null) => string | null;
@@ -43,7 +36,6 @@ export class MentionDropdownController {
   private activeContextFilter: { folderName: string; contextRoot: string } | null = null;
   private externalContextLoading = false;
   private lastSearchText = '';
-  private mcpService: McpService | null = null;
   private fixed: boolean;
 
   constructor(
@@ -64,10 +56,6 @@ export class MentionDropdownController {
       fixed: this.fixed,
       fixedClassName: 'ocop-mention-dropdown-fixed',
     });
-  }
-
-  setMcpService(service: McpService | null): void {
-    this.mcpService = service;
   }
 
   preScanExternalContexts(): void {
@@ -101,24 +89,8 @@ export class MentionDropdownController {
     this.dropdown.destroy();
   }
 
-  updateMcpMentionsFromText(text: string): void {
-    if (!this.mcpService) return;
-
-    const validNames = new Set(
-      this.mcpService.getContextSavingServers().map(s => s.name)
-    );
-
-    const newMentions = extractMcpMentions(text, validNames);
-    const changed = this.callbacks.setMentionedMcpServers(newMentions);
-
-    if (changed) {
-      this.callbacks.onMcpMentionChange?.(newMentions);
-    }
-  }
-
   handleInputChange(): void {
     const text = this.inputEl.value;
-    this.updateMcpMentionsFromText(text);
 
     const cursorPos = this.inputEl.selectionStart || 0;
     const textBeforeCursor = text.substring(0, cursorPos);
@@ -302,19 +274,6 @@ export class MentionDropdownController {
     this.activeContextFilter = null;
     this.externalContextLoading = false;
 
-    if (this.mcpService) {
-      const mcpServers = this.mcpService.getContextSavingServers();
-
-      for (const server of mcpServers) {
-        if (server.name.toLowerCase().includes(searchLower)) {
-          this.filteredMentionItems.push({
-            type: 'mcp-server',
-            name: server.name,
-          });
-        }
-      }
-    }
-
     if (contextEntries.length > 0) {
       const matchingFolders = new Set<string>();
       for (const entry of contextEntries) {
@@ -376,16 +335,13 @@ export class MentionDropdownController {
       selectedIndex: this.selectedMentionIndex,
       emptyText: this.externalContextLoading ? 'Scanning external context...' : 'No matches',
       getItemClass: (item) => {
-        if (item.type === 'mcp-server') return 'mcp-server';
         if (item.type === 'context-file') return 'context-file';
         if (item.type === 'context-folder') return 'context-folder';
         return undefined;
       },
       renderItem: (item, itemEl) => {
         const iconEl = itemEl.createSpan({ cls: 'ocop-mention-icon' });
-        if (item.type === 'mcp-server') {
-          iconEl.innerHTML = MCP_ICON_SVG;
-        } else if (item.type === 'context-file') {
+        if (item.type === 'context-file') {
           setIcon(iconEl, 'folder-open');
         } else if (item.type === 'context-folder') {
           setIcon(iconEl, 'folder');
@@ -395,10 +351,7 @@ export class MentionDropdownController {
 
         const textEl = itemEl.createSpan({ cls: 'ocop-mention-text' });
 
-        if (item.type === 'mcp-server') {
-          const nameEl = textEl.createSpan({ cls: 'ocop-mention-name' });
-          nameEl.setText(`@${item.name}`);
-        } else if (item.type === 'context-folder') {
+        if (item.type === 'context-folder') {
           const nameEl = textEl.createSpan({
             cls: 'ocop-mention-name ocop-mention-name-folder',
           });
@@ -456,14 +409,7 @@ export class MentionDropdownController {
     const cursorPos = this.inputEl.selectionStart || 0;
     const afterCursor = text.substring(cursorPos);
 
-    if (selectedItem.type === 'mcp-server') {
-      const replacement = `@${selectedItem.name} `;
-      this.inputEl.value = beforeAt + replacement + afterCursor;
-      this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;
-
-      this.callbacks.addMentionedMcpServer(selectedItem.name);
-      this.callbacks.onMcpMentionChange?.(this.callbacks.getMentionedMcpServers());
-    } else if (selectedItem.type === 'context-folder') {
+    if (selectedItem.type === 'context-folder') {
       const replacement = `@${selectedItem.name}/`;
       this.inputEl.value = beforeAt + replacement + afterCursor;
       this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;

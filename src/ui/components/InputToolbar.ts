@@ -11,7 +11,6 @@ import {
   supportsEffortSelection,
 } from '../../core/providers/providerRegistry';
 import type {
-  CopilotMcpServer,
   CopilotModel,
   PermissionMode,
   ThinkingBudget,
@@ -21,8 +20,6 @@ import {
   COPILOT_MODELS,
   THINKING_BUDGETS,
 } from '../../core/types';
-import { CHECK_ICON_SVG, MCP_ICON_SVG } from '../../features/chat/constants';
-import type { McpService } from '../../features/mcp/McpService';
 import { findConflictingPath } from '../../utils/externalContext';
 import { resolveFolderDialog } from '../../utils/folderDialog';
 
@@ -798,205 +795,6 @@ export class ExternalContextSelector {
   }
 }
 
-export class McpServerSelector {
-  private container: HTMLElement;
-  private iconEl: HTMLElement | null = null;
-  private badgeEl: HTMLElement | null = null;
-  private dropdownEl: HTMLElement | null = null;
-  private mcpService: McpService | null = null;
-  private enabledServers: Set<string> = new Set();
-  private onChangeCallback: ((enabled: Set<string>) => void) | null = null;
-
-  constructor(parentEl: HTMLElement) {
-    this.container = parentEl.createDiv({ cls: 'ocop-mcp-selector' });
-    this.render();
-  }
-
-  setMcpService(service: McpService | null): void {
-    this.mcpService = service;
-    // Default ON: initialize with all globally-enabled servers
-    if (service) {
-      for (const server of service.getServers()) {
-        if (server.enabled) {
-          this.enabledServers.add(server.name);
-        }
-      }
-    }
-    this.pruneEnabledServers();
-    this.updateDisplay();
-    this.renderDropdown();
-  }
-
-  setOnChange(callback: (enabled: Set<string>) => void): void {
-    this.onChangeCallback = callback;
-  }
-
-  getEnabledServers(): Set<string> {
-    return new Set(this.enabledServers);
-  }
-
-  addMentionedServers(names: Set<string>): void {
-    let changed = false;
-    for (const name of names) {
-      if (!this.enabledServers.has(name)) {
-        this.enabledServers.add(name);
-        changed = true;
-      }
-    }
-    if (changed) {
-      this.updateDisplay();
-      this.renderDropdown();
-    }
-  }
-
-  clearEnabled(): void {
-    this.enabledServers.clear();
-    this.updateDisplay();
-    this.renderDropdown();
-  }
-
-  /** Reset to globally-enabled servers (default ON state). */
-  resetToDefaults(): void {
-    this.enabledServers.clear();
-    if (this.mcpService) {
-      for (const server of this.mcpService.getServers()) {
-        if (server.enabled) {
-          this.enabledServers.add(server.name);
-        }
-      }
-    }
-    this.updateDisplay();
-    this.renderDropdown();
-  }
-
-  setEnabledServers(names: string[]): void {
-    this.enabledServers = new Set(names);
-    this.pruneEnabledServers();
-    this.updateDisplay();
-    this.renderDropdown();
-  }
-
-  private pruneEnabledServers(): void {
-    if (!this.mcpService) return;
-    // Only remove servers that are no longer configured at all.
-    // Globally-disabled servers can still be per-session enabled.
-    const configuredNames = new Set(this.mcpService.getServers().map((server) => server.name));
-    let changed = false;
-    for (const name of this.enabledServers) {
-      if (!configuredNames.has(name)) {
-        this.enabledServers.delete(name);
-        changed = true;
-      }
-    }
-    if (changed) {
-      this.onChangeCallback?.(this.enabledServers);
-    }
-  }
-
-  private render() {
-    this.container.empty();
-    const iconWrapper = this.container.createDiv({ cls: 'ocop-mcp-selector-icon-wrapper' });
-    this.iconEl = iconWrapper.createDiv({ cls: 'ocop-mcp-selector-icon' });
-    this.iconEl.innerHTML = MCP_ICON_SVG;
-    this.badgeEl = iconWrapper.createDiv({ cls: 'ocop-mcp-selector-badge' });
-    this.updateDisplay();
-    this.dropdownEl = this.container.createDiv({ cls: 'ocop-mcp-selector-dropdown' });
-    this.renderDropdown();
-    this.container.addEventListener('mouseenter', () => {
-      this.renderDropdown();
-    });
-  }
-
-  private renderDropdown() {
-    if (!this.dropdownEl) return;
-    this.pruneEnabledServers();
-    this.dropdownEl.empty();
-    this.dropdownEl.createDiv({ cls: 'ocop-mcp-selector-header', text: 'MCP Servers' });
-    const listEl = this.dropdownEl.createDiv({ cls: 'ocop-mcp-selector-list' });
-    const servers = this.mcpService?.getServers() || [];
-
-    if (servers.length === 0) {
-      listEl.createDiv({
-        cls: 'ocop-mcp-selector-empty',
-        text: 'No MCP servers configured',
-      });
-      return;
-    }
-
-    for (const server of servers) {
-      this.renderServerItem(listEl, server);
-    }
-  }
-
-  private renderServerItem(listEl: HTMLElement, server: CopilotMcpServer) {
-    const itemEl = listEl.createDiv({ cls: 'ocop-mcp-selector-item' });
-    itemEl.dataset.serverName = server.name;
-    const isSessionEnabled = this.enabledServers.has(server.name);
-    if (isSessionEnabled) {
-      itemEl.addClass('enabled');
-    }
-
-    const checkEl = itemEl.createDiv({ cls: 'ocop-mcp-selector-check' });
-    if (isSessionEnabled) {
-      checkEl.innerHTML = CHECK_ICON_SVG;
-    }
-
-    const infoEl = itemEl.createDiv({ cls: 'ocop-mcp-selector-item-info' });
-    infoEl.createSpan({ cls: 'ocop-mcp-selector-item-name', text: server.name });
-
-    if (server.contextSaving) {
-      const csEl = infoEl.createSpan({ cls: 'ocop-mcp-selector-cs-badge', text: '@' });
-      csEl.setAttribute('title', 'Context-saving: can also enable via @' + server.name);
-    }
-
-    itemEl.addEventListener('mousedown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.toggleServer(server.name);
-    });
-  }
-
-  private toggleServer(name: string) {
-    if (this.enabledServers.has(name)) {
-      this.enabledServers.delete(name);
-    } else {
-      this.enabledServers.add(name);
-    }
-    this.updateDisplay();
-    this.renderDropdown();
-    this.onChangeCallback?.(this.enabledServers);
-  }
-
-  updateDisplay() {
-    this.pruneEnabledServers();
-    if (!this.iconEl || !this.badgeEl) return;
-
-    const count = this.enabledServers.size;
-    const hasAnyServers = (this.mcpService?.getServers() || []).length > 0;
-    if (!hasAnyServers) {
-      this.container.style.display = 'none';
-      return;
-    }
-
-    this.container.style.display = '';
-    if (count > 0) {
-      this.iconEl.addClass('active');
-      this.iconEl.setAttribute('title', `${count} MCP server${count > 1 ? 's' : ''} enabled (click to manage)`);
-      if (count > 1) {
-        this.badgeEl.setText(String(count));
-        this.badgeEl.addClass('visible');
-      } else {
-        this.badgeEl.removeClass('visible');
-      }
-      return;
-    }
-
-    this.iconEl.removeClass('active');
-    this.iconEl.setAttribute('title', 'MCP servers (click to enable)');
-    this.badgeEl.removeClass('visible');
-  }
-}
-
 export class ContextUsageMeter {
   private container: HTMLElement;
   private fillPath: SVGPathElement | null = null;
@@ -1161,7 +959,6 @@ export function createInputToolbar(
   contextUsageMeter: ContextUsageMeter;
   externalContextSelector: ExternalContextSelector;
   webSearchToggle: WebSearchToggle;
-  mcpServerSelector: McpServerSelector;
   permissionToggle: PermissionToggle;
   quizLauncherButton: QuizLauncherButton;
   socraticLauncherButton: SocraticLauncherButton;
@@ -1173,7 +970,6 @@ export function createInputToolbar(
   const contextUsageMeter = new ContextUsageMeter(secondaryToolbarEl);
   const externalContextSelector = new ExternalContextSelector(secondaryToolbarEl);
   const webSearchToggle = new WebSearchToggle(secondaryToolbarEl);
-  const mcpServerSelector = new McpServerSelector(secondaryToolbarEl);
   const permissionToggle = new PermissionToggle(secondaryToolbarEl, callbacks);
   const quizLauncherButton = new QuizLauncherButton(learningGroupEl, callbacks);
   const socraticLauncherButton = new SocraticLauncherButton(learningGroupEl, callbacks);
@@ -1185,7 +981,6 @@ export function createInputToolbar(
     contextUsageMeter,
     externalContextSelector,
     webSearchToggle,
-    mcpServerSelector,
     permissionToggle,
     quizLauncherButton,
     socraticLauncherButton,

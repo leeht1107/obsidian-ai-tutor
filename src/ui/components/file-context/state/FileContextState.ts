@@ -12,7 +12,6 @@ export class FileContextState {
   /** Files that are explicitly attached (via command or @-mention) and won't be replaced. */
   private pinnedFiles: Set<string> = new Set();
   private sessionStarted = false;
-  private mentionedMcpServers: Set<string> = new Set();
   private currentNoteSent = false;
   /** Maps display name (e.g., "@folder/file.ts") to absolute path for context files. */
   private contextFileMap: Map<string, string> = new Map();
@@ -52,7 +51,6 @@ export class FileContextState {
     this.attachedFiles.clear();
     this.pinnedFiles.clear();
     this.contextFileMap.clear();
-    this.clearMcpMentions();
   }
 
   resetForLoadedConversation(hasMessages: boolean): void {
@@ -61,7 +59,6 @@ export class FileContextState {
     this.pinnedFiles.clear();
     this.contextFileMap.clear();
     this.sessionStarted = hasMessages;
-    this.clearMcpMentions();
   }
 
   setAttachedFiles(files: string[]): void {
@@ -132,27 +129,4 @@ export class FileContextState {
     return result;
   }
 
-  getMentionedMcpServers(): Set<string> {
-    return new Set(this.mentionedMcpServers);
-  }
-
-  clearMcpMentions(): void {
-    this.mentionedMcpServers.clear();
-  }
-
-  setMentionedMcpServers(mentions: Set<string>): boolean {
-    const changed =
-      mentions.size !== this.mentionedMcpServers.size ||
-      [...mentions].some(name => !this.mentionedMcpServers.has(name));
-
-    if (changed) {
-      this.mentionedMcpServers = new Set(mentions);
-    }
-
-    return changed;
-  }
-
-  addMentionedMcpServer(name: string): void {
-    this.mentionedMcpServers.add(name);
-  }
 }

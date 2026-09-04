@@ -2,14 +2,12 @@
  * ObsidianCode - File context manager
  *
  * Manages current note chip and @ mention dropdown.
- * Also handles MCP server @-mentions for context-saving mode.
  */
 
 import type { App, EventRef } from 'obsidian';
 import { Notice, TFile } from 'obsidian';
 import * as path from 'path';
 
-import type { McpService } from '../../features/mcp/McpService';
 import { getVaultPath, isPathWithinVault, normalizePathForFilesystem } from '../../utils/path';
 import { MentionDropdownController } from './file-context/mention/MentionDropdownController';
 import { FileContextState } from './file-context/state/FileContextState';
@@ -42,10 +40,6 @@ export class FileContextManager {
 
   // Current note (shown as chip)
   private currentNotePath: string | null = null;
-
-  // MCP server support
-  private mcpService: McpService | null = null;
-  private onMcpMentionChange: ((servers: Set<string>) => void) | null = null;
 
   constructor(
     app: App,
@@ -106,10 +100,6 @@ export class FileContextManager {
           this.state.attachContextFile(displayName, absolutePath);
           this.refreshAllChips();
         },
-        onMcpMentionChange: (servers) => this.onMcpMentionChange?.(servers),
-        getMentionedMcpServers: () => this.state.getMentionedMcpServers(),
-        setMentionedMcpServers: (mentions) => this.state.setMentionedMcpServers(mentions),
-        addMentionedMcpServer: (name) => this.state.addMentionedMcpServer(name),
         getExternalContexts: () => this.callbacks.getExternalContexts?.() || [],
         getCachedMarkdownFiles: () => this.fileCache.getFiles(),
         normalizePathForVault: (rawPath) => this.normalizePathForVault(rawPath),
@@ -420,42 +410,12 @@ export class FileContextManager {
     }
   }
 
-  // ========================================
-  // MCP Server Support
-  // ========================================
-
-  /** Set the MCP service for @-mention autocomplete. */
-  setMcpService(service: McpService | null): void {
-    this.mcpService = service;
-    this.mentionDropdown.setMcpService(service);
-  }
-
-  /** Set callback for when MCP mentions change (for McpServerSelector integration). */
-  setOnMcpMentionChange(callback: (servers: Set<string>) => void): void {
-    this.onMcpMentionChange = callback;
-  }
-
   /**
    * Pre-scans external context paths in the background to warm the cache.
    * Should be called when external context paths are added/changed.
    */
   preScanExternalContexts(): void {
     this.mentionDropdown.preScanExternalContexts();
-  }
-
-  /** Get currently @-mentioned MCP servers. */
-  getMentionedMcpServers(): Set<string> {
-    return this.state.getMentionedMcpServers();
-  }
-
-  /** Clear MCP mentions (call on new conversation). */
-  clearMcpMentions(): void {
-    this.state.clearMcpMentions();
-  }
-
-  /** Update MCP mentions from input text. */
-  updateMcpMentionsFromText(text: string): void {
-    this.mentionDropdown.updateMcpMentionsFromText(text);
   }
 
   private hasExcludedTag(file: TFile): boolean {

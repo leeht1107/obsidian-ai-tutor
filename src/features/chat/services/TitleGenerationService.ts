@@ -61,7 +61,6 @@ Generate a title for this conversation:`;
       const titleModel = this.plugin.settings.titleGenerationModel?.trim();
 
       for await (const chunk of this.plugin.agentService.streamQuery(prompt, {
-        disableMcp: true,
         skipResume: true,
         model: titleModel && titleModel !== 'auto' ? titleModel : undefined,
       })) {

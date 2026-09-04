@@ -18,7 +18,6 @@ export {
   ContextUsageMeter,
   createInputToolbar,
   ExternalContextSelector,
-  McpServerSelector,
   ModelSelector,
   PermissionToggle,
   type SocraticLauncherButton,

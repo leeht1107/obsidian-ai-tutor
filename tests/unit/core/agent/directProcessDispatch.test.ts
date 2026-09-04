@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CopilotBridgeService } from '@/core/agent/CopilotBridgeService';
-import type { McpServerManager } from '@/core/mcp';
 import type { StreamChunk } from '@/core/types';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import type ObsidianCopilotPlugin from '@/main';
@@ -62,8 +61,7 @@ function makeService(fixturePath: string, vaultPath: string, provider: FixturePr
     app: { vault: { adapter: { basePath: vaultPath } } },
     getActiveEnvironmentVariables: () => '',
   } as unknown as ObsidianCopilotPlugin;
-  const fakeMcpManager = { getServers: () => [] } as unknown as McpServerManager;
-  return new CopilotBridgeService(fakePlugin, fakeMcpManager);
+  return new CopilotBridgeService(fakePlugin);
 }
 
 describe('direct native-provider dispatch (non-Copilot providers)', () => {

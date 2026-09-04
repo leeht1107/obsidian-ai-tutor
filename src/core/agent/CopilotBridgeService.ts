@@ -1,7 +1,6 @@
 import { type ChildProcess, execFile, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import type ObsidianCopilotPlugin from '../../main';
@@ -10,7 +9,6 @@ import { findCopilotCLIPath, resolveCmdShim } from '../../utils/copilotCli';
 import { getEnhancedPath, parseEnvironmentVariables } from '../../utils/env';
 import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory, getLastUserMessage } from '../../utils/session';
-import type { McpServerManager } from '../mcp';
 import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
@@ -24,10 +22,8 @@ import {
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
-  CopilotMcpServer,
   ExitPlanModeDecision,
   ImageAttachment,
-  McpServerConfig,
   StreamChunk,
   ToolDiffData,
   UsageInfo,
@@ -37,9 +33,6 @@ import { THINKING_BUDGETS } from '../types';
 export interface QueryOptions {
   allowedTools?: string[];
   model?: string;
-  mcpMentions?: Set<string>;
-  enabledMcpServers?: Set<string>;
-  disableMcp?: boolean;
   skipResume?: boolean;
   planMode?: boolean;
   externalContextPaths?: string[];
@@ -68,7 +61,6 @@ const ALLOWED_TOOLS = [
 ] as const;
 
 const MAX_DIFF_SIZE = 100 * 1024;
-const DEFAULT_RUNTIME_MCP_TOOLS = ['*'];
 const CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 
 interface DiffContentEntry {
@@ -114,7 +106,6 @@ export function shouldUseCopilotAllowAllTools(
   permissionMode: string,
   allowAllToolsSupported: boolean,
   queryOptions: Pick<QueryOptions, 'allowedTools' | 'planMode'> | undefined,
-  hasMcp: boolean
 ): boolean {
   if (!allowAllToolsSupported || queryOptions?.planMode) {
     return false;
@@ -122,7 +113,7 @@ export function shouldUseCopilotAllowAllTools(
   if (hasExplicitCopilotAllowedTools(queryOptions?.allowedTools)) {
     return false;
   }
-  return permissionMode === 'agent' || hasMcp;
+  return permissionMode === 'agent';
 }
 
 interface CopilotJsonEvent {
@@ -305,34 +296,10 @@ interface CopilotCliCapabilities {
   stream: boolean;
   resume: boolean;
   model: boolean;
-  additionalMcpConfig: boolean;
-  disableMcpServer: boolean;
   denyTool: boolean;
   availableTools: boolean;
   allowAllTools: boolean;
   reasoningEffort: boolean;
-}
-
-interface RuntimeLocalMcpServerConfig {
-  type?: 'stdio';
-  command: string;
-  args: string[];
-  tools: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-}
-
-interface RuntimeRemoteMcpServerConfig {
-  type: 'http' | 'sse';
-  url: string;
-  tools: string[];
-  headers?: Record<string, string>;
-}
-
-type RuntimeMcpServerConfig = RuntimeLocalMcpServerConfig | RuntimeRemoteMcpServerConfig;
-
-interface RuntimeMcpConfigFile {
-  mcpServers: Record<string, RuntimeMcpServerConfig>;
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -345,63 +312,6 @@ function stripWrappingQuotes(value: string): string {
   return value;
 }
 
-export function buildRuntimeMcpServerConfig(config: McpServerConfig): RuntimeMcpServerConfig | null {
-  if ('command' in config && typeof config.command === 'string') {
-    const runtimeConfig: RuntimeLocalMcpServerConfig = {
-      command: config.command,
-      args: Array.isArray(config.args) ? [...config.args] : [],
-      tools: [...DEFAULT_RUNTIME_MCP_TOOLS],
-    };
-
-    if (config.env) {
-      runtimeConfig.env = { ...config.env };
-    }
-    if ('cwd' in config && typeof config.cwd === 'string' && config.cwd.trim()) {
-      runtimeConfig.cwd = normalizePathForFilesystem(config.cwd) || config.cwd;
-    }
-
-    return runtimeConfig;
-  }
-
-  if ('url' in config && typeof config.url === 'string') {
-    const runtimeConfig: RuntimeRemoteMcpServerConfig = {
-      type: config.type === 'sse' ? 'sse' : 'http',
-      url: config.url,
-      tools: [...DEFAULT_RUNTIME_MCP_TOOLS],
-    };
-
-    if (config.headers) {
-      runtimeConfig.headers = { ...config.headers };
-    }
-
-    return runtimeConfig;
-  }
-
-  return null;
-}
-
-export function buildRuntimeMcpConfig(servers: CopilotMcpServer[]): RuntimeMcpConfigFile | null {
-  const mcpServers: Record<string, RuntimeMcpServerConfig> = {};
-
-  for (const server of servers) {
-    if (!server.enabled) {
-      continue;
-    }
-
-    const runtimeConfig = buildRuntimeMcpServerConfig(server.config);
-    if (runtimeConfig) {
-      mcpServers[server.name] = runtimeConfig;
-    }
-  }
-
-  return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
-}
-
-export function isInvalidMcpConfigError(message: string): boolean {
-  return /invalid mcp server configuration/i.test(message)
-    || /mcpservers\.[^:\s]+:\s*invalid input/i.test(message);
-}
-
 export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabilities {
   return {
     noAskUser: helpText.includes('--no-ask-user'),
@@ -410,8 +320,6 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
     stream: helpText.includes('--stream'),
     resume: helpText.includes('--resume'),
     model: helpText.includes('--model'),
-    additionalMcpConfig: helpText.includes('--additional-mcp-config'),
-    disableMcpServer: helpText.includes('--disable-mcp-server'),
     denyTool: helpText.includes('--deny-tool'),
     availableTools: helpText.includes('--available-tools'),
     allowAllTools: helpText.includes('--allow-all-tools'),
@@ -421,7 +329,6 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
 
 export class CopilotBridgeService {
   private plugin: ObsidianCopilotPlugin;
-  private mcpManager: McpServerManager;
   private currentProcess: ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private sessionId: string | null = null;
@@ -438,13 +345,8 @@ export class CopilotBridgeService {
   private originalContents = new Map<string, DiffContentEntry>();
   private pendingDiffData = new Map<string, ToolDiffData>();
 
-  constructor(plugin: ObsidianCopilotPlugin, mcpManager: McpServerManager) {
+  constructor(plugin: ObsidianCopilotPlugin) {
     this.plugin = plugin;
-    this.mcpManager = mcpManager;
-  }
-
-  async reloadMcpServers(): Promise<void> {
-    await this.mcpManager.loadServers();
   }
 
   private getCopilotPath(): string | null {
@@ -492,9 +394,6 @@ export class CopilotBridgeService {
       hasEditorContext,
       planMode: queryOptions?.planMode,
       appendedPlan: this.approvedPlanContent ?? undefined,
-      mcpServers: queryOptions?.disableMcp
-        ? []
-        : this.mcpManager.getServers().filter((s) => s.enabled).map((s) => s.name),
     });
   }
 
@@ -616,79 +515,6 @@ export class CopilotBridgeService {
     return probePromise;
   }
 
-  private addMcpArgs(
-    args: string[],
-    configPath: string | null,
-    capabilities: CopilotCliCapabilities,
-    queryOptions?: QueryOptions
-  ): void {
-    if (!configPath) {
-      return;
-    }
-
-    const allServers = this.mcpManager.getServers().filter((server) => server.enabled);
-    if (allServers.length === 0) {
-      return;
-    }
-
-    if (capabilities.additionalMcpConfig) {
-      args.push('--additional-mcp-config', `@${configPath}`);
-    }
-
-    const mentionedServers = queryOptions?.mcpMentions ?? new Set<string>();
-    const enabledServers = queryOptions?.enabledMcpServers ?? new Set<string>();
-    const activeServerNames = new Set([
-      ...Object.keys(this.mcpManager.getActiveServers(new Set([...mentionedServers, ...enabledServers]))),
-      ...enabledServers,
-    ]);
-
-    for (const server of allServers) {
-      if (!activeServerNames.has(server.name) && capabilities.disableMcpServer) {
-        args.push('--disable-mcp-server', server.name);
-        continue;
-      }
-
-      for (const toolName of server.disabledTools ?? []) {
-        if (!capabilities.denyTool) {
-          break;
-        }
-        const normalizedTool = toolName.trim();
-        if (normalizedTool) {
-          args.push('--deny-tool', `${server.name}(${normalizedTool})`);
-        }
-      }
-    }
-  }
-
-  private createRuntimeMcpConfigPath(): string | null {
-    const runtimeConfig = buildRuntimeMcpConfig(this.mcpManager.getServers());
-    if (!runtimeConfig) {
-      return null;
-    }
-
-    try {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'obsidian-copilot-mcp-'));
-      const configPath = path.join(tempDir, 'mcp-config.json');
-      fs.writeFileSync(configPath, JSON.stringify(runtimeConfig, null, 2), 'utf8');
-      return configPath;
-    } catch (error) {
-      console.warn('[ObsidianCopilot] Failed to create runtime MCP config:', error);
-      return null;
-    }
-  }
-
-  private cleanupRuntimeMcpConfigPath(configPath: string | null): void {
-    if (!configPath) {
-      return;
-    }
-
-    try {
-      fs.rmSync(path.dirname(configPath), { recursive: true, force: true });
-    } catch (error) {
-      console.warn('[ObsidianCopilot] Failed to clean up runtime MCP config:', error);
-    }
-  }
-
   private addToolArgs(
     args: string[],
     capabilities: CopilotCliCapabilities,
@@ -764,24 +590,10 @@ export class CopilotBridgeService {
     const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
 
-    // Compute active MCP server names early — needed to decide tool access flags
-    const mentionedMcp = queryOptions?.mcpMentions ?? new Set<string>();
-    const enabledMcp = queryOptions?.enabledMcpServers ?? new Set<string>();
-    const activeMcpNames = new Set<string>(
-      Object.keys(this.mcpManager.getActiveServers(new Set([...mentionedMcp, ...enabledMcp])))
-    );
-    const runtimeMcpConfigPath = queryOptions?.disableMcp || activeMcpNames.size === 0
-      ? null
-      : this.createRuntimeMcpConfigPath();
-    // MCP active and not plan mode → grant full tool access so model calls MCP directly
-    // (without this, ask-mode's --available-tools blocks MCP tools → model routes via task subagent)
-    const hasMcp = !!runtimeMcpConfigPath && activeMcpNames.size > 0 && !queryOptions?.planMode;
-    const explicitToolsRequested = hasExplicitCopilotAllowedTools(queryOptions?.allowedTools);
     const useAllowAllTools = shouldUseCopilotAllowAllTools(
       this.plugin.settings.permissionMode,
       capabilities.allowAllTools,
       queryOptions,
-      hasMcp
     );
 
     if (capabilities.noAskUser) {
@@ -817,8 +629,7 @@ export class CopilotBridgeService {
 
     // Avoid combining unrestricted access with a default --available-tools list. For MCP without
     // explicit tool requests, preserve unrestricted MCP routing even on older CLIs.
-    this.addToolArgs(args, capabilities, queryOptions, useAllowAllTools || (hasMcp && !explicitToolsRequested));
-    this.addMcpArgs(args, runtimeMcpConfigPath, capabilities, queryOptions);
+    this.addToolArgs(args, capabilities, queryOptions, useAllowAllTools);
 
     this.abortController = new AbortController();
 
@@ -867,7 +678,6 @@ export class CopilotBridgeService {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       yield { type: 'error', content: msg };
     } finally {
-      this.cleanupRuntimeMcpConfigPath(runtimeMcpConfigPath);
       this.abortController = null;
     }
   }
@@ -1089,9 +899,7 @@ export class CopilotBridgeService {
       }
       if (code !== 0 && stderrBuffer.trim()) {
         const rawError = stderrBuffer.trim();
-        const formattedError = isInvalidMcpConfigError(rawError)
-          ? `Configured MCP servers are incompatible with the installed Copilot CLI.\n\n${rawError}`
-          : rawError.includes('No authentication information found')
+        const formattedError = rawError.includes('No authentication information found')
             ? 'GitHub Copilot authentication required. Please run "copilot" in terminal and use /login to authenticate.'
             : rawError;
         chunks.push({
@@ -1148,18 +956,10 @@ export class CopilotBridgeService {
   }
 
   /**
-   * Normalize a CLI tool name to mcp__server__tool format if it belongs to an MCP server.
-   * CLI emits names like "context7-resolve-library-id"; we need "mcp__context7__resolve-library-id"
-   * for the UI icon/badge detection (isMcp check, parseMcpToolName, MCP_ICON_MARKER).
+   * Tool names arrive as the CLI emits them. A CLI's own MCP tools already use the
+   * `mcp__server__tool` shape the renderer detects; nothing is rewritten here.
    */
   private normalizeMcpToolName(toolName: string): string {
-    const servers = this.mcpManager.getServers().filter((s) => s.enabled);
-    for (const server of servers) {
-      const prefix = `${server.name}-`;
-      if (toolName.startsWith(prefix) && toolName.length > prefix.length) {
-        return `mcp__${server.name}__${toolName.slice(prefix.length)}`;
-      }
-    }
     return toolName;
   }
 

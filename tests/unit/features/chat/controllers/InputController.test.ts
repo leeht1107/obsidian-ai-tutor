@@ -107,10 +107,6 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
         permissionMode: 'yolo',
         enableAutoTitleGeneration: true,
       },
-      mcpService: {
-        extractMentions: jest.fn().mockReturnValue(new Set()),
-        transformMentions: jest.fn().mockImplementation((text: string) => text),
-      },
       renameConversation: jest.fn(),
       updateConversation: jest.fn(),
       getConversationById: jest.fn().mockReturnValue(null),
@@ -150,7 +146,6 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
     }) as any,
     getImageContextManager: () => imageContextManager as any,
     getSlashCommandManager: () => null,
-    getMcpServerSelector: () => null,
     getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(false) }),
     getExternalContextSelector: () => null,
     getInstructionModeManager: () => null,
@@ -440,26 +435,6 @@ describe('InputController - Message Queue', () => {
       expect(prompts[1]).not.toContain('<current_note>');
     });
 
-    it('should include MCP options in query when mentions are present', async () => {
-      const mcpMentions = new Set(['server-a']);
-      const enabledServers = new Set(['server-b']);
-
-      deps.plugin.mcpService.extractMentions = jest.fn().mockReturnValue(mcpMentions);
-      deps.getMcpServerSelector = () => ({
-        getEnabledServers: () => enabledServers,
-      }) as any;
-      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
-
-      inputEl.value = '@server-a hello';
-
-      await controller.sendMessage();
-
-      const queryCall = (deps.plugin.agentService.query as jest.Mock).mock.calls[0];
-      const queryOptions = queryCall[3];
-      expect(queryOptions.mcpMentions).toBe(mcpMentions);
-      expect(queryOptions.enabledMcpServers).toBe(enabledServers);
-    });
-
     it('should send hidden message with content override without clearing input', async () => {
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
       inputEl.value = 'draft message';
@@ -586,25 +561,19 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.quizSession?.currentQuestion).toBe(2);
     });
 
-    it('enables web search and context7 for high-difficulty quiz launches', () => {
+    it('enables web search for high-difficulty quiz launches', () => {
       const setEnabled = jest.fn();
-      const addMentionedServers = jest.fn();
       deps = createMockDeps({
         getWebSearchToggle: () => ({
           isEnabled: jest.fn().mockReturnValue(false),
           setEnabled,
         }),
-        getMcpServerSelector: () => ({
-          getEnabledServers: () => new Set(),
-          addMentionedServers,
-        }) as any,
       });
       controller = new InputController(deps);
 
       (controller as any).enableQuizExternalTools();
 
       expect(setEnabled).toHaveBeenCalledWith(true);
-      expect(addMentionedServers).toHaveBeenCalledWith(new Set(['context7']));
     });
 
     describe('Mode switching cleanup', () => {

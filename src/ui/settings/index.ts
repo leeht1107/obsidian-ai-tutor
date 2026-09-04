@@ -4,7 +4,6 @@ export {
   EnvSnippetManager,
   EnvSnippetModal,
 } from './EnvSnippetManager';
-export { McpSettingsManager } from './McpSettingsManager';
 export {
   SlashCommandModal,
   SlashCommandSettings,

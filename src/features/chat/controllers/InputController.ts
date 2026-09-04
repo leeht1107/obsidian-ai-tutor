@@ -15,7 +15,6 @@ import {
   buildSocraticContinuationPrompt,
   inferSocraticSupportLevel,
   parseQuizDisplayContent,
-  QUIZ_EXTERNAL_MCP_SERVERS,
   type QuizQuestionContext,
 } from '../../../core/learning';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
@@ -30,7 +29,6 @@ import {
   type ImageContextManager,
   InstructionModal,
   type InstructionModeManager,
-  type McpServerSelector,
   type PlanBanner,
   QuizSetupModal,
   showAskUserQuestionPanel,
@@ -77,7 +75,6 @@ export interface InputControllerDeps {
   getFileContextManager: () => FileContextManager | null;
   getImageContextManager: () => ImageContextManager | null;
   getSlashCommandManager: () => SlashCommandManager | null;
-  getMcpServerSelector: () => McpServerSelector | null;
   getWebSearchToggle: () => { isEnabled: () => boolean; setEnabled?: (enabled: boolean) => void } | null;
   getExternalContextSelector: () => { getExternalContexts: () => string[] } | null;
   getInstructionModeManager: () => InstructionModeManager | null;
@@ -162,7 +159,6 @@ export class InputController {
 
   private enableQuizExternalTools(): void {
     this.deps.getWebSearchToggle()?.setEnabled?.(true);
-    this.deps.getMcpServerSelector()?.addMentionedServers(new Set(QUIZ_EXTERNAL_MCP_SERVERS));
   }
 
   private getLatestQuizQuestionContext(
@@ -254,7 +250,6 @@ export class InputController {
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
     const slashCommandManager = this.deps.getSlashCommandManager();
-    const mcpServerSelector = this.deps.getMcpServerSelector();
 
     const contentOverride = options?.content;
     const shouldUseInput = contentOverride === undefined;
@@ -588,29 +583,6 @@ ${promptToSend}`;
 
     fileContextManager?.markCurrentNoteSent();
 
-    const enabledMcpServers = mcpServerSelector?.getEnabledServers();
-    if (containsMentions) {
-      // Extract @-mentioned MCP servers from prompt
-      const mcpMentions = plugin.mcpService.extractMentions(promptToSend);
-
-      // Transform @mcpname to @mcpname MCP in API request only
-      promptToSend = plugin.mcpService.transformMentions(promptToSend);
-
-      // Add MCP options to query
-      if (mcpMentions.size > 0 || (enabledMcpServers && enabledMcpServers.size > 0)) {
-        queryOptions = {
-          ...queryOptions,
-          mcpMentions,
-          enabledMcpServers,
-        };
-      }
-    } else if (enabledMcpServers && enabledMcpServers.size > 0) {
-      queryOptions = {
-        ...queryOptions,
-        enabledMcpServers,
-      };
-    }
-
     // Add external context paths to query
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = externalContextSelector?.getExternalContexts();
@@ -849,7 +821,6 @@ ${promptToSend}`;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
-    const mcpServerSelector = this.deps.getMcpServerSelector();
     if (plugin.settings.permissionMode !== 'plan') {
       await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
       return;
@@ -956,18 +927,9 @@ ${content}
     streamController.showThinkingIndicator(contentEl);
 
     // Build query options with plan mode
-    const mcpMentions = plugin.mcpService.extractMentions(promptToSend);
-
-    // Transform @mcpname to @mcpname MCP in API request only
-    promptToSend = plugin.mcpService.transformMentions(promptToSend);
-
-    const enabledMcpServers = mcpServerSelector?.getEnabledServers();
-
     const queryOptions = {
       ...options?.queryOptions,
       planMode: true,
-      mcpMentions,
-      enabledMcpServers,
     };
 
     let wasInterrupted = false;

@@ -1,7 +1,5 @@
 import {
-  buildRuntimeMcpConfig,
   detectCopilotCliCapabilities,
-  isInvalidMcpConfigError,
   resolveCopilotAllowedTools,
   shouldUseCopilotAllowAllTools,
   translateCopilotJsonEvent,
@@ -17,8 +15,6 @@ describe('CopilotBridgeService helpers', () => {
         --stream <mode>
         --resume [sessionId]
         --model <model>
-        --additional-mcp-config <json>
-        --disable-mcp-server <server-name>
         --deny-tool [tools...]
         --available-tools [tools...]
         --allow-all-tools
@@ -32,8 +28,6 @@ describe('CopilotBridgeService helpers', () => {
         stream: true,
         resume: true,
         model: true,
-        additionalMcpConfig: true,
-        disableMcpServer: true,
         denyTool: true,
         availableTools: true,
         allowAllTools: true,
@@ -49,8 +43,6 @@ describe('CopilotBridgeService helpers', () => {
         stream: false,
         resume: false,
         model: false,
-        additionalMcpConfig: false,
-        disableMcpServer: false,
         denyTool: false,
         availableTools: false,
         allowAllTools: false,
@@ -113,81 +105,21 @@ describe('CopilotBridgeService helpers', () => {
 
   describe('shouldUseCopilotAllowAllTools', () => {
     it('uses allow-all-tools for unrestricted agent mode without explicit tools', () => {
-      expect(shouldUseCopilotAllowAllTools('agent', true, undefined, false)).toBe(true);
+      expect(shouldUseCopilotAllowAllTools('agent', true, undefined)).toBe(true);
     });
 
     it('does not use allow-all-tools in plan mode with default tool guardrails', () => {
-      expect(shouldUseCopilotAllowAllTools('agent', true, { planMode: true }, false)).toBe(false);
+      expect(shouldUseCopilotAllowAllTools('agent', true, { planMode: true })).toBe(false);
     });
 
     it('lets explicit tool requests use available-tools instead of allow-all-tools', () => {
       expect(
-        shouldUseCopilotAllowAllTools('agent', true, { allowedTools: ['view'] }, false)
+        shouldUseCopilotAllowAllTools('agent', true, { allowedTools: ['view'] })
       ).toBe(false);
     });
 
-    it('uses allow-all-tools for MCP routing when no explicit tools are requested', () => {
-      expect(shouldUseCopilotAllowAllTools('normal', true, undefined, true)).toBe(true);
-    });
-
     it('falls back when the CLI does not support allow-all-tools', () => {
-      expect(shouldUseCopilotAllowAllTools('agent', false, undefined, false)).toBe(false);
-    });
-  });
-
-  describe('buildRuntimeMcpConfig', () => {
-    it('adds required tools and explicit transport types for CLI runtime config', () => {
-      const config = buildRuntimeMcpConfig([
-        {
-          name: 'sequential-thinking',
-          config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-          enabled: true,
-          contextSaving: false,
-        },
-        {
-          name: 'context7',
-          config: {
-            type: 'http',
-            url: 'https://mcp.context7.com/mcp',
-            headers: { Authorization: 'Bearer token' },
-          },
-          enabled: true,
-          contextSaving: true,
-        },
-        {
-          name: 'disabled-server',
-          config: { command: 'node', args: ['server.js'] },
-          enabled: false,
-          contextSaving: false,
-        },
-      ]);
-
-      expect(config).toEqual({
-        mcpServers: {
-          'sequential-thinking': {
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
-            tools: ['*'],
-          },
-          context7: {
-            type: 'http',
-            url: 'https://mcp.context7.com/mcp',
-            headers: { Authorization: 'Bearer token' },
-            tools: ['*'],
-          },
-        },
-      });
-    });
-  });
-
-  describe('isInvalidMcpConfigError', () => {
-    it('detects CLI schema rejection messages', () => {
-      expect(
-        isInvalidMcpConfigError(
-          'Invalid MCP server configuration in --additional-mcp-config: mcpServers.context7: Invalid input'
-        )
-      ).toBe(true);
-      expect(isInvalidMcpConfigError('spawn EINVAL')).toBe(false);
+      expect(shouldUseCopilotAllowAllTools('agent', false, undefined)).toBe(false);
     });
   });
 

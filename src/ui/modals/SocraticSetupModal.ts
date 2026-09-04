@@ -168,7 +168,7 @@ export class SocraticSetupModal extends Modal {
           });
       });
 
-    const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-mcp-buttons' });
+    const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-setup-modal-buttons' });
     const cancelBtn = buttonsEl.createEl('button', { text: 'Cancel', cls: 'ocop-cancel-btn' });
     cancelBtn.addEventListener('click', () => this.finish(null));
     const startBtn = buttonsEl.createEl('button', { text: 'Start dialogue', cls: 'ocop-save-btn mod-cta' });

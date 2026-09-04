@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CopilotBridgeService } from '@/core/agent/CopilotBridgeService';
-import type { McpServerManager } from '@/core/mcp';
 import type { StreamChunk } from '@/core/types';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import type ObsidianCopilotPlugin from '@/main';
@@ -28,8 +27,7 @@ const makeService = (cliPath: string, vault: string, provider: 'claude' | 'codex
       settings: { ...DEFAULT_SETTINGS, selectedProvider: provider, providerCliPaths: { [provider]: cliPath } },
       app: { vault: { adapter: { basePath: vault } } },
       getActiveEnvironmentVariables: () => '',
-    } as unknown as ObsidianCopilotPlugin,
-    { getServers: () => [] } as unknown as McpServerManager
+    } as unknown as ObsidianCopilotPlugin
   );
 
 const maybe = process.platform === 'win32' ? describe.skip : describe;

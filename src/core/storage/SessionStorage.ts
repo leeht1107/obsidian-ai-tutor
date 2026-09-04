@@ -44,7 +44,6 @@ interface SessionMetaRecord {
   pendingPlanContent?: string;
   isInPlanMode?: boolean;
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
-  enabledMcpServers?: string[];
   quizSession?: QuizSessionState;
   socraticSession?: SocraticSessionState;
 }
@@ -257,7 +256,6 @@ export class SessionStorage {
       pendingPlanContent: meta.pendingPlanContent,
       isInPlanMode: meta.isInPlanMode,
       titleGenerationStatus: meta.titleGenerationStatus,
-      enabledMcpServers: meta.enabledMcpServers,
       quizSession: meta.quizSession,
       socraticSession: meta.socraticSession,
     };
@@ -285,7 +283,6 @@ export class SessionStorage {
       pendingPlanContent: conversation.pendingPlanContent,
       isInPlanMode: conversation.isInPlanMode,
       titleGenerationStatus: conversation.titleGenerationStatus,
-      enabledMcpServers: conversation.enabledMcpServers,
       quizSession: conversation.quizSession,
       socraticSession: conversation.socraticSession,
     };

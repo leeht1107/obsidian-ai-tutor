@@ -61,21 +61,6 @@ export {
   type ToolDiffData,
 } from './tools';
 
-// MCP types
-export {
-  type CopilotMcpConfigFile,
-  type CopilotMcpServer,
-  DEFAULT_MCP_SERVER,
-  getMcpServerType,
-  isValidMcpServerConfig,
-  type McpHttpServerConfig,
-  type McpServerConfig,
-  type McpServerType,
-  type McpSSEServerConfig,
-  type McpStdioServerConfig,
-  type ParsedMcpConfig,
-} from './mcp';
-
 // AskUserQuestion types
 export {
   type AskUserQuestionCallback,

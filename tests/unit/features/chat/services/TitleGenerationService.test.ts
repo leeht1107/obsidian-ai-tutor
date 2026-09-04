@@ -1,10 +1,10 @@
 import { TitleGenerationService } from '@/features/chat/services/TitleGenerationService';
 
 describe('TitleGenerationService', () => {
-  it('generates titles without enabling MCP and uses the title model override', async () => {
+  it('generates titles and uses the title model override', async () => {
     const streamQuery = jest.fn().mockImplementation(
       () => (async function* () {
-        yield '"Runtime MCP Safe Title"';
+        yield '"Runtime Safe Title"';
       })()
     );
 
@@ -25,14 +25,13 @@ describe('TitleGenerationService', () => {
     expect(streamQuery).toHaveBeenCalledWith(
       expect.stringContaining('Generate a title for this conversation:'),
       {
-        disableMcp: true,
         skipResume: true,
         model: 'gpt-5.4-mini',
       }
     );
     expect(callback).toHaveBeenCalledWith('conv-1', {
       success: true,
-      title: 'Runtime MCP Safe Title',
+      title: 'Runtime Safe Title',
     });
   });
 });

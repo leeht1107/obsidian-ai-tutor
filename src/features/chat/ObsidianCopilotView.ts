@@ -19,7 +19,6 @@ import {
   ImageContextManager,
   type InstructionModeManager,
   InstructionModeManager as InstructionModeManagerClass,
-  type McpServerSelector,
   type ModelSelector,
   type PermissionToggle,
   PlanBanner,
@@ -76,7 +75,6 @@ export class ObsidianCopilotView extends ItemView {
   private thinkingBudgetSelector: ThinkingBudgetSelector | null = null;
   private externalContextSelector: ExternalContextSelector | null = null;
   private webSearchToggle: WebSearchToggle | null = null;
-  private mcpServerSelector: McpServerSelector | null = null;
   private permissionToggle: PermissionToggle | null = null;
   private slashCommandManager: SlashCommandManager | null = null;
   private slashCommandDropdown: SlashCommandDropdown | null = null;
@@ -231,7 +229,6 @@ export class ObsidianCopilotView extends ItemView {
         getExternalContexts: () => this.externalContextSelector?.getExternalContexts() || [],
       }
     );
-    this.fileContextManager.setMcpService(this.plugin.mcpService);
 
     this.imageContextManager = new ImageContextManager(
       this.plugin.app,
@@ -347,7 +344,6 @@ export class ObsidianCopilotView extends ItemView {
 
         if (quizResult.enableExternalTools) {
           this.webSearchToggle?.setEnabled(true);
-          this.mcpServerSelector?.addMentionedServers(new Set(['context7']));
         }
 
         await this.inputController?.sendMessage({
@@ -405,15 +401,8 @@ export class ObsidianCopilotView extends ItemView {
     this.externalContextSelector = toolbarComponents.externalContextSelector;
     this.webSearchToggle = toolbarComponents.webSearchToggle;
     this.webSearchToggle.setEnabled(this.plugin.settings.enableWebSearch);
-    this.mcpServerSelector = toolbarComponents.mcpServerSelector;
     this.permissionToggle = toolbarComponents.permissionToggle;
     this.socraticLauncherButton = toolbarComponents.socraticLauncherButton;
-
-    this.mcpServerSelector.setMcpService(this.plugin.mcpService);
-
-    this.fileContextManager?.setOnMcpMentionChange((servers) => {
-      this.mcpServerSelector?.addMentionedServers(servers);
-    });
 
     this.externalContextSelector.setOnChange(() => {
       this.fileContextManager?.preScanExternalContexts();
@@ -461,7 +450,6 @@ export class ObsidianCopilotView extends ItemView {
         getInputEl: () => this.inputEl!,
         getFileContextManager: () => this.fileContextManager,
         getImageContextManager: () => this.imageContextManager,
-        getMcpServerSelector: () => this.mcpServerSelector,
         getExternalContextSelector: () => this.externalContextSelector,
         clearQueuedMessage: () => this.inputController?.clearQueuedMessage(),
         getApprovedPlan: () => this.plugin.agentService.getApprovedPlanContent(),
@@ -498,7 +486,6 @@ export class ObsidianCopilotView extends ItemView {
       getFileContextManager: () => this.fileContextManager,
       getImageContextManager: () => this.imageContextManager,
       getSlashCommandManager: () => this.slashCommandManager,
-      getMcpServerSelector: () => this.mcpServerSelector,
       getExternalContextSelector: () => this.externalContextSelector,
       getWebSearchToggle: () => this.webSearchToggle,
       getInstructionModeManager: () => this.instructionModeManager,

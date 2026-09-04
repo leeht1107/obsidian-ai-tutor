@@ -7,11 +7,6 @@ export interface FileMentionItem {
   file: TFile;
 }
 
-export interface McpServerMentionItem {
-  type: 'mcp-server';
-  name: string;
-}
-
 export interface ContextFileMentionItem {
   type: 'context-file';
   name: string;
@@ -29,7 +24,6 @@ export interface ContextFolderMentionItem {
 
 export type MentionItem =
   | FileMentionItem
-  | McpServerMentionItem
   | ContextFileMentionItem
   | ContextFolderMentionItem;
 

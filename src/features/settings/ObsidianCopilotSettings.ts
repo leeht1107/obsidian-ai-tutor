@@ -6,7 +6,7 @@ import { findProviderCliPath, getProviderDescriptor, PROVIDERS } from '../../cor
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
-import { EnvSnippetManager, McpSettingsManager, SlashCommandSettings } from '../../ui';
+import { EnvSnippetManager, SlashCommandSettings } from '../../ui';
 import { setupCollapsible } from '../../ui/utils/collapsible';
 import { expandHomePath } from '../../utils/path';
 import {
@@ -88,7 +88,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName('Quick Start').setHeading();
     containerEl.createDiv({
       cls: 'setting-item-description',
-      text: 'Start here: choose your default model, install Obsidian context support, and set up MCP if you need external tools.',
+      text: 'Start here: choose your default model and install Obsidian context support.',
     });
 
     new Setting(containerEl)
@@ -352,30 +352,6 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     } else {
       skillsContentEl.createDiv({ cls: 'ocop-skills-empty', text: 'No skills installed. Install Obsidian context skills above or add a custom skill from GitHub.' });
     }
-
-    // MCP Tools — collapsible, default collapsed
-    const mcpWrapperEl = containerEl.createDiv({ cls: 'ocop-settings-advanced-wrapper' });
-    const mcpHeaderEl = mcpWrapperEl.createDiv({ cls: 'ocop-settings-advanced-header' });
-    mcpHeaderEl.setAttribute('tabindex', '0');
-    mcpHeaderEl.createSpan({ cls: 'ocop-settings-advanced-title', text: 'MCP Tools' });
-    mcpHeaderEl.createSpan({ cls: 'ocop-settings-advanced-toggle', text: 'Show' });
-    const mcpContentEl = mcpWrapperEl.createDiv({ cls: 'ocop-settings-advanced-content' });
-    setupCollapsible(mcpWrapperEl, mcpHeaderEl, mcpContentEl, { isExpanded: false }, {
-      initiallyExpanded: false,
-      onToggle: (isExpanded) => {
-        const toggleEl = mcpHeaderEl.querySelector('.ocop-settings-advanced-toggle');
-        if (toggleEl) toggleEl.textContent = isExpanded ? 'Hide' : 'Show';
-      },
-      baseAriaLabel: 'MCP Tools settings',
-    });
-
-    mcpContentEl.createDiv({
-      cls: 'setting-item-description',
-      text: 'Connect external MCP tools here. Beginners can use the built-in import flow with a GitHub URL or pasted JSON.',
-    });
-
-    const mcpContainer = mcpContentEl.createDiv({ cls: 'ocop-mcp-container' });
-    new McpSettingsManager(mcpContainer, this.plugin);
 
     // Chat Behavior — collapsible, default collapsed
     const chatWrapperEl = containerEl.createDiv({ cls: 'ocop-settings-advanced-wrapper' });

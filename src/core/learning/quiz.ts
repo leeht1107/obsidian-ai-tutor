@@ -1,7 +1,5 @@
 export type QuizDifficulty = '하' | '중' | '상';
 
-export const QUIZ_EXTERNAL_MCP_SERVERS = ['context7'] as const;
-
 export interface QuizPromptInput {
   questionCount: number | string;
   difficulty: QuizDifficulty;

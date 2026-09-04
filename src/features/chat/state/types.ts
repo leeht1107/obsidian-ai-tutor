@@ -127,8 +127,6 @@ export interface ChatStateCallbacks {
 export interface QueryOptions {
   allowedTools?: string[];
   model?: string;
-  mcpMentions?: Set<string>;
-  enabledMcpServers?: Set<string>;
   /** Enable plan mode (read-only exploration). */
   planMode?: boolean;
   /** Session-specific external context paths (directories with full access). */

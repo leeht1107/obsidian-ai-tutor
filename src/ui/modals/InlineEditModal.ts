@@ -451,10 +451,6 @@ class InlineEditController {
       this.inputEl,
       {
         onAttachFile: (filePath) => this.attachedFiles.add(filePath),
-        onMcpMentionChange: () => {},
-        getMentionedMcpServers: () => new Set(),
-        setMentionedMcpServers: () => false,
-        addMentionedMcpServer: () => {},
         getExternalContexts: () => [],
         getCachedMarkdownFiles: () => {
           try {

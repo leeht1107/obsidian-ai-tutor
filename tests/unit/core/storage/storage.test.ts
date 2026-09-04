@@ -242,7 +242,6 @@ describe('SessionStorage JSONL format', () => {
         sessionId: 'sess-rt',
         currentNote: 'a.md',
         externalContextPaths: ['/ext/a', '/ext/b'],
-        enabledMcpServers: ['alpha', 'beta'],
         socraticSession: {
           maxDepth: 20,
           currentDepth: 4,
@@ -268,7 +267,6 @@ describe('SessionStorage JSONL format', () => {
       expect(parsed!.sessionId).toBe(original.sessionId);
       expect(parsed!.currentNote).toBe(original.currentNote);
       expect(parsed!.externalContextPaths).toEqual(original.externalContextPaths);
-      expect(parsed!.enabledMcpServers).toEqual(original.enabledMcpServers);
       expect(parsed!.socraticSession).toEqual(original.socraticSession);
       expect(parsed!.messages).toHaveLength(2);
     });
@@ -574,7 +572,6 @@ interface SessionMetaRecord {
   currentNote?: string;
   externalContextPaths?: string[];
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
-  enabledMcpServers?: string[];
   quizSession?: Conversation['quizSession'];
   socraticSession?: Conversation['socraticSession'];
 }
@@ -628,7 +625,6 @@ function parseJSONLHelper(content: string): Conversation | null {
     messages,
     currentNote: meta.currentNote,
     externalContextPaths: meta.externalContextPaths,
-    enabledMcpServers: meta.enabledMcpServers,
     quizSession: meta.quizSession,
     socraticSession: meta.socraticSession,
   };
@@ -691,7 +687,6 @@ function serializeToJSONLHelper(conversation: Conversation): string {
     preview: buildConversationPreviewHelper(conversation.messages),
     currentNote: conversation.currentNote,
     externalContextPaths: conversation.externalContextPaths,
-    enabledMcpServers: conversation.enabledMcpServers,
     quizSession: conversation.quizSession,
     socraticSession: conversation.socraticSession,
   };

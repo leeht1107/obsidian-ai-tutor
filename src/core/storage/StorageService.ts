@@ -14,7 +14,6 @@ import type { App, Plugin } from 'obsidian';
 
 import type { Conversation, ObsidianCopilotSettings, SlashCommand } from '../types';
 import { DEFAULT_SETTINGS } from '../types';
-import { McpStorage } from './McpStorage';
 import { SESSIONS_PATH, SessionStorage } from './SessionStorage';
 import { SettingsStorage, type StoredSettings } from './SettingsStorage';
 import { COMMANDS_PATH, SlashCommandStorage } from './SlashCommandStorage';
@@ -45,7 +44,6 @@ export class StorageService {
   readonly settings: SettingsStorage;
   readonly commands: SlashCommandStorage;
   readonly sessions: SessionStorage;
-  readonly mcp: McpStorage;
 
   private adapter: VaultFileAdapter;
   private plugin: Plugin;
@@ -58,7 +56,6 @@ export class StorageService {
     this.settings = new SettingsStorage(this.adapter);
     this.commands = new SlashCommandStorage(this.adapter);
     this.sessions = new SessionStorage(this.adapter);
-    this.mcp = new McpStorage(this.adapter);
   }
 
   /** Initialize storage, running migration if needed. */

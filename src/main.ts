@@ -23,7 +23,6 @@ import {
 } from './core/types';
 import type { ObsidianCopilotView } from './features/chat/ObsidianCopilotView';
 import { ObsidianCopilotView as ObsidianCopilotViewImpl } from './features/chat/ObsidianCopilotView';
-import { McpService } from './features/mcp/McpService';
 import { ObsidianCopilotSettingTab } from './features/settings/ObsidianCopilotSettings';
 import type { InlineEditContext } from './ui/modals/InlineEditModal';
 import { InlineEditModal } from './ui/modals/InlineEditModal';
@@ -37,7 +36,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
   settings: ObsidianCopilotSettings;
   agentService: CopilotBridgeService;
   storage: StorageService;
-  mcpService: McpService;
   private conversations: Conversation[] = [];
   private activeConversationId: string | null = null;
   private runtimeEnvironmentVariables = '';
@@ -58,10 +56,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
       new Notice('Obsidian AI Tutor loaded with default settings due to a startup error.');
     }
 
-    this.mcpService = new McpService(this);
-    await this.mcpService.loadServers();
-    await this.autoInstallRecommendedMcp();
-    this.agentService = new CopilotBridgeService(this, this.mcpService.getManager());
+    this.agentService = new CopilotBridgeService(this);
     void this.agentService.prewarmCapabilities();
 
     // Show setup wizard on first launch if CLI is missing (fires after layout is ready)
@@ -188,24 +183,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
       new SetupWizardModal(this.app, this).open();
     } catch (err) {
       console.warn('[ObsidianCopilot] Setup wizard failed to open:', err);
-    }
-  }
-
-  /** Auto-install recommended MCP presets if no mcp.json exists. */
-  private async autoInstallRecommendedMcp(): Promise<void> {
-    try {
-      if (await this.storage.mcp.exists()) return;
-
-      const { MCP_PRESETS, createServerFromPreset } = await import('./core/types/mcp-presets');
-      const recommended = MCP_PRESETS.filter((p) => p.inRecommendedBundle);
-
-      const servers = recommended.map(createServerFromPreset);
-
-      await this.storage.mcp.save(servers);
-      await this.mcpService.loadServers();
-      console.log(`[ObsidianCopilot] Auto-installed ${servers.length} recommended MCP servers`);
-    } catch (error) {
-      console.warn('[ObsidianCopilot] Failed to auto-install MCP presets:', error);
     }
   }
 
