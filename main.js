@@ -673,19 +673,84 @@ var init_env = __esm({
 });
 
 // src/core/providers/providerRegistry.ts
+function allowsEffortWithModel(id) {
+  var _a;
+  return (_a = EFFORT_COMBINES_WITH_MODEL[id]) != null ? _a : false;
+}
+function getProviderEffortLevels(id) {
+  var _a;
+  return (_a = PROVIDER_EFFORT_LEVELS[id]) != null ? _a : [];
+}
+function supportsEffortSelection(id) {
+  return getProviderEffortLevels(id).length > 0;
+}
+function getStaticProviderModels(id) {
+  var _a;
+  return (_a = STATIC_PROVIDER_MODELS[id]) != null ? _a : [];
+}
+function parseAgyModels(stdout) {
+  var _a;
+  const seen = /* @__PURE__ */ new Set();
+  const options = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.includes("	")) continue;
+    const [rawId, ...rest] = line.split("	");
+    const id = (_a = rawId == null ? void 0 : rawId.trim()) != null ? _a : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    options.push({ id, label: rest.join(" ").trim() || id, efforts: [] });
+  }
+  return options;
+}
+function parseCodexModels(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (e) {
+    return [];
+  }
+  const models = parsed == null ? void 0 : parsed.models;
+  if (!Array.isArray(models)) return [];
+  const allowed = new Set(PROVIDER_EFFORT_LEVELS.codex);
+  const options = [];
+  for (const entry of models) {
+    const model = entry;
+    const id = typeof model.slug === "string" ? model.slug.trim() : "";
+    if (!id || model.visibility === "hide") continue;
+    const efforts = (Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : []).map((level) => level == null ? void 0 : level.effort).filter((effort) => typeof effort === "string" && allowed.has(effort));
+    options.push({
+      id,
+      label: typeof model.display_name === "string" && model.display_name.trim() ? model.display_name.trim() : id,
+      efforts
+    });
+  }
+  return options;
+}
+function migrateProviderModels(providerModels) {
+  var _a;
+  if (!providerModels) return;
+  for (const [id, retired] of Object.entries(RETIRED_PROVIDER_MODELS)) {
+    const current = (_a = providerModels[id]) == null ? void 0 : _a.trim();
+    if (current && retired.includes(current)) delete providerModels[id];
+  }
+}
 function getProviderDescriptor(id) {
   var _a;
   return (_a = PROVIDERS.find((provider) => provider.id === id)) != null ? _a : PROVIDERS[0];
 }
-function buildNativeProviderCommand(id, prompt, model = "") {
+function buildNativeProviderCommand(id, prompt, model = "", effort = "") {
   const selectedModel = model.trim();
+  let selectedEffort = getProviderEffortLevels(id).includes(effort.trim()) ? effort.trim() : "";
+  if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = "";
+  const modelArgs = selectedModel ? ["--model", selectedModel] : [];
   switch (id) {
     case "claude":
-      return { command: "claude", args: ["-p", ...selectedModel ? ["--model", selectedModel] : [], prompt, "--output-format", "stream-json", "--verbose"] };
+      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], prompt, "--output-format", "stream-json", "--verbose"] };
+    // codex exec has no effort flag; the reasoning level is a config override instead.
     case "codex":
-      return { command: "codex", args: ["exec", ...selectedModel ? ["--model", selectedModel] : [], "--json", prompt] };
+      return { command: "codex", args: ["exec", ...modelArgs, ...selectedEffort ? ["-c", `model_reasoning_effort="${selectedEffort}"`] : [], "--json", prompt] };
     case "agy":
-      return { command: "agy", args: [...selectedModel ? ["--model", selectedModel] : [], "-p", prompt] };
+      return { command: "agy", args: [...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], "-p", prompt] };
     case "copilot":
       return { command: "copilot", args: ["-p", prompt] };
   }
@@ -710,7 +775,7 @@ function isFile(candidate) {
     return false;
   }
 }
-var fs4, path4, PROVIDERS, NATIVE_PROVIDER_MODELS;
+var fs4, path4, PROVIDERS, PROVIDER_EFFORT_LEVELS, STATIC_PROVIDER_MODELS, EFFORT_COMBINES_WITH_MODEL, RETIRED_PROVIDER_MODELS;
 var init_providerRegistry = __esm({
   "src/core/providers/providerRegistry.ts"() {
     fs4 = __toESM(require("fs"));
@@ -722,10 +787,30 @@ var init_providerRegistry = __esm({
       { id: "codex", label: "OpenAI Codex", command: "codex", loginCommand: "codex login", installCommand: "npm install -g @openai/codex", windowsInstallCommand: "npm install -g @openai/codex", status: "ready" },
       { id: "agy", label: "Antigravity (agy)", command: "agy", loginCommand: "agy", status: "manual-setup" }
     ];
-    NATIVE_PROVIDER_MODELS = {
-      claude: ["sonnet", "opus", "haiku"],
-      codex: ["gpt-5.4", "o3"],
+    PROVIDER_EFFORT_LEVELS = {
+      copilot: [],
+      claude: ["low", "medium", "high", "xhigh", "max"],
+      codex: ["low", "medium", "high", "xhigh", "max"],
+      agy: ["low", "medium", "high"]
+    };
+    STATIC_PROVIDER_MODELS = {
+      copilot: [],
+      claude: ["fable", "opus", "sonnet", "haiku"].map((id) => ({
+        id,
+        label: id,
+        efforts: PROVIDER_EFFORT_LEVELS.claude
+      })),
+      codex: [],
       agy: []
+    };
+    EFFORT_COMBINES_WITH_MODEL = {
+      copilot: false,
+      claude: true,
+      codex: true,
+      agy: false
+    };
+    RETIRED_PROVIDER_MODELS = {
+      codex: ["o3"]
     };
   }
 });
@@ -1786,6 +1871,7 @@ var DEFAULT_SETTINGS = {
   selectedProvider: "copilot",
   providerCliPaths: {},
   providerModels: {},
+  providerEfforts: {},
   userName: "",
   enableBlocklist: true,
   blockedCommands: getDefaultBlockedCommands(),
@@ -2286,19 +2372,31 @@ User: ${injectedPrompt}` : historyContext;
     }
   }
   /** Lists account-available Antigravity models only when the selector requests them. */
+  /**
+   * Asks the installed CLI which models it can dispatch. Runs only when the user opens the
+   * model picker, never on a timer, and stays local: `codex debug models` and `agy models`
+   * are the CLIs' own listing commands. `claude` has no such command, so it is served from
+   * the verified static aliases instead.
+   */
   async listNativeProviderModels(provider) {
-    if (provider !== "agy") return [];
+    const staticModels = getStaticProviderModels(provider);
+    if (staticModels.length > 0) return [...staticModels];
+    const discovery = {
+      codex: ["debug", "models"],
+      agy: ["models"]
+    };
+    const args = discovery[provider];
+    if (!args) return [];
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
-    if (!cliPath) throw new Error("agy CLI not found");
+    if (!cliPath) throw new Error(`${provider} CLI not found`);
     return new Promise((resolve5, reject) => {
-      (0, import_child_process.execFile)(cliPath, ["models"], { cwd: this.getWorkingDirectory(), env: process.env }, (error, stdout) => {
+      (0, import_child_process.execFile)(cliPath, args, { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
         }
-        const models = stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(line));
-        resolve5([...new Set(models)]);
+        resolve5(provider === "codex" ? parseCodexModels(stdout) : parseAgyModels(stdout));
       });
     });
   }
@@ -2411,7 +2509,7 @@ User: ${injectedPrompt}` : historyContext;
   }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const provider = this.plugin.settings.selectedProvider;
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
@@ -2421,7 +2519,8 @@ User: ${injectedPrompt}` : historyContext;
     }
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
     const modelOverride = ((_a = queryOptions == null ? void 0 : queryOptions.model) == null ? void 0 : _a.trim()) || ((_c = (_b = this.plugin.settings.providerModels) == null ? void 0 : _b[provider]) == null ? void 0 : _c.trim()) || "";
-    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride);
+    const effortOverride = ((_e = (_d = this.plugin.settings.providerEfforts) == null ? void 0 : _d[provider]) == null ? void 0 : _e.trim()) || "";
+    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride, effortOverride);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
     const child = (0, import_child_process.spawn)(command, args, {
@@ -2443,10 +2542,10 @@ User: ${injectedPrompt}` : historyContext;
     let errorOutput = "";
     let closed = false;
     let resolveClose = null;
-    (_d = child.stdout) == null ? void 0 : _d.on("data", (data) => {
+    (_f = child.stdout) == null ? void 0 : _f.on("data", (data) => {
       output += data.toString();
     });
-    (_e = child.stderr) == null ? void 0 : _e.on("data", (data) => {
+    (_g = child.stderr) == null ? void 0 : _g.on("data", (data) => {
       errorOutput += data.toString();
     });
     child.on("close", () => {
@@ -2458,7 +2557,7 @@ User: ${injectedPrompt}` : historyContext;
       closed = true;
       resolveClose == null ? void 0 : resolveClose();
     });
-    (_f = child.stdin) == null ? void 0 : _f.end();
+    (_h = child.stdin) == null ? void 0 : _h.end();
     try {
       if (!closed) await new Promise((resolve5) => {
         resolveClose = resolve5;
@@ -6707,6 +6806,17 @@ var ImageContextManager = class {
 var import_obsidian5 = require("obsidian");
 var os5 = __toESM(require("os"));
 init_providerRegistry();
+function toToolbarSettings(settings) {
+  return {
+    model: settings.model,
+    selectedProvider: settings.selectedProvider,
+    thinkingBudget: settings.thinkingBudget,
+    permissionMode: settings.permissionMode,
+    lastNonPlanPermissionMode: settings.lastNonPlanPermissionMode,
+    providerModels: settings.providerModels,
+    providerEfforts: settings.providerEfforts
+  };
+}
 function getProviderGroup(model) {
   if (model === "auto") return "recommended";
   if (model.startsWith("gpt-")) return "openai";
@@ -6752,7 +6862,7 @@ function getProviderLabel(provider) {
 }
 function getModelSelectorLabel(provider, model, providerModels) {
   var _a, _b, _c;
-  if (provider !== "copilot") return ((_a = providerModels == null ? void 0 : providerModels[provider]) == null ? void 0 : _a.trim()) || "CLI \uAE30\uBCF8 \uBAA8\uB378";
+  if (provider !== "copilot") return ((_a = providerModels == null ? void 0 : providerModels[provider]) == null ? void 0 : _a.trim()) || "\uBAA8\uB378 \uC120\uD0DD";
   return (_c = (_b = COPILOT_MODELS.find((option) => option.value === model)) == null ? void 0 : _b.label) != null ? _c : COPILOT_MODELS[0].label;
 }
 var ModelSelector = class {
@@ -6760,6 +6870,9 @@ var ModelSelector = class {
     this.buttonEl = null;
     this.dropdownEl = null;
     this.nativeModels = /* @__PURE__ */ new Map();
+    /** Providers whose CLI we actually asked. Absent != empty: the dropdown opens on hover
+     *  but discovery runs on click, so without this an un-asked CLI reads as a failed one. */
+    this.nativeModelsAttempted = /* @__PURE__ */ new Set();
     this.nativeModelsLoading = false;
     this.callbacks = callbacks;
     this.container = parentEl.createDiv({ cls: "ocop-model-selector" });
@@ -6784,6 +6897,7 @@ var ModelSelector = class {
       const isOpen = ((_a = this.buttonEl) == null ? void 0 : _a.getAttribute("aria-expanded")) === "true";
       (_b = this.buttonEl) == null ? void 0 : _b.setAttribute("aria-expanded", String(!isOpen));
       this.container.toggleClass("is-open", !isOpen);
+      this.container.removeClass("is-dismissed");
       if (!isOpen) void this.loadNativeModelsIfNeeded();
     });
     this.buttonEl.addEventListener("keydown", (event) => {
@@ -6794,13 +6908,26 @@ var ModelSelector = class {
     });
     this.updateDisplay();
     this.dropdownEl = this.container.createDiv({ cls: "ocop-model-dropdown" });
+    this.container.addEventListener("mouseleave", () => this.container.removeClass("is-dismissed"));
     this.renderOptions();
+  }
+  /**
+   * Closes the dropdown after a choice. `is-dismissed` outranks the `:hover` rule so the menu
+   * stays shut while the pointer travels across it toward the message box; leaving the
+   * selector clears it, so hover-to-open still works the next time.
+   */
+  dismiss() {
+    var _a;
+    this.container.removeClass("is-open");
+    this.container.addClass("is-dismissed");
+    (_a = this.buttonEl) == null ? void 0 : _a.setAttribute("aria-expanded", "false");
   }
   async loadNativeModelsIfNeeded() {
     const provider = this.callbacks.getSettings().selectedProvider;
     if (provider === "copilot" || this.nativeModels.has(provider) || this.nativeModelsLoading) return;
-    const staticModels = NATIVE_PROVIDER_MODELS[provider];
+    const staticModels = getStaticProviderModels(provider);
     if (staticModels.length > 0) {
+      this.nativeModelsAttempted.add(provider);
       this.nativeModels.set(provider, [...staticModels]);
       this.renderOptions();
       return;
@@ -6813,6 +6940,7 @@ var ModelSelector = class {
     } catch (e) {
       this.nativeModels.set(provider, []);
     } finally {
+      this.nativeModelsAttempted.add(provider);
       this.nativeModelsLoading = false;
       this.renderOptions();
     }
@@ -6821,21 +6949,21 @@ var ModelSelector = class {
     var _a;
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
+      const settings = this.callbacks.getSettings();
+      const provider = settings.selectedProvider;
       this.container.style.display = "";
       this.buttonEl.empty();
-      this.buttonEl.addClass("is-native-default");
-      this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model, this.callbacks.getSettings().providerModels) });
-      this.buttonEl.setAttribute("aria-label", "CLI \uAE30\uBCF8 \uBAA8\uB378. \uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
-      this.buttonEl.setAttribute("title", "\uC120\uD0DD\uD55C CLI\uAC00 \uBAA8\uB378\uACFC \uC0AC\uACE0 \uBC29\uC2DD\uC744 \uC81C\uC5B4\uD569\uB2C8\uB2E4.");
-      this.buttonEl.removeAttribute("role");
-      this.buttonEl.removeAttribute("tabindex");
-      this.buttonEl.removeAttribute("aria-haspopup");
-      this.buttonEl.removeAttribute("aria-expanded");
-      this.container.removeClass("is-open");
+      this.buttonEl.createSpan({ cls: "ocop-model-label", text: getModelSelectorLabel(provider, settings.model, settings.providerModels) });
+      const effort = this.getActiveEffort(provider);
+      if (effort) this.buttonEl.createSpan({ cls: "ocop-model-effort-badge", text: effort });
+      this.buttonEl.setAttribute("aria-label", `${provider} \uBAA8\uB378 \uC120\uD0DD`);
+      this.buttonEl.removeAttribute("title");
+      this.buttonEl.setAttribute("role", "button");
+      this.buttonEl.setAttribute("tabindex", "0");
+      this.buttonEl.setAttribute("aria-haspopup", "listbox");
       return;
     }
     this.container.style.display = "";
-    this.buttonEl.removeClass("is-native-default");
     this.buttonEl.setAttribute("aria-label", "\uBAA8\uB378 \uC120\uD0DD");
     this.buttonEl.removeAttribute("title");
     const currentModel = this.callbacks.getSettings().model;
@@ -6854,15 +6982,18 @@ var ModelSelector = class {
     if (!this.isCopilotSelected()) {
       this.dropdownEl.removeAttribute("aria-hidden");
       const provider = this.callbacks.getSettings().selectedProvider;
-      const models2 = (_a = this.nativeModels.get(provider)) != null ? _a : NATIVE_PROVIDER_MODELS[provider];
+      const models2 = (_a = this.nativeModels.get(provider)) != null ? _a : getStaticProviderModels(provider);
       if (this.nativeModelsLoading) {
-        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "\uBAA8\uB378 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911..." });
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "\uC124\uCE58\uB41C CLI\uC5D0\uC11C \uBAA8\uB378\uC744 \uD655\uC778\uD558\uB294 \uC911..." });
+      } else if (!this.nativeModelsAttempted.has(provider)) {
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: `\uD074\uB9AD\uD558\uBA74 ${provider} CLI\uC5D0\uC11C \uC0AC\uC6A9 \uAC00\uB2A5\uD55C \uBAA8\uB378\uC744 \uBD88\uB7EC\uC635\uB2C8\uB2E4.` });
       } else if (models2.length === 0) {
-        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "CLI \uAE30\uBCF8 \uBAA8\uB378 \uC0AC\uC6A9 (\uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4)" });
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: `${provider} CLI\uC5D0\uC11C \uBAA8\uB378 \uBAA9\uB85D\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0 \uBAA8\uB378 ID\uB97C \uC9C1\uC811 \uC785\uB825\uD558\uC138\uC694.` });
       } else {
-        for (const model of models2) this.addNativeModelOption(model);
+        for (const model of models2) this.addNativeModelOption(provider, model);
       }
       this.addNativeModelEntry(provider);
+      this.addEffortRow(provider, models2);
       return;
     }
     this.dropdownEl.removeAttribute("aria-hidden");
@@ -6901,26 +7032,97 @@ var ModelSelector = class {
       option.addEventListener("click", async (event) => {
         event.stopPropagation();
         await this.callbacks.onModelChange(model.value);
+        this.dismiss();
         this.updateDisplay();
         this.renderOptions();
       });
     }
   }
-  addNativeModelOption(model) {
-    const option = this.dropdownEl.createEl("button", { cls: "ocop-model-option", attr: { type: "button" } });
-    option.createSpan({ cls: "ocop-model-option-label", text: model });
-    option.addEventListener("click", () => {
-      var _a, _b;
-      void ((_b = (_a = this.callbacks).onProviderModelChange) == null ? void 0 : _b.call(_a, this.callbacks.getSettings().selectedProvider, model));
+  getActiveEffort(provider) {
+    var _a, _b;
+    const stored = ((_b = (_a = this.callbacks.getSettings().providerEfforts) == null ? void 0 : _a[provider]) == null ? void 0 : _b.trim()) || "";
+    return getProviderEffortLevels(provider).includes(stored) ? stored : "";
+  }
+  addNativeModelOption(provider, model) {
+    var _a, _b;
+    const selected = (((_b = (_a = this.callbacks.getSettings().providerModels) == null ? void 0 : _a[provider]) == null ? void 0 : _b.trim()) || "") === model.id;
+    const option = this.dropdownEl.createEl("button", { cls: "ocop-model-option is-native", attr: { type: "button", "aria-pressed": String(selected) } });
+    if (selected) option.addClass("selected");
+    option.createSpan({ cls: "ocop-model-option-label", text: model.id });
+    if (model.label && model.label !== model.id) option.createSpan({ cls: "ocop-model-option-note", text: model.label });
+    option.addEventListener("click", async (event) => {
+      var _a2, _b2, _c, _d;
+      event.stopPropagation();
+      await ((_b2 = (_a2 = this.callbacks).onProviderModelChange) == null ? void 0 : _b2.call(_a2, provider, model.id));
+      const carried = this.getActiveEffort(provider);
+      const incompatible = !allowsEffortWithModel(provider) || !model.efforts.includes(carried);
+      if (carried && incompatible) {
+        await ((_d = (_c = this.callbacks).onProviderEffortChange) == null ? void 0 : _d.call(_c, provider, ""));
+      }
+      this.dismiss();
+      this.updateDisplay();
+      this.renderOptions();
     });
+  }
+  /**
+   * Renders effort only when the installed CLI validated the levels AND the chosen model
+   * advertises them. Nothing chosen yet, or an id typed by hand, gets no effort row: we do
+   * not know that model's levels, so any chip drawn would be a guess.
+   */
+  addEffortRow(provider, models) {
+    var _a, _b;
+    if (!supportsEffortSelection(provider)) return;
+    const selectedId = ((_b = (_a = this.callbacks.getSettings().providerModels) == null ? void 0 : _a[provider]) == null ? void 0 : _b.trim()) || "";
+    if (!allowsEffortWithModel(provider)) {
+      if (selectedId) {
+        this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: `${provider}\uB294 \uBAA8\uB378 \uC774\uB984\uC5D0 \uCD94\uB860 \uAC15\uB3C4\uAC00 \uD3EC\uD568\uB429\uB2C8\uB2E4. \uBAA8\uB378\uC744 \uC120\uD0DD \uD574\uC81C\uD558\uBA74 \uAC15\uB3C4\uB97C \uB530\uB85C \uC9C0\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.` });
+        return;
+      }
+      this.renderEffortChips(provider, getProviderEffortLevels(provider));
+      return;
+    }
+    const known = models.find((model) => model.id === selectedId);
+    if (!known) {
+      if (selectedId) this.dropdownEl.createDiv({ cls: "ocop-model-native-status", text: "\uCD94\uB860 \uAC15\uB3C4\uB294 \uC704 \uBAA9\uB85D\uC5D0\uC11C \uBAA8\uB378\uC744 \uACE0\uB974\uBA74 \uD45C\uC2DC\uB429\uB2C8\uB2E4." });
+      return;
+    }
+    const levels = known.efforts.filter((level) => getProviderEffortLevels(provider).includes(level));
+    if (levels.length === 0) return;
+    this.renderEffortChips(provider, levels);
+  }
+  renderEffortChips(provider, levels) {
+    if (levels.length === 0) return;
+    const row = this.dropdownEl.createDiv({ cls: "ocop-model-effort-row" });
+    row.createSpan({ cls: "ocop-model-effort-label", text: "\uCD94\uB860 \uAC15\uB3C4" });
+    const group = row.createDiv({ cls: "ocop-model-effort-group", attr: { role: "group", "aria-label": "\uCD94\uB860 \uAC15\uB3C4" } });
+    const active = this.getActiveEffort(provider);
+    const choices = [{ value: "", text: "CLI \uAE30\uBCF8" }, ...levels.map((level) => ({ value: level, text: level }))];
+    for (const choice of choices) {
+      const isActive = choice.value === active;
+      const chip = group.createEl("button", { cls: "ocop-model-effort-chip", attr: { type: "button", "aria-pressed": String(isActive) }, text: choice.text });
+      if (isActive) chip.addClass("selected");
+      chip.addEventListener("click", async (event) => {
+        var _a, _b;
+        event.stopPropagation();
+        await ((_b = (_a = this.callbacks).onProviderEffortChange) == null ? void 0 : _b.call(_a, provider, choice.value));
+        this.dismiss();
+        this.updateDisplay();
+        this.renderOptions();
+      });
+    }
   }
   addNativeModelEntry(provider) {
     const input = this.dropdownEl.createEl("input", { cls: "ocop-model-direct-input", attr: { type: "text", placeholder: "\uBAA8\uB378 ID \uC9C1\uC811 \uC785\uB825", "aria-label": "\uBAA8\uB378 ID \uC9C1\uC811 \uC785\uB825" } });
-    input.addEventListener("keydown", (event) => {
+    input.addEventListener("keydown", async (event) => {
       var _a, _b;
       if (event.key !== "Enter") return;
+      event.stopPropagation();
       const model = input.value.trim();
-      if (model) void ((_b = (_a = this.callbacks).onProviderModelChange) == null ? void 0 : _b.call(_a, provider, model));
+      if (!model) return;
+      await ((_b = (_a = this.callbacks).onProviderModelChange) == null ? void 0 : _b.call(_a, provider, model));
+      this.dismiss();
+      this.updateDisplay();
+      this.renderOptions();
     });
   }
 };
@@ -18668,14 +18870,7 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
     );
     const inputToolbar = this.inputWrapper.createDiv({ cls: "ocop-input-toolbar" });
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
-      getSettings: () => ({
-        model: this.plugin.settings.model,
-        selectedProvider: this.plugin.settings.selectedProvider,
-        thinkingBudget: this.plugin.settings.thinkingBudget,
-        permissionMode: this.plugin.settings.permissionMode,
-        lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode,
-        providerModels: this.plugin.settings.providerModels
-      }),
+      getSettings: () => toToolbarSettings(this.plugin.settings),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => {
         var _a2, _b;
@@ -18698,6 +18893,15 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
         var _a2, _b, _c, _d;
         (_b = (_a2 = this.plugin.settings).providerModels) != null ? _b : _a2.providerModels = {};
         this.plugin.settings.providerModels[provider] = model.trim();
+        await this.plugin.saveSettings();
+        (_c = this.modelSelector) == null ? void 0 : _c.updateDisplay();
+        (_d = this.modelSelector) == null ? void 0 : _d.renderOptions();
+      },
+      onProviderEffortChange: async (provider, effort) => {
+        var _a2, _b, _c, _d;
+        (_b = (_a2 = this.plugin.settings).providerEfforts) != null ? _b : _a2.providerEfforts = {};
+        if (effort.trim()) this.plugin.settings.providerEfforts[provider] = effort.trim();
+        else delete this.plugin.settings.providerEfforts[provider];
         await this.plugin.saveSettings();
         (_c = this.modelSelector) == null ? void 0 : _c.updateDisplay();
         (_d = this.modelSelector) == null ? void 0 : _d.renderOptions();
@@ -19118,16 +19322,15 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
     var _a;
     popover.empty();
     setupHint = null;
-    popover.createDiv({ cls: "ocop-provider-popover-title", text: "AI provider" });
+    popover.createDiv({ cls: "ocop-provider-popover-title", text: "AI \uC81C\uACF5\uC790" });
     for (const provider of PROVIDERS) {
       const configuredPath = ((_a = plugin.settings.providerCliPaths) == null ? void 0 : _a[provider.id]) || "";
       const ready = !!findProviderCliPath(provider.id, configuredPath);
       const option = popover.createEl("button", { cls: "ocop-provider-option", attr: { type: "button", "aria-pressed": String(plugin.settings.selectedProvider === provider.id) } });
       const mark = option.createSpan({ cls: "ocop-provider-mark" });
       mark.innerHTML = PROVIDER_MARKS[provider.id];
-      const info = option.createSpan({ cls: "ocop-provider-option-info" });
-      info.createSpan({ cls: "ocop-provider-option-name", text: provider.label });
-      info.createSpan({ cls: ready ? "ocop-provider-option-status is-ready" : "ocop-provider-option-status", text: ready ? "Ready" : "Setup needed" });
+      option.createSpan({ cls: "ocop-provider-option-name", text: provider.label });
+      option.createSpan({ cls: ready ? "ocop-provider-option-status is-ready" : "ocop-provider-option-status", text: ready ? "\uC900\uBE44\uB428" : "\uC124\uC815 \uD544\uC694" });
       option.addEventListener("click", async (event) => {
         event.stopPropagation();
         if (ready) {
@@ -19142,7 +19345,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
         }
       });
     }
-    if (plugin.settings.selectedProvider !== "copilot") popover.createDiv({ cls: "ocop-provider-cli-note", text: "Model and thinking: CLI default (the selected native CLI controls these)." });
+    if (plugin.settings.selectedProvider !== "copilot") popover.createDiv({ cls: "ocop-provider-cli-note", text: "\uBAA8\uB378\uACFC \uCD94\uB860 \uAC15\uB3C4\uB294 \uC624\uB978\uCABD \uBAA8\uB378 \uBC84\uD2BC\uC5D0\uC11C \uC120\uD0DD\uD569\uB2C8\uB2E4." });
   };
   updateButton();
   renderPopover();
@@ -20541,6 +20744,7 @@ var ObsidianCopilotPlugin = class extends import_obsidian32.Plugin {
     if (this.settings.lastNonPlanPermissionMode === "yolo") this.settings.lastNonPlanPermissionMode = "agent";
     if (this.settings.lastNonPlanPermissionMode === "normal") this.settings.lastNonPlanPermissionMode = "ask";
     if (this.settings.model === "gpt-4o") this.settings.model = "gpt-4.1";
+    migrateProviderModels(this.settings.providerModels);
     this.conversations = await this.storage.sessions.loadAllConversations();
     this.activeConversationId = state.activeConversationId;
     if (this.activeConversationId && !this.conversations.find((c) => c.id === this.activeConversationId)) {

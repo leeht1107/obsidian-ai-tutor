@@ -12,7 +12,15 @@ import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory, getLastUserMessage } from '../../utils/session';
 import type { McpServerManager } from '../mcp';
 import { buildSystemPrompt } from '../prompts/mainAgent';
-import { buildNativeProviderCommand, findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import {
+  buildNativeProviderCommand,
+  findProviderCliPath,
+  getStaticProviderModels,
+  parseAgyModels,
+  parseCodexModels,
+  type ProviderId,
+  type ProviderModelOption,
+} from '../providers/providerRegistry';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -703,16 +711,28 @@ export class CopilotBridgeService {
   }
 
   /** Lists account-available Antigravity models only when the selector requests them. */
-  async listNativeProviderModels(provider: ProviderId): Promise<string[]> {
-    if (provider !== 'agy') return [];
+  /**
+   * Asks the installed CLI which models it can dispatch. Runs only when the user opens the
+   * model picker, never on a timer, and stays local: `codex debug models` and `agy models`
+   * are the CLIs' own listing commands. `claude` has no such command, so it is served from
+   * the verified static aliases instead.
+   */
+  async listNativeProviderModels(provider: ProviderId): Promise<ProviderModelOption[]> {
+    const staticModels = getStaticProviderModels(provider);
+    if (staticModels.length > 0) return [...staticModels];
+    const discovery: Partial<Record<ProviderId, string[]>> = {
+      codex: ['debug', 'models'],
+      agy: ['models'],
+    };
+    const args = discovery[provider];
+    if (!args) return [];
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
     const cliPath = findProviderCliPath(provider, configuredPath);
-    if (!cliPath) throw new Error('agy CLI not found');
+    if (!cliPath) throw new Error(`${provider} CLI not found`);
     return new Promise((resolve, reject) => {
-      execFile(cliPath, ['models'], { cwd: this.getWorkingDirectory(), env: process.env }, (error, stdout) => {
+      execFile(cliPath, args, { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
         if (error) { reject(error); return; }
-        const models = stdout.split(/\r?\n/).map(line => line.trim()).filter(line => /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(line));
-        resolve([...new Set(models)]);
+        resolve(provider === 'codex' ? parseCodexModels(stdout) : parseAgyModels(stdout));
       });
     });
   }
@@ -868,7 +888,8 @@ export class CopilotBridgeService {
 
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
     const modelOverride = queryOptions?.model?.trim() || this.plugin.settings.providerModels?.[provider]?.trim() || '';
-    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride);
+    const effortOverride = this.plugin.settings.providerEfforts?.[provider]?.trim() || '';
+    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride, effortOverride);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
     const child = spawn(command, args, {

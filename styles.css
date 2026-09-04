@@ -2976,29 +2976,31 @@
 .ocop-send-btn:hover { filter: brightness(1.08); }
 .ocop-provider-mark { display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; }
 .ocop-provider-mark svg { width: 100%; height: 100%; }
-.ocop-provider-btn-chevron { color: var(--text-muted); margin-left: auto; }
+.ocop-provider-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ocop-provider-btn-chevron { flex: 0 0 auto; color: var(--text-muted); margin-left: auto; }
 .ocop-provider-popover {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   left: 0;
   z-index: 1000;
-  width: 245px;
+  width: 208px;
   display: none;
-  padding: 8px;
+  padding: 5px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--background-secondary);
   box-shadow: 0 14px 34px rgba(0,0,0,.28);
 }
 .ocop-provider-popover.is-visible { display: block; }
-.ocop-provider-popover-title { padding: 3px 6px 7px; color: var(--text-muted); font-size: 11px; }
-.ocop-provider-option { width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 6px; border: 0; border-radius: 7px; background: transparent; color: var(--text-normal); text-align: left; cursor: pointer; }
+.ocop-provider-popover-title { padding: 2px 6px 5px; color: var(--text-faint); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+/* One compact line per provider so every name starts at the same left edge. */
+.ocop-provider-option { width: 100%; display: flex; align-items: center; gap: 7px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-normal); text-align: left; cursor: pointer; }
 .ocop-provider-option:hover { background: var(--background-modifier-hover); }
-.ocop-provider-option-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ocop-provider-option-name { font-size: 12px; }
-.ocop-provider-option-status { color: var(--text-muted); font-size: 10px; }
+.ocop-provider-option[aria-pressed="true"] { background: var(--background-modifier-hover); }
+.ocop-provider-option-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 12px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.ocop-provider-option-status { flex: 0 0 auto; color: var(--text-muted); font-size: 9px; }
 .ocop-provider-option-status.is-ready { color: var(--text-success); }
-.ocop-provider-setup-hint, .ocop-provider-cli-note { margin: 7px 4px 2px; padding: 7px; border-radius: 6px; background: var(--background-primary); color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.ocop-provider-setup-hint, .ocop-provider-cli-note { margin: 5px 2px 1px; padding: 5px 6px; border-radius: 6px; background: var(--background-primary); color: var(--text-muted); font-size: 10px; line-height: 1.35; }
 
 .ocop-provider-selector-control {
   min-width: 116px;
@@ -3375,12 +3377,6 @@
   border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
 }
 
-.ocop-model-btn.is-native-default {
-  color: var(--text-muted);
-  cursor: default;
-  opacity: 0.72;
-}
-
 .ocop-model-label {
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -3451,6 +3447,13 @@
   visibility: visible;
 }
 
+/* Must follow the :hover and .is-open rules — same specificity, so source order decides.
+   Keeps the menu shut after a choice even while the pointer is still over it. */
+.ocop-model-selector.is-dismissed .ocop-model-dropdown {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .ocop-model-option {
   padding: 8px 10px;
   cursor: pointer;
@@ -3499,6 +3502,110 @@
   color: var(--text-muted);
   font-size: 11px;
   flex-shrink: 0;
+}
+
+/* Native provider rows: one compact left-aligned line per model, plus the effort strip. */
+.ocop-model-option.is-native {
+  display: flex;
+  align-items: baseline;
+  /* Overrides the shared row's space-between so the id and its display name stay adjacent. */
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+
+.ocop-model-option.is-native .ocop-model-option-label {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.ocop-model-option-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocop-model-native-status {
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.ocop-model-direct-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 11px;
+}
+
+.ocop-model-effort-row {
+  /* Pinned to the dropdown floor: the model list scrolls, so an unpinned effort row
+     sits below the fold and is as undiscoverable as the control it replaced. */
+  position: sticky;
+  bottom: -8px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 6px 0 8px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 82%, #0b1220 18%);
+}
+
+.ocop-model-effort-label {
+  padding-left: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.ocop-model-effort-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.ocop-model-effort-chip {
+  padding: 2px 6px;
+  white-space: nowrap;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.ocop-model-effort-chip:hover { background: var(--background-modifier-hover); }
+
+.ocop-model-effort-chip.selected {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ocop-model-effort-badge {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 

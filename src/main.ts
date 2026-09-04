@@ -11,7 +11,7 @@ import { addIcon, Notice, Plugin } from 'obsidian';
 import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
-import { findProviderCliPath } from './core/providers/providerRegistry';
+import { findProviderCliPath, migrateProviderModels } from './core/providers/providerRegistry';
 import { StorageService } from './core/storage';
 import type {
   Conversation,
@@ -233,6 +233,9 @@ export default class ObsidianCopilotPlugin extends Plugin {
 
     // Migrate deprecated model names
     if ((this.settings.model as string) === 'gpt-4o') this.settings.model = 'gpt-4.1';
+
+    // Clear provider model ids a previous release offered that the CLI no longer lists.
+    migrateProviderModels(this.settings.providerModels);
 
     // Load all conversations from session files
     this.conversations = await this.storage.sessions.loadAllConversations();

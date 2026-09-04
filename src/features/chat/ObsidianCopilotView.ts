@@ -28,6 +28,7 @@ import {
   type SocraticLauncherButton,
   type ThinkingBudgetSelector,
   TodoPanel,
+  toToolbarSettings,
   type WebSearchToggle,
 } from '../../ui';
 import { QuizSetupModal, SocraticSetupModal } from '../../ui';
@@ -271,14 +272,7 @@ export class ObsidianCopilotView extends ItemView {
 
     const inputToolbar = this.inputWrapper.createDiv({ cls: 'ocop-input-toolbar' });
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
-      getSettings: () => ({
-        model: this.plugin.settings.model,
-        selectedProvider: this.plugin.settings.selectedProvider,
-        thinkingBudget: this.plugin.settings.thinkingBudget,
-        permissionMode: this.plugin.settings.permissionMode,
-        lastNonPlanPermissionMode: this.plugin.settings.lastNonPlanPermissionMode,
-        providerModels: this.plugin.settings.providerModels,
-      }),
+      getSettings: () => toToolbarSettings(this.plugin.settings),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => this.state.planModeState?.agentInitiated ?? false,
       isPlanModeRequested: () => this.state.planModeRequested,
@@ -296,6 +290,15 @@ export class ObsidianCopilotView extends ItemView {
       onProviderModelChange: async (provider, model) => {
         this.plugin.settings.providerModels ??= {};
         this.plugin.settings.providerModels[provider] = model.trim();
+        await this.plugin.saveSettings();
+        this.modelSelector?.updateDisplay();
+        this.modelSelector?.renderOptions();
+      },
+      onProviderEffortChange: async (provider, effort) => {
+        this.plugin.settings.providerEfforts ??= {};
+        // An empty choice clears the override so the CLI falls back to its own default.
+        if (effort.trim()) this.plugin.settings.providerEfforts[provider] = effort.trim();
+        else delete this.plugin.settings.providerEfforts[provider];
         await this.plugin.saveSettings();
         this.modelSelector?.updateDisplay();
         this.modelSelector?.renderOptions();
@@ -706,16 +709,15 @@ export function createProviderSelector(
   const renderPopover = () => {
     popover.empty();
     setupHint = null;
-    popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI provider' });
+    popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI 제공자' });
     for (const provider of PROVIDERS) {
       const configuredPath = plugin.settings.providerCliPaths?.[provider.id] || '';
       const ready = !!findProviderCliPath(provider.id, configuredPath);
       const option = popover.createEl('button', { cls: 'ocop-provider-option', attr: { type: 'button', 'aria-pressed': String(plugin.settings.selectedProvider === provider.id) } });
       const mark = option.createSpan({ cls: 'ocop-provider-mark' });
       mark.innerHTML = PROVIDER_MARKS[provider.id];
-      const info = option.createSpan({ cls: 'ocop-provider-option-info' });
-      info.createSpan({ cls: 'ocop-provider-option-name', text: provider.label });
-      info.createSpan({ cls: ready ? 'ocop-provider-option-status is-ready' : 'ocop-provider-option-status', text: ready ? 'Ready' : 'Setup needed' });
+      option.createSpan({ cls: 'ocop-provider-option-name', text: provider.label });
+      option.createSpan({ cls: ready ? 'ocop-provider-option-status is-ready' : 'ocop-provider-option-status', text: ready ? '준비됨' : '설정 필요' });
       option.addEventListener('click', async (event) => {
         event.stopPropagation();
         if (ready) {
@@ -728,7 +730,7 @@ export function createProviderSelector(
         }
       });
     }
-    if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: 'Model and thinking: CLI default (the selected native CLI controls these).' });
+    if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: '모델과 추론 강도는 오른쪽 모델 버튼에서 선택합니다.' });
   };
   updateButton(); renderPopover();
   const firstToolbarChild = toolbar.firstElementChild;

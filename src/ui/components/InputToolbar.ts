@@ -1,7 +1,15 @@
 import { Notice, setIcon } from 'obsidian';
 import * as os from 'os';
 
-import { NATIVE_PROVIDER_MODELS, type ProviderId } from '../../core/providers/providerRegistry';
+import {
+  allowsEffortWithModel,
+  type EffortLevel,
+  getProviderEffortLevels,
+  getStaticProviderModels,
+  type ProviderId,
+  type ProviderModelOption,
+  supportsEffortSelection,
+} from '../../core/providers/providerRegistry';
 import type {
   CopilotMcpServer,
   CopilotModel,
@@ -24,12 +32,39 @@ export interface ToolbarSettings {
   permissionMode: PermissionMode;
   lastNonPlanPermissionMode?: 'agent' | 'ask';
   providerModels?: Partial<Record<ProviderId, string>>;
+  providerEfforts?: Partial<Record<ProviderId, string>>;
+}
+
+/**
+ * Projects plugin settings down to what the toolbar reads. Every provider-scoped key must
+ * be listed here: a key omitted from this projection silently reads as `undefined` in the
+ * toolbar, so the control renders as unset even though the value is stored and dispatched.
+ */
+export function toToolbarSettings(settings: {
+  model: CopilotModel;
+  selectedProvider: ProviderId;
+  thinkingBudget: ThinkingBudget;
+  permissionMode: PermissionMode;
+  lastNonPlanPermissionMode?: 'agent' | 'ask';
+  providerModels?: Partial<Record<ProviderId, string>>;
+  providerEfforts?: Partial<Record<ProviderId, string>>;
+}): ToolbarSettings {
+  return {
+    model: settings.model,
+    selectedProvider: settings.selectedProvider,
+    thinkingBudget: settings.thinkingBudget,
+    permissionMode: settings.permissionMode,
+    lastNonPlanPermissionMode: settings.lastNonPlanPermissionMode,
+    providerModels: settings.providerModels,
+    providerEfforts: settings.providerEfforts,
+  };
 }
 
 export interface ToolbarCallbacks {
   onModelChange: (model: CopilotModel) => Promise<void>;
   onProviderModelChange?: (provider: ProviderId, model: string) => Promise<void>;
-  getNativeProviderModels?: (provider: Exclude<ProviderId, 'copilot'>) => Promise<string[]>;
+  onProviderEffortChange?: (provider: ProviderId, effort: string) => Promise<void>;
+  getNativeProviderModels?: (provider: Exclude<ProviderId, 'copilot'>) => Promise<ProviderModelOption[]>;
   onThinkingBudgetChange: (budget: ThinkingBudget) => Promise<void>;
   onPermissionModeChange: (mode: PermissionMode) => Promise<void>;
   onOpenQuiz?: () => Promise<void>;
@@ -97,9 +132,9 @@ function getProviderLabel(provider: string): string {
   return labels[provider] ?? provider;
 }
 
-/** The native CLIs own model choice; Copilot is the only provider with this list. */
+/** Native providers show their own chosen model; Copilot uses the bundled catalog. */
 export function getModelSelectorLabel(provider: ProviderId, model: CopilotModel, providerModels?: Partial<Record<ProviderId, string>>): string {
-  if (provider !== 'copilot') return providerModels?.[provider]?.trim() || 'CLI 기본 모델';
+  if (provider !== 'copilot') return providerModels?.[provider]?.trim() || '모델 선택';
   return COPILOT_MODELS.find((option) => option.value === model)?.label ?? COPILOT_MODELS[0].label;
 }
 
@@ -108,7 +143,10 @@ export class ModelSelector {
   private buttonEl: HTMLElement | null = null;
   private dropdownEl: HTMLElement | null = null;
   private callbacks: ToolbarCallbacks;
-  private nativeModels = new Map<Exclude<ProviderId, 'copilot'>, string[]>();
+  private nativeModels = new Map<Exclude<ProviderId, 'copilot'>, ProviderModelOption[]>();
+  /** Providers whose CLI we actually asked. Absent != empty: the dropdown opens on hover
+   *  but discovery runs on click, so without this an un-asked CLI reads as a failed one. */
+  private nativeModelsAttempted = new Set<Exclude<ProviderId, 'copilot'>>();
   private nativeModelsLoading = false;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
@@ -137,6 +175,7 @@ export class ModelSelector {
       const isOpen = this.buttonEl?.getAttribute('aria-expanded') === 'true';
       this.buttonEl?.setAttribute('aria-expanded', String(!isOpen));
       this.container.toggleClass('is-open', !isOpen);
+      this.container.removeClass('is-dismissed');
       if (!isOpen) void this.loadNativeModelsIfNeeded();
     });
     this.buttonEl.addEventListener('keydown', (event) => {
@@ -146,14 +185,27 @@ export class ModelSelector {
     });
     this.updateDisplay();
     this.dropdownEl = this.container.createDiv({ cls: 'ocop-model-dropdown' });
+    this.container.addEventListener('mouseleave', () => this.container.removeClass('is-dismissed'));
     this.renderOptions();
+  }
+
+  /**
+   * Closes the dropdown after a choice. `is-dismissed` outranks the `:hover` rule so the menu
+   * stays shut while the pointer travels across it toward the message box; leaving the
+   * selector clears it, so hover-to-open still works the next time.
+   */
+  private dismiss(): void {
+    this.container.removeClass('is-open');
+    this.container.addClass('is-dismissed');
+    this.buttonEl?.setAttribute('aria-expanded', 'false');
   }
 
   private async loadNativeModelsIfNeeded(): Promise<void> {
     const provider = this.callbacks.getSettings().selectedProvider;
     if (provider === 'copilot' || this.nativeModels.has(provider) || this.nativeModelsLoading) return;
-    const staticModels = NATIVE_PROVIDER_MODELS[provider];
+    const staticModels = getStaticProviderModels(provider);
     if (staticModels.length > 0) {
+      this.nativeModelsAttempted.add(provider);
       this.nativeModels.set(provider, [...staticModels]);
       this.renderOptions();
       return;
@@ -166,6 +218,7 @@ export class ModelSelector {
     } catch {
       this.nativeModels.set(provider, []);
     } finally {
+      this.nativeModelsAttempted.add(provider);
       this.nativeModelsLoading = false;
       this.renderOptions();
     }
@@ -174,21 +227,21 @@ export class ModelSelector {
   updateDisplay() {
     if (!this.buttonEl) return;
     if (!this.isCopilotSelected()) {
+      const settings = this.callbacks.getSettings();
+      const provider = settings.selectedProvider;
       this.container.style.display = '';
       this.buttonEl.empty();
-      this.buttonEl.addClass('is-native-default');
-      this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(this.callbacks.getSettings().selectedProvider, this.callbacks.getSettings().model, this.callbacks.getSettings().providerModels) });
-      this.buttonEl.setAttribute('aria-label', 'CLI 기본 모델. 선택한 CLI가 모델과 사고 방식을 제어합니다.');
-      this.buttonEl.setAttribute('title', '선택한 CLI가 모델과 사고 방식을 제어합니다.');
-      this.buttonEl.removeAttribute('role');
-      this.buttonEl.removeAttribute('tabindex');
-      this.buttonEl.removeAttribute('aria-haspopup');
-      this.buttonEl.removeAttribute('aria-expanded');
-      this.container.removeClass('is-open');
+      this.buttonEl.createSpan({ cls: 'ocop-model-label', text: getModelSelectorLabel(provider, settings.model, settings.providerModels) });
+      const effort = this.getActiveEffort(provider);
+      if (effort) this.buttonEl.createSpan({ cls: 'ocop-model-effort-badge', text: effort });
+      this.buttonEl.setAttribute('aria-label', `${provider} 모델 선택`);
+      this.buttonEl.removeAttribute('title');
+      this.buttonEl.setAttribute('role', 'button');
+      this.buttonEl.setAttribute('tabindex', '0');
+      this.buttonEl.setAttribute('aria-haspopup', 'listbox');
       return;
     }
     this.container.style.display = '';
-    this.buttonEl.removeClass('is-native-default');
     this.buttonEl.setAttribute('aria-label', '모델 선택');
     this.buttonEl.removeAttribute('title');
     const currentModel = this.callbacks.getSettings().model;
@@ -208,15 +261,18 @@ export class ModelSelector {
     if (!this.isCopilotSelected()) {
       this.dropdownEl.removeAttribute('aria-hidden');
       const provider = this.callbacks.getSettings().selectedProvider as Exclude<ProviderId, 'copilot'>;
-      const models = this.nativeModels.get(provider) ?? NATIVE_PROVIDER_MODELS[provider];
+      const models = this.nativeModels.get(provider) ?? getStaticProviderModels(provider);
       if (this.nativeModelsLoading) {
-        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: '모델 목록을 불러오는 중...' });
+        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: '설치된 CLI에서 모델을 확인하는 중...' });
+      } else if (!this.nativeModelsAttempted.has(provider)) {
+        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: `클릭하면 ${provider} CLI에서 사용 가능한 모델을 불러옵니다.` });
       } else if (models.length === 0) {
-        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: 'CLI 기본 모델 사용 (목록을 불러오지 못했습니다)' });
+        this.dropdownEl.createDiv({ cls: 'ocop-model-native-status', text: `${provider} CLI에서 모델 목록을 받지 못했습니다. 아래에 모델 ID를 직접 입력하세요.` });
       } else {
-        for (const model of models) this.addNativeModelOption(model);
+        for (const model of models) this.addNativeModelOption(provider, model);
       }
       this.addNativeModelEntry(provider);
+      this.addEffortRow(provider, models);
       return;
     }
     this.dropdownEl.removeAttribute('aria-hidden');
@@ -261,24 +317,104 @@ export class ModelSelector {
       option.addEventListener('click', async (event) => {
         event.stopPropagation();
       await this.callbacks.onModelChange(model.value);
+        this.dismiss();
         this.updateDisplay();
         this.renderOptions();
       });
     }
   }
 
-  private addNativeModelOption(model: string): void {
-    const option = this.dropdownEl!.createEl('button', { cls: 'ocop-model-option', attr: { type: 'button' } });
-    option.createSpan({ cls: 'ocop-model-option-label', text: model });
-    option.addEventListener('click', () => { void this.callbacks.onProviderModelChange?.(this.callbacks.getSettings().selectedProvider as Exclude<ProviderId, 'copilot'>, model); });
+  private getActiveEffort(provider: ProviderId): string {
+    const stored = this.callbacks.getSettings().providerEfforts?.[provider]?.trim() || '';
+    return getProviderEffortLevels(provider).includes(stored as never) ? stored : '';
+  }
+
+  private addNativeModelOption(provider: Exclude<ProviderId, 'copilot'>, model: ProviderModelOption): void {
+    const selected = (this.callbacks.getSettings().providerModels?.[provider]?.trim() || '') === model.id;
+    const option = this.dropdownEl!.createEl('button', { cls: 'ocop-model-option is-native', attr: { type: 'button', 'aria-pressed': String(selected) } });
+    if (selected) option.addClass('selected');
+    option.createSpan({ cls: 'ocop-model-option-label', text: model.id });
+    if (model.label && model.label !== model.id) option.createSpan({ cls: 'ocop-model-option-note', text: model.label });
+    option.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await this.callbacks.onProviderModelChange?.(provider, model.id);
+      // A level the previous model allowed may not exist on this one; drop it rather than
+      // carry a combination the CLI or its API would reject on the next send.
+      const carried = this.getActiveEffort(provider);
+      const incompatible = !allowsEffortWithModel(provider) || !model.efforts.includes(carried as EffortLevel);
+      if (carried && incompatible) {
+        await this.callbacks.onProviderEffortChange?.(provider, '');
+      }
+      this.dismiss();
+      this.updateDisplay();
+      this.renderOptions();
+    });
+  }
+
+  /**
+   * Renders effort only when the installed CLI validated the levels AND the chosen model
+   * advertises them. Nothing chosen yet, or an id typed by hand, gets no effort row: we do
+   * not know that model's levels, so any chip drawn would be a guess.
+   */
+  private addEffortRow(provider: Exclude<ProviderId, 'copilot'>, models: readonly ProviderModelOption[]): void {
+    if (!supportsEffortSelection(provider)) return;
+    const selectedId = this.callbacks.getSettings().providerModels?.[provider]?.trim() || '';
+
+    // Some CLIs cannot take a model and a level together — agy encodes the level in the
+    // model id and aborts the run if both are given. There, effort applies to the CLI's
+    // own default model, so it is offered only while no model is pinned.
+    if (!allowsEffortWithModel(provider)) {
+      if (selectedId) {
+        this.dropdownEl!.createDiv({ cls: 'ocop-model-native-status', text: `${provider}는 모델 이름에 추론 강도가 포함됩니다. 모델을 선택 해제하면 강도를 따로 지정할 수 있습니다.` });
+        return;
+      }
+      this.renderEffortChips(provider, getProviderEffortLevels(provider));
+      return;
+    }
+
+    const known = models.find((model) => model.id === selectedId);
+    if (!known) {
+      if (selectedId) this.dropdownEl!.createDiv({ cls: 'ocop-model-native-status', text: '추론 강도는 위 목록에서 모델을 고르면 표시됩니다.' });
+      return;
+    }
+    const levels = known.efforts.filter((level) => getProviderEffortLevels(provider).includes(level));
+    if (levels.length === 0) return;
+    this.renderEffortChips(provider, levels);
+  }
+
+  private renderEffortChips(provider: Exclude<ProviderId, 'copilot'>, levels: readonly EffortLevel[]): void {
+    if (levels.length === 0) return;
+
+    const row = this.dropdownEl!.createDiv({ cls: 'ocop-model-effort-row' });
+    row.createSpan({ cls: 'ocop-model-effort-label', text: '추론 강도' });
+    const group = row.createDiv({ cls: 'ocop-model-effort-group', attr: { role: 'group', 'aria-label': '추론 강도' } });
+    const active = this.getActiveEffort(provider);
+    const choices: { value: string; text: string }[] = [{ value: '', text: 'CLI 기본' }, ...levels.map((level) => ({ value: level, text: level }))];
+    for (const choice of choices) {
+      const isActive = choice.value === active;
+      const chip = group.createEl('button', { cls: 'ocop-model-effort-chip', attr: { type: 'button', 'aria-pressed': String(isActive) }, text: choice.text });
+      if (isActive) chip.addClass('selected');
+      chip.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        await this.callbacks.onProviderEffortChange?.(provider, choice.value);
+        this.dismiss();
+        this.updateDisplay();
+        this.renderOptions();
+      });
+    }
   }
 
   private addNativeModelEntry(provider: Exclude<ProviderId, 'copilot'>): void {
     const input = this.dropdownEl!.createEl('input', { cls: 'ocop-model-direct-input', attr: { type: 'text', placeholder: '모델 ID 직접 입력', 'aria-label': '모델 ID 직접 입력' } });
-    input.addEventListener('keydown', (event) => {
+    input.addEventListener('keydown', async (event) => {
       if (event.key !== 'Enter') return;
+      event.stopPropagation();
       const model = (input as HTMLInputElement).value.trim();
-      if (model) void this.callbacks.onProviderModelChange?.(provider, model);
+      if (!model) return;
+      await this.callbacks.onProviderModelChange?.(provider, model);
+      this.dismiss();
+      this.updateDisplay();
+      this.renderOptions();
     });
   }
 }

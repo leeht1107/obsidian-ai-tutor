@@ -6,7 +6,7 @@ import * as providerRegistry from '../../../../src/core/providers/providerRegist
 import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
 import { createProviderSelector } from '../../../../src/features/chat/ObsidianCopilotView';
-import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector } from '../../../../src/ui/components/InputToolbar';
+import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector, toToolbarSettings } from '../../../../src/ui/components/InputToolbar';
 
 describe('chat provider selector', () => {
   const makeElement = (): any => {
@@ -165,22 +165,33 @@ describe('chat provider selector', () => {
 
   it('never presents a Copilot model as active for native providers', () => {
     expect(getModelSelectorLabel('copilot', 'gpt-5.4')).toBe('gpt-5.4');
-    expect(getModelSelectorLabel('claude', 'gpt-5.4')).toBe('CLI 기본 모델');
-    expect(getModelSelectorLabel('codex', 'claude-opus-4.8')).toBe('CLI 기본 모델');
-    expect(getModelSelectorLabel('agy', 'gpt-5.5')).toBe('CLI 기본 모델');
+    expect(getModelSelectorLabel('claude', 'gpt-5.4')).toBe('모델 선택');
+    expect(getModelSelectorLabel('codex', 'claude-opus-4.8')).toBe('모델 선택');
+    expect(getModelSelectorLabel('agy', 'gpt-5.5')).toBe('모델 선택');
   });
 
-  it('shows native CLI model state and gives Copilot a keyboard-accessible dropdown control', () => {
-    const settings: any = { selectedProvider: 'claude', model: 'gpt-5.4', thinkingBudget: 'off', permissionMode: 'agent' };
+  it('shows the provider-specific model once one is chosen', () => {
+    expect(getModelSelectorLabel('claude', 'gpt-5.4', { claude: 'opus' })).toBe('opus');
+    expect(getModelSelectorLabel('codex', 'gpt-5.4', { claude: 'opus' })).toBe('모델 선택');
+  });
+
+  it('keeps the native model control operable instead of showing an inert CLI-default pill', () => {
+    // Goes through the real projection, so a key the app forgets to project fails here too —
+    // a hand-built literal would assert a state the running plugin can never produce.
+    const stored: any = { selectedProvider: 'claude', model: 'gpt-5.4', thinkingBudget: 'off', permissionMode: 'agent', providerModels: { claude: 'opus' }, providerEfforts: { claude: 'high' } };
+    const settings: any = toToolbarSettings(stored);
     const callbacks = { getSettings: () => settings, onModelChange: jest.fn().mockResolvedValue(undefined), onThinkingBudgetChange: jest.fn(), onPermissionModeChange: jest.fn() };
     const nativeParent = makeElement();
     new ModelSelector(nativeParent, callbacks);
     const nativeButton = nativeParent.children[0].children[0];
     expect(nativeParent.children[0].style.display).toBe('');
-    expect(nativeButton.children[0].elementOptions.text).toBe('CLI 기본 모델');
-    expect(nativeButton.elementOptions.attr).toBeUndefined();
-    expect(nativeButton.getAttribute('title')).toContain('선택한 CLI');
-    expect(nativeButton.getAttribute('role')).toBeNull();
+    expect(nativeButton.children[0].elementOptions.text).toBe('opus');
+    // The verified effort is surfaced on the button, and the control stays reachable.
+    expect(nativeButton.children[1].elementOptions.text).toBe('high');
+    expect(nativeButton.getAttribute('title')).toBeNull();
+    expect(nativeButton.getAttribute('role')).toBe('button');
+    expect(nativeButton.getAttribute('tabindex')).toBe('0');
+    expect(nativeButton.getAttribute('aria-haspopup')).toBe('listbox');
 
     settings.selectedProvider = 'copilot';
     const copilotParent = makeElement();

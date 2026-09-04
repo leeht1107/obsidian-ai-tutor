@@ -24,23 +24,165 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
   { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', status: 'manual-setup' },
 ];
 
-/** Concise verified aliases; an empty list means the CLI owns discovery. */
-export const NATIVE_PROVIDER_MODELS: Readonly<Record<Exclude<ProviderId, 'copilot'>, readonly string[]>> = {
-  claude: ['sonnet', 'opus', 'haiku'],
-  codex: ['gpt-5.4', 'o3'],
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface ProviderModelOption {
+  id: string;
+  label: string;
+  /** Effort levels this model can actually be dispatched with; empty means no effort control. */
+  efforts: readonly EffortLevel[];
+}
+
+/**
+ * Effort levels each installed CLI validated on this machine. Sourced from the CLIs'
+ * own rejection messages, not from documentation or UI wording:
+ *   claude --effort bogus -> "Valid values: low, medium, high, xhigh, max"
+ *   agy    --effort bogus -> 'invalid --effort "bogus" (valid: low, medium, high)'
+ *   codex  -c model_reasoning_effort=bogusvalue -> reasoning.effort enum:
+ *          'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'
+ * Copilot is absent on purpose: it keeps its existing thinking-budget control.
+ */
+const PROVIDER_EFFORT_LEVELS: Readonly<Record<ProviderId, readonly EffortLevel[]>> = {
+  copilot: [],
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh', 'max'],
+  agy: ['low', 'medium', 'high'],
+};
+
+/**
+ * Models we can name without asking a CLI. Only `claude` qualifies: it has no
+ * model-listing subcommand, but `claude -p --model <id>` rejects an unknown id with
+ * `[claude-code:unrecognized_model]` before authenticating, and each id below passed
+ * that check. `codex` and `agy` are deliberately empty — both ship a real local listing
+ * command, so a frozen list here is exactly the staleness this change removes.
+ */
+const STATIC_PROVIDER_MODELS: Readonly<Record<ProviderId, readonly ProviderModelOption[]>> = {
+  copilot: [],
+  claude: (['fable', 'opus', 'sonnet', 'haiku'] as const).map((id) => ({
+    id,
+    label: id,
+    efforts: PROVIDER_EFFORT_LEVELS.claude,
+  })),
+  codex: [],
   agy: [],
 };
+
+/**
+ * Whether a provider accepts `--model` and a reasoning level in the same invocation.
+ * agy cannot: the level is part of the model id (`gemini-3.8-flash-high`), and its CLI
+ * rejects the pair outright —
+ *   --model gemini-3.8-flash-high --effort low
+ *     -> "--model gemini-3.8-flash-high conflicts with --effort=low"
+ *   --model claude-sonnet-4-6 --effort high
+ *     -> "--effort is not supported for model \"claude-sonnet-4-6\""
+ * Either flag alone is fine, so effort stays available while no model is pinned.
+ */
+const EFFORT_COMBINES_WITH_MODEL: Readonly<Record<ProviderId, boolean>> = {
+  copilot: false,
+  claude: true,
+  codex: true,
+  agy: false,
+};
+
+export function allowsEffortWithModel(id: ProviderId): boolean {
+  return EFFORT_COMBINES_WITH_MODEL[id] ?? false;
+}
+
+export function getProviderEffortLevels(id: ProviderId): readonly EffortLevel[] {
+  return PROVIDER_EFFORT_LEVELS[id] ?? [];
+}
+
+export function supportsEffortSelection(id: ProviderId): boolean {
+  return getProviderEffortLevels(id).length > 0;
+}
+
+export function getStaticProviderModels(id: ProviderId): readonly ProviderModelOption[] {
+  return STATIC_PROVIDER_MODELS[id] ?? [];
+}
+
+/** Parses `agy models`, whose rows are `<id>\t<display name>` after a status line. */
+export function parseAgyModels(stdout: string): ProviderModelOption[] {
+  const seen = new Set<string>();
+  const options: ProviderModelOption[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    // Only a real `<id>\t<label>` row counts. Without the tab requirement any single-token
+    // status or footer line ("Done", "Models:") would be presented as a dispatchable model.
+    if (!line.includes('\t')) continue;
+    const [rawId, ...rest] = line.split('\t');
+    const id = rawId?.trim() ?? '';
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    // No per-model levels: for agy the level is encoded in the id itself.
+    options.push({ id, label: rest.join(' ').trim() || id, efforts: [] });
+  }
+  return options;
+}
+
+/**
+ * Parses the JSON printed by `codex debug models`. Hidden entries are internal routing targets, and
+ * a catalog level the API enum rejects (e.g. `ultra`) is dropped so no inert choice ships.
+ */
+export function parseCodexModels(stdout: string): ProviderModelOption[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(stdout); } catch { return []; }
+  const models = (parsed as { models?: unknown })?.models;
+  if (!Array.isArray(models)) return [];
+  const allowed = new Set<string>(PROVIDER_EFFORT_LEVELS.codex);
+  const options: ProviderModelOption[] = [];
+  for (const entry of models) {
+    const model = entry as { slug?: unknown; display_name?: unknown; visibility?: unknown; supported_reasoning_levels?: unknown };
+    const id = typeof model.slug === 'string' ? model.slug.trim() : '';
+    if (!id || model.visibility === 'hide') continue;
+    const efforts = (Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : [])
+      .map((level) => (level as { effort?: unknown })?.effort)
+      .filter((effort): effort is EffortLevel => typeof effort === 'string' && allowed.has(effort));
+    options.push({
+      id,
+      label: typeof model.display_name === 'string' && model.display_name.trim() ? model.display_name.trim() : id,
+      efforts,
+    });
+  }
+  return options;
+}
+
+/**
+ * Model ids that a previous release offered but the installed CLI does not list, so they
+ * cannot be un-picked from the current menu. A user who selected one keeps dispatching it
+ * on every send until it is cleared here. Removing an id from the menu is not enough —
+ * the choice already persisted in the user's data.json.
+ *   0.1.7 shipped codex: ['gpt-5.4', 'o3']. `gpt-5.4` is still in the CLI catalog; `o3` is not.
+ */
+const RETIRED_PROVIDER_MODELS: Readonly<Partial<Record<ProviderId, readonly string[]>>> = {
+  codex: ['o3'],
+};
+
+/** Clears retired ids in place so the provider falls back to its own default. */
+export function migrateProviderModels(providerModels: Partial<Record<ProviderId, string>> | undefined): void {
+  if (!providerModels) return;
+  for (const [id, retired] of Object.entries(RETIRED_PROVIDER_MODELS) as [ProviderId, readonly string[]][]) {
+    const current = providerModels[id]?.trim();
+    if (current && retired.includes(current)) delete providerModels[id];
+  }
+}
 
 export function getProviderDescriptor(id: ProviderId): ProviderDescriptor {
   return PROVIDERS.find((provider) => provider.id === id) ?? PROVIDERS[0];
 }
 
-export function buildNativeProviderCommand(id: ProviderId, prompt: string, model = ''): { command: string; args: string[] } {
+export function buildNativeProviderCommand(id: ProviderId, prompt: string, model = '', effort = ''): { command: string; args: string[] } {
   const selectedModel = model.trim();
+  // A level this CLI never validated is dropped rather than passed through: agy aborts the
+  // run on an unknown --effort, and codex would fail the request at the API enum.
+  let selectedEffort = getProviderEffortLevels(id).includes(effort.trim() as EffortLevel) ? effort.trim() : '';
+  // Where the two cannot be combined, the model wins: it is the more specific choice, and
+  // for agy it already encodes the level. Sending both aborts the run.
+  if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = '';
+  const modelArgs = selectedModel ? ['--model', selectedModel] : [];
   switch (id) {
-    case 'claude': return { command: 'claude', args: ['-p', ...(selectedModel ? ['--model', selectedModel] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
-    case 'codex': return { command: 'codex', args: ['exec', ...(selectedModel ? ['--model', selectedModel] : []), '--json', prompt] };
-    case 'agy': return { command: 'agy', args: [...(selectedModel ? ['--model', selectedModel] : []), '-p', prompt] };
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
+    // codex exec has no effort flag; the reasoning level is a config override instead.
+    case 'codex': return { command: 'codex', args: ['exec', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '--json', prompt] };
+    case 'agy': return { command: 'agy', args: [...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '-p', prompt] };
     case 'copilot': return { command: 'copilot', args: ['-p', prompt] };
   }
 }

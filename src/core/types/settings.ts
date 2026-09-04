@@ -136,6 +136,8 @@ export interface ObsidianCopilotSettings {
   selectedProvider: SelectedProvider;
   providerCliPaths: Partial<Record<SelectedProvider, string>>;
   providerModels?: Partial<Record<SelectedProvider, string>>;
+  /** Reasoning effort per provider; only set for providers whose CLI validated the level. */
+  providerEfforts?: Partial<Record<SelectedProvider, string>>;
   userName: string;
   enableBlocklist: boolean;
   blockedCommands: PlatformBlockedCommands;
@@ -166,6 +168,7 @@ export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   selectedProvider: 'copilot',
   providerCliPaths: {},
   providerModels: {},
+  providerEfforts: {},
   userName: '',
   enableBlocklist: true,
   blockedCommands: getDefaultBlockedCommands(),
