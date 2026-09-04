@@ -23,12 +23,26 @@ import { getEnhancedPath } from '../../utils/env';
 import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
-/** Terminal colour codes; the CLIs emit them even when stdout is a pipe. */
+/*
+ * The CLIs emit terminal escapes even when stdout is a pipe, and two different
+ * kinds matter here.
+ *
+ * CSI is the colour/cursor family codex uses around its URL and code.
+ *
+ * OSC 8 is a hyperlink, which claude uses: `ESC ] 8 ; ; <uri> BEL <text> ESC ] 8
+ * ; ; BEL`. The URI and the visible text are both the URL, with nothing between
+ * them, so stripping only CSI leaves the address duplicated end to end and the
+ * link parser returns a ~900-character string that opens nothing.
+ */
 // eslint-disable-next-line no-control-regex -- matching the ESC byte is the point
-const ANSI = /\x1b\[[0-9;]*m/g;
+const CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+// eslint-disable-next-line no-control-regex -- BEL and ST are the terminators
+const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
+// eslint-disable-next-line no-control-regex -- a stray BEL would survive otherwise
+const LOOSE = /[\x07\x1b]/g;
 
 export function stripAnsi(text: string): string {
-  return text.replace(ANSI, '');
+  return text.replace(OSC, '').replace(CSI, '').replace(LOOSE, '');
 }
 
 export interface LoginRecipe {

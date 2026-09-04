@@ -32,6 +32,18 @@ const CODEX_DEVICE_AUTH_OUTPUT = [
   '\u001b[90mContinue only if you started this login in Codex.\u001b[0m',
 ].join('\n');
 
+/**
+ * Byte-for-byte shape of real `claude auth login` output, captured 2026-09-05
+ * headless in an isolated CLAUDE_CONFIG_DIR. The link is an OSC 8 hyperlink:
+ * ESC ] 8 ; ; <uri> BEL <visible text> ESC ] 8 ; ; BEL — so the URL appears
+ * TWICE with no whitespace between the copies.
+ */
+const CLAUDE_LOGIN_OUTPUT = [
+  'Opening browser to sign in…',
+  "If the browser didn't open, visit: \u001b]8;;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&state=RI0YtMZ\u0007https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&state=RI0YtMZ\u001b]8;;\u0007",
+  'Paste code here if prompted > ',
+].join('\n');
+
 function writeCli(dir: string, name: string, body: string): string {
   const p = path.join(dir, name);
   fs.writeFileSync(p, body);
@@ -155,6 +167,22 @@ describe('provider login driver', () => {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
+
+
+  it('extracts one usable URL from an OSC 8 hyperlink', () => {
+    // claude wraps the link as a terminal hyperlink, which repeats the URL. A
+    // parser that only strips colour codes returns both copies glued together —
+    // a 900-character string that opens nothing.
+    const { url, code } = parseDeviceCode(CLAUDE_LOGIN_OUTPUT);
+    expect(url).toBe('https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&state=RI0YtMZ');
+    expect(code).toBeUndefined();
+  });
+
+  it('leaves no escape bytes behind for any sequence the CLIs emit', () => {
+    const cleaned = stripAnsi(CLAUDE_LOGIN_OUTPUT);
+    expect(cleaned.includes('\u001b')).toBe(false);
+    expect(cleaned.includes('\u0007')).toBe(false);
+  });
 
   it('shows the login URL for a paste-back CLI that never prints a code', async () => {
     if (isWindows) return;
