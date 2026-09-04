@@ -319,6 +319,49 @@ describe('SetupWizardModal — review regressions', () => {
     expect(input.value).toBe('HALF-TYPED');
   });
 
+  it('does not advance the flow after the student cancels the login', async () => {
+    let finishLogin: (r: any) => void = () => undefined;
+    const cancel = jest.fn();
+    startLogin.mockReturnValue({
+      submitCode: jest.fn(), cancel,
+      done: new Promise((r) => { finishLogin = r; }),
+    });
+    // A stale logged-in status would otherwise carry a cancelled login to 'done'.
+    readiness.mockResolvedValue({ state: 'logged-in' });
+
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    await wizard.runInstall();
+    const loginDone = wizard.beginLogin();
+
+    wizard.loginCancelled = true;
+    finishLogin({ success: false, exitCode: null, output: '', error: '사용자가 취소했습니다.' });
+    await loginDone;
+
+    expect(wizard.phase).not.toBe('done');
+    expect(wizard.loginFailure).toContain('취소');
+  });
+
+  it('cancels a Node.js install when the student chooses to do it themselves', async () => {
+    const cancel = jest.fn();
+    startNode.mockReturnValue({ cancel, done: new Promise(() => undefined) });
+    setupStatus.mockReturnValue({ cliFound: false, npmFound: false, status: 'ready' });
+    detectPm.mockReturnValue({
+      id: 'brew', binPath: '/opt/homebrew/bin/brew',
+      installArgs: ['install', 'node'], displayCommand: 'brew install node',
+    });
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    void wizard.runNodeInstall();
+    await Promise.resolve();
+
+    // '직접 설치할게요' — skipping must not leave the install running.
+    wizard.nodeSession?.cancel();
+    wizard.phase = 'manual';
+
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it('does not write into the modal after it has been closed', async () => {
     let finishLogin: (r: any) => void = () => undefined;
     startLogin.mockReturnValue({

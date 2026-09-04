@@ -30,7 +30,12 @@ export type LoginState =
 /** How to ask one CLI whether it is logged in, and how to read the answer. */
 interface ReadinessProbe {
   args: readonly string[];
-  interpret(output: string, exitCode: number | null): LoginState;
+  /**
+   * `stdout` is kept separate from `stderr` because claude's answer is JSON:
+   * a deprecation notice or a node warning on stderr would otherwise be
+   * concatenated into it and make a logged-in user parse as unknown.
+   */
+  interpret(stdout: string, stderr: string, exitCode: number | null): LoginState;
 }
 
 /**
@@ -48,9 +53,9 @@ const PROBES: Partial<Record<ProviderId, ReadinessProbe>> = {
   claude: {
     // Prints JSON: {"loggedIn":true,"authMethod":"claude.ai","email":...}
     args: ['auth', 'status'],
-    interpret(output) {
+    interpret(stdout) {
       try {
-        const parsed: unknown = JSON.parse(output.trim());
+        const parsed: unknown = JSON.parse(stdout.trim());
         if (parsed && typeof parsed === 'object' && 'loggedIn' in parsed) {
           return (parsed as { loggedIn: unknown }).loggedIn === true ? 'logged-in' : 'logged-out';
         }
@@ -61,8 +66,9 @@ const PROBES: Partial<Record<ProviderId, ReadinessProbe>> = {
   codex: {
     // Prints `Logged in using ChatGPT` (exit 0) or `Not logged in` (exit 1).
     args: ['login', 'status'],
-    interpret(output, exitCode) {
-      if (/not logged in/i.test(output)) return 'logged-out';
+    interpret(stdout, stderr, exitCode) {
+      // codex answers in prose, so either stream is a legitimate place to find it.
+      if (/not logged in/i.test(stdout + stderr)) return 'logged-out';
       if (exitCode === 0) return 'logged-in';
       return 'unknown';
     },
@@ -124,12 +130,16 @@ export async function checkProviderReadiness(
       finish({ state: 'unknown' });
     }, timeoutMs);
 
-    let out = '';
-    child.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
-    child.stderr?.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
     child.on('error', () => finish({ state: 'unknown' }));
-    child.on('close', (code) => finish({ state: probe.interpret(out, code), output: out.trim() }));
+    child.on('close', (code) => finish({
+      state: probe.interpret(stdout, stderr, code),
+      output: `${stdout}${stderr}`.trim(),
+    }));
   });
 }
 

@@ -124,6 +124,9 @@ export async function installCopilotCLI(
   });
 }
 
+/** A global npm install is slow but not hours-long; this only bounds a hang. */
+const CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
+
 export interface InstallSession {
   /** Stop the installer and resolve `done` as cancelled. Safe to call twice. */
   cancel(): void;
@@ -156,6 +159,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
   const finish = (result: InstallResult) => {
     if (settled) return;
     settled = true;
+    clearTimeout(timer);
     resolveDone(result);
   };
 
@@ -165,6 +169,18 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
     shell: isWindows,
     detached: !isWindows,
   });
+
+  const teardown = () => {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    killTree(child);
+    child.unref();
+  };
+
+  const timer = setTimeout(() => {
+    teardown();
+    finish({ success: false, error: '설치 시간이 초과됐습니다.' });
+  }, CLI_INSTALL_TIMEOUT_MS);
 
   child.stdout?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) onProgress(line); });
   const errors: string[] = [];
@@ -178,10 +194,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
   return {
     cancel() {
       if (settled) return;
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      killTree(child);
-      child.unref();
+      teardown();
       finish({ success: false, error: '설치를 취소했습니다.' });
     },
     done,

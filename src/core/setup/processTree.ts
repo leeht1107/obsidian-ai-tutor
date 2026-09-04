@@ -20,12 +20,22 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals = 'SIGKILL'
   // this process's own group, which would kill Obsidian.
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return;
 
+  const killDirect = () => {
+    try { child.kill(signal); } catch { /* already exited */ }
+  };
+
   if (isWindows) {
     try {
-      // /T takes the children with it, /F does not ask.
+      // /T takes the children with it, /F does not ask. taskkill walks the tree
+      // from the root, so killing the root here first would orphan every
+      // descendant — the direct kill runs only if taskkill cannot start.
       spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
-        .on('error', () => { /* taskkill missing; the fallback below still runs */ });
-    } catch { /* fall through to the direct kill */ }
+        .on('error', killDirect);
+      return;
+    } catch {
+      killDirect();
+      return;
+    }
   } else {
     try {
       // Negative pid targets the group the detached child leads.
@@ -37,7 +47,5 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals = 'SIGKILL'
     }
   }
 
-  try {
-    child.kill(signal);
-  } catch { /* already exited */ }
+  killDirect();
 }

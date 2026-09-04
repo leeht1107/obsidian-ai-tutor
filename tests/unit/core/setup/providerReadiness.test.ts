@@ -22,6 +22,14 @@ const CLAUDE_LOGGED_IN = JSON.stringify({
 });
 const CLAUDE_LOGGED_OUT = JSON.stringify({ loggedIn: false });
 
+/** Writes a CLI whose answer goes to stdout and whose noise goes to stderr. */
+function writeNoisyCli(dir: string, name: string, stdout: string, stderr: string): string {
+  const p = path.join(dir, name);
+  fs.writeFileSync(p, `#!/bin/sh\nprintf '%s\\n' '${stderr}' >&2\ncat <<'OUT'\n${stdout}\nOUT\nexit 0\n`);
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
 function writeCli(dir: string, name: string, stdout: string, exitCode = 0): string {
   if (isWindows) {
     const p = path.join(dir, `${name}.cmd`);
@@ -75,6 +83,22 @@ describe('provider readiness — real login checks', () => {
     const cli = writeCli(dir, 'codex-in', 'Logged in using ChatGPT', 0);
     await expect(checkProviderReadiness('codex', { cliPath: cli }))
       .resolves.toMatchObject({ state: 'logged-in' });
+  });
+
+  it('reads claude JSON even when the CLI writes a warning to stderr', async () => {
+    if (isWindows) return;
+    // stderr used to be concatenated onto stdout before JSON.parse, so a single
+    // deprecation notice turned a logged-in user into 확인 불가.
+    const cli = writeNoisyCli(dir, 'claude-noisy', CLAUDE_LOGGED_IN, '(node:1) DeprecationWarning: x');
+    await expect(checkProviderReadiness('claude', { cliPath: cli }))
+      .resolves.toMatchObject({ state: 'logged-in' });
+  });
+
+  it('still reads codex prose when it lands on stderr', async () => {
+    if (isWindows) return;
+    const cli = writeNoisyCli(dir, 'codex-stderr', '', 'Not logged in');
+    await expect(checkProviderReadiness('codex', { cliPath: cli }))
+      .resolves.toMatchObject({ state: 'logged-out' });
   });
 
   it('reports a missing binary as cli-missing, not as logged out', async () => {

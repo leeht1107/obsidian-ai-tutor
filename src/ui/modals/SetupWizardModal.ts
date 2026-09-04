@@ -61,6 +61,8 @@ export class SetupWizardModal extends Modal {
   private loginSession: LoginSession | null = null;
   private loginBusy = false;
   private loginFailure = '';
+  /** Set when the student pressed 취소, so the flow does not advance anyway. */
+  private loginCancelled = false;
   private nodeSession: NodeInstallSession | null = null;
   private cliInstallSession: InstallSession | null = null;
   /** Kept across re-renders so streaming output cannot wipe what was typed. */
@@ -170,7 +172,13 @@ export class SetupWizardModal extends Modal {
     button.addEventListener('click', () => { void this.runNodeInstall(); });
 
     const skip = wrap.createEl('button', { text: '직접 설치할게요', cls: 'ocop-setup-skip-btn' });
-    skip.addEventListener('click', () => { this.phase = 'manual'; this.render(); });
+    skip.addEventListener('click', () => {
+      // Without this the install keeps running and later moves the student off
+      // whatever screen they chose instead.
+      this.nodeSession?.cancel();
+      this.phase = 'manual';
+      this.render();
+    });
   }
 
   private async runNodeInstall() {
@@ -212,6 +220,13 @@ export class SetupWizardModal extends Modal {
       wrap.createEl('p', { text: descriptor.installCommand ?? '', cls: 'ocop-setup-hint' });
     }
     this.renderLog(wrap, this.installLog);
+    // A stalled npm install would otherwise hold the wizard with no way out.
+    const cancel = wrap.createEl('button', { text: '중지', cls: 'ocop-setup-skip-btn' });
+    cancel.addEventListener('click', () => {
+      this.cliInstallSession?.cancel();
+      this.phase = 'manual';
+      this.render();
+    });
   }
 
   private async runInstall() {
@@ -316,7 +331,10 @@ export class SetupWizardModal extends Modal {
       this.renderRecheckButton(wrap);
     } else {
       const cancel = wrap.createEl('button', { text: '취소', cls: 'ocop-setup-skip-btn' });
-      cancel.addEventListener('click', () => this.loginSession?.cancel());
+      cancel.addEventListener('click', () => {
+        this.loginCancelled = true;
+        this.loginSession?.cancel();
+      });
     }
   }
 
@@ -335,6 +353,7 @@ export class SetupWizardModal extends Modal {
 
     this.loginBusy = true;
     this.loginFailure = '';
+    this.loginCancelled = false;
     this.deviceCode = null;
     this.loginLog = [];
     this.render();
@@ -356,6 +375,12 @@ export class SetupWizardModal extends Modal {
     this.loginSession = null;
     // Closing or cancelling must not leave a status probe running behind it.
     if (this.closed) return;
+    if (this.loginCancelled) {
+      // The student stopped this on purpose; advancing anyway would override it.
+      this.loginFailure = '로그인을 취소했습니다.';
+      this.render();
+      return;
+    }
 
     const state = await this.readCurrentLoginState();
     if (this.closed) return;
@@ -471,7 +496,7 @@ export class SetupWizardModal extends Modal {
 
   private configuredCliPath(): string | undefined {
     const provider = this.plugin.settings.selectedProvider;
-    return this.plugin.settings.providerCliPaths[provider]
+    return this.plugin.settings.providerCliPaths?.[provider]
       || (provider === 'copilot' ? this.plugin.settings.copilotCliPath : '')
       || undefined;
   }
