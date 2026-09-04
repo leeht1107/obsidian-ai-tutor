@@ -10,6 +10,7 @@ import type { McpService } from '../../../../features/mcp/McpService';
 import { getFolderName, normalizePathForComparison } from '../../../../utils/externalContext';
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
 import { extractMcpMentions } from '../../../../utils/mcp';
+import { splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
 
@@ -408,8 +409,11 @@ export class MentionDropdownController {
           });
           nameEl.setText(item.name);
         } else {
-          const pathEl = textEl.createSpan({ cls: 'ocop-mention-path' });
-          pathEl.setText(item.path || item.name);
+          // File name first, folders under it: a single ellipsised path line hid the very
+          // part being searched for once the sidebar got narrow.
+          const { name, folder } = splitMentionPath(item.path || item.name);
+          textEl.createSpan({ cls: 'ocop-mention-path', text: name || item.name });
+          if (folder) textEl.createSpan({ cls: 'ocop-mention-folder', text: folder });
         }
       },
       onItemClick: (_item, index) => {

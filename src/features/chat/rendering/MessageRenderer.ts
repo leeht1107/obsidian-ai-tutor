@@ -20,6 +20,7 @@ import {
   renderStoredWriteEdit,
 } from '../../../ui';
 import { processFileLinks, registerFileLinkHandler } from '../../../utils/fileLink';
+import { markMentions } from '../../../utils/mentionDisplay';
 
 /** Render content function type for callbacks. */
 export type RenderContentFn = (el: HTMLElement, markdown: string) => Promise<void>;
@@ -113,7 +114,7 @@ export class MessageRenderer {
       const textToShow = msg.displayContent ?? msg.content;
       if (textToShow) {
         const textEl = contentEl.createDiv({ cls: 'ocop-text-block' });
-        void this.renderContent(textEl, textToShow);
+        void this.renderContent(textEl, textToShow).then(() => markMentions(textEl));
       }
     }
 

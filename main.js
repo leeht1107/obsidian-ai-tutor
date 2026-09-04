@@ -5424,6 +5424,58 @@ async function postJsonRpc(url, headers, payload, options = {}) {
   }
 }
 
+// src/utils/mentionDisplay.ts
+function splitMentionPath(rawPath) {
+  const normalized = rawPath.replace(/\\/g, "/").trim().replace(/\/+$/, "");
+  if (!normalized) return { name: "", folder: "" };
+  const cut = normalized.lastIndexOf("/");
+  if (cut < 0) return { name: normalized, folder: "" };
+  return { name: normalized.slice(cut + 1), folder: normalized.slice(0, cut) };
+}
+var MENTION = /(^|[^\w@])@(?:"([^"]+)"|'([^']+)'|([^\s"']+\.\w+))/g;
+function findMentionRanges(text) {
+  var _a, _b;
+  const ranges = [];
+  for (const match of text.matchAll(MENTION)) {
+    const lead = (_a = match[1]) != null ? _a : "";
+    const start = ((_b = match.index) != null ? _b : 0) + lead.length;
+    ranges.push({ start, end: start + (match[0].length - lead.length) });
+  }
+  return ranges;
+}
+function markMentions(root) {
+  var _a, _b;
+  if (!root) return;
+  const doc = root.ownerDocument;
+  if (!doc) return;
+  const walker = doc.createTreeWalker(
+    root,
+    4
+    /* NodeFilter.SHOW_TEXT */
+  );
+  const targets = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node;
+    if ((_a = text.parentElement) == null ? void 0 : _a.closest("code, pre, a, .ocop-mention-chip")) continue;
+    if (findMentionRanges(text.data).length > 0) targets.push(text);
+  }
+  for (const text of targets) {
+    const ranges = findMentionRanges(text.data);
+    const fragment = doc.createDocumentFragment();
+    let cursor = 0;
+    for (const range of ranges) {
+      if (range.start > cursor) fragment.appendChild(doc.createTextNode(text.data.slice(cursor, range.start)));
+      const chip = doc.createElement("span");
+      chip.className = "ocop-mention-chip";
+      chip.textContent = text.data.slice(range.start, range.end);
+      fragment.appendChild(chip);
+      cursor = range.end;
+    }
+    if (cursor < text.data.length) fragment.appendChild(doc.createTextNode(text.data.slice(cursor)));
+    (_b = text.parentNode) == null ? void 0 : _b.replaceChild(fragment, text);
+  }
+}
+
 // src/ui/components/SelectableDropdown.ts
 var SelectableDropdown = class {
   constructor(containerEl, options) {
@@ -5847,8 +5899,9 @@ var MentionDropdownController = class {
           });
           nameEl.setText(item.name);
         } else {
-          const pathEl = textEl.createSpan({ cls: "ocop-mention-path" });
-          pathEl.setText(item.path || item.name);
+          const { name, folder } = splitMentionPath(item.path || item.name);
+          textEl.createSpan({ cls: "ocop-mention-path", text: name || item.name });
+          if (folder) textEl.createSpan({ cls: "ocop-mention-folder", text: folder });
         }
       },
       onItemClick: (_item, index) => {
@@ -17590,7 +17643,7 @@ var MessageRenderer = class {
       const textToShow = (_b = msg.displayContent) != null ? _b : msg.content;
       if (textToShow) {
         const textEl = contentEl.createDiv({ cls: "ocop-text-block" });
-        void this.renderContent(textEl, textToShow);
+        void this.renderContent(textEl, textToShow).then(() => markMentions(textEl));
       }
     }
     this.ensureTodoPanelAtBottom();

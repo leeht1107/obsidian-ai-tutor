@@ -353,7 +353,7 @@ describe('FileContextManager', () => {
     manager.destroy();
   });
 
-  it('shows vault-relative path in @ dropdown and inserts filename on selection', () => {
+  it('shows the file name over its folders in the @ dropdown and inserts the filename on selection', () => {
     const app = createMockApp({
       files: ['clipping/file.md'],
     });
@@ -369,8 +369,12 @@ describe('FileContextManager', () => {
     inputEl.selectionEnd = 5;
     manager.handleInputChange();
 
+    // File name and folders are separate lines now: one ellipsised path line hid the
+    // name once the sidebar narrowed, which is the part being searched for.
     const pathEl = findByClass(containerEl, 'ocop-mention-path');
-    expect(pathEl?.textContent).toBe('clipping/file.md');
+    expect(pathEl?.textContent).toBe('file.md');
+    const folderEl = findByClass(containerEl, 'ocop-mention-folder');
+    expect(folderEl?.textContent).toBe('clipping');
 
     manager.handleMentionKeydown({ key: 'Enter', preventDefault: jest.fn() } as any);
 
