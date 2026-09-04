@@ -183,6 +183,19 @@ describe('StreamController - Text Content', () => {
   });
 
   describe('Text streaming', () => {
+    it('shows Korean active-work text while retaining startup text when the CLI is not ready', () => {
+      controller.showThinkingIndicator(deps.state.currentContentEl!);
+
+      expect((deps.state.thinkingEl as any)?.children[1].textContent).toBe(' 작업 중');
+
+      deps.state.thinkingEl = null;
+      (deps.plugin.agentService.isCliReady as jest.Mock).mockReturnValue(false);
+      controller.showThinkingIndicator(deps.state.currentContentEl!);
+
+      expect((deps.state.thinkingEl as any)?.children[1].textContent).toBe(' 작업 중');
+      expect((deps.state.thinkingEl as any)?.children[2].textContent).toBe(' Copilot 시작 중...');
+    });
+
     it('should append text content to message', async () => {
       const msg = createTestMessage();
 

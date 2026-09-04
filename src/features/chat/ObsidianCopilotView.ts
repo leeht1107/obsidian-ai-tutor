@@ -722,6 +722,8 @@ export function createProviderSelector(
     if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: 'Model and thinking: CLI default (the selected native CLI controls these).' });
   };
   updateButton(); renderPopover();
+  const firstToolbarChild = toolbar.firstElementChild;
+  if (firstToolbarChild && firstToolbarChild !== container) toolbar.insertBefore(container, firstToolbarChild);
   button.addEventListener('click', (event) => { event.stopPropagation(); if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); } });
   registerDocumentClick?.((event) => { if (!container.contains(event.target as Node)) close(); });
   return container;

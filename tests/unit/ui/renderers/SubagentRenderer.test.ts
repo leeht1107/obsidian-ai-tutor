@@ -405,7 +405,7 @@ describe('Async Subagent Renderer', () => {
     const state = createAsyncSubagentBlock(parentEl as any, 'task-1', { description: 'Background job' });
 
     expect(state.labelEl.textContent).toBe('Background job');
-    expect(state.statusTextEl.textContent).toBe('Running');
+    expect(state.statusTextEl.textContent).toBe('백그라운드 작업 중');
     expect((state.wrapperEl as any).getClasses()).toEqual(expect.arrayContaining(['async', 'pending']));
   });
 
@@ -415,7 +415,7 @@ describe('Async Subagent Renderer', () => {
     updateAsyncSubagentRunning(state, 'agent-xyz');
 
     expect(state.labelEl.textContent).toBe('Background job');
-    expect(state.statusTextEl.textContent).toBe('Running');
+    expect(state.statusTextEl.textContent).toBe('백그라운드 작업 중');
     const contentText = getTextByClass(state.contentEl as any, 'ocop-subagent-done-text')[0];
     expect(contentText).toContain('agent-xyz');
     expect((state.wrapperEl as any).getClasses()).toEqual(expect.arrayContaining(['running', 'async']));

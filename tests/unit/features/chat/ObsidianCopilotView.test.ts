@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { COPILOT_ICON_SVG } from '../../../../src/assets/icon';
 import * as providerRegistry from '../../../../src/core/providers/providerRegistry';
+import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
 import { createProviderSelector } from '../../../../src/features/chat/ObsidianCopilotView';
 import { getModelSelectorLabel, ThinkingBudgetSelector } from '../../../../src/ui/components/InputToolbar';
@@ -31,6 +32,16 @@ describe('chat provider selector', () => {
         return child;
       }),
     };
+    Object.defineProperty(element, 'firstElementChild', {
+      get: () => element.children[0] ?? null,
+    });
+    element.insertBefore = jest.fn().mockImplementation((child: any, before: any) => {
+      const currentIndex = element.children.indexOf(child);
+      if (currentIndex >= 0) element.children.splice(currentIndex, 1);
+      const beforeIndex = element.children.indexOf(before);
+      element.children.splice(beforeIndex >= 0 ? beforeIndex : element.children.length, 0, child);
+      return child;
+    });
     element.addEventListener = jest.fn().mockImplementation((event: string, handler: () => void) => {
       element.listeners[event] = handler;
     });
@@ -68,6 +79,17 @@ describe('chat provider selector', () => {
     const toolbar = makeElement();
     createProviderSelector(toolbar as any, plugin as any, () => { refreshed += 1; });
     expect(refreshed).toBe(0);
+  });
+
+  it('places the provider selector before an existing model selector', () => {
+    const toolbar = makeElement();
+    const modelSelector = makeElement();
+    toolbar.children.push(modelSelector);
+
+    const providerSelector = createProviderSelector(toolbar, { settings: { selectedProvider: 'copilot' }, saveSettings: jest.fn() } as any);
+
+    expect(toolbar.children[0]).toBe(providerSelector);
+    expect(toolbar.children[1]).toBe(modelSelector);
   });
 
   it('registers outside-click dismissal through the owning view lifecycle', () => {
@@ -117,10 +139,24 @@ describe('chat provider selector', () => {
     findPath.mockRestore();
   });
 
-  it('ships distinct recognizable marks for every provider and compass header branding', () => {
+  it('ships four distinct community-sourced marks and compass header branding', () => {
     expect(new Set(Object.values(PROVIDER_MARKS)).size).toBe(4);
     expect(Object.values(PROVIDER_MARKS).every((mark) => mark.includes('<path'))).toBe(true);
     expect(COPILOT_ICON_SVG).toContain('#7c3aed');
+  });
+
+  it('rejects placeholder geometry and keeps provider marks theme-safe and accessible', () => {
+    expect(new Set(Object.values(PROVIDER_MARKS)).size).toBe(4);
+    expect(PROVIDER_MARKS.copilot).toContain('M19.245');
+    expect(PROVIDER_MARKS.claude).toContain('M20.998');
+    expect(PROVIDER_MARKS.codex).toContain('M9.205');
+    expect(PROVIDER_MARKS.agy).toContain('M21.751');
+    for (const mark of Object.values(PROVIDER_MARKS)) {
+      expect(mark).toContain('fill="currentColor"');
+      expect(mark).toContain('aria-hidden="true"');
+      expect(mark).not.toContain('<title>');
+    }
+    expect(getProviderDescriptor('codex').label).toBe('OpenAI Codex');
   });
 
   it('never presents a Copilot model as active for native providers', () => {
@@ -143,6 +179,15 @@ describe('chat provider selector', () => {
   });
 });
 
+describe('chat toolbar layout', () => {
+  it('stacks primary and secondary rows inside the toolbar', () => {
+    const stylesheet = fs.readFileSync(path.resolve(__dirname, '../../../../src/style/components/input.css'), 'utf8');
+    const toolbarBlock = stylesheet.match(/\.ocop-input-toolbar\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(toolbarBlock).toMatch(/display:\s*flex;/);
+    expect(toolbarBlock).toMatch(/flex-direction:\s*column;/);
+  });
+});
+
 describe('native tutor icon', () => {
   it('uses an accessible SVG without the old embedded raster artwork', () => {
     expect(COPILOT_ICON_SVG).toContain('aria-label="Obsidian AI Tutor"');
@@ -154,5 +199,9 @@ describe('native tutor icon', () => {
     const builtPlugin = fs.readFileSync(path.resolve(__dirname, '../../../../main.js'), 'utf8');
     expect(builtPlugin).toContain('Obsidian AI Tutor');
     expect(builtPlugin).toContain('#7c3aed');
+  });
+
+  it('keeps provider marks distinct in the shipped surface', () => {
+    expect(new Set(Object.values(PROVIDER_MARKS)).size).toBe(4);
   });
 });

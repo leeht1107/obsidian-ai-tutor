@@ -317,7 +317,7 @@ export interface AsyncSubagentState {
   contentEl: HTMLElement;
   headerEl: HTMLElement;
   labelEl: HTMLElement;
-  statusTextEl: HTMLElement;  // Running / Completed / Error / Orphaned
+  statusTextEl: HTMLElement;  // Background progress / Completed / Error / Orphaned
   statusEl: HTMLElement;
   info: SubagentInfo;
 }
@@ -342,7 +342,7 @@ function getAsyncStatusText(asyncStatus: string | undefined): string {
   if (display === 'completed') return 'Completed';
   if (display === 'error') return 'Error';
   if (display === 'orphaned') return 'Orphaned';
-  return 'Running';
+  return '백그라운드 작업 중';
 }
 
 function updateAsyncLabel(state: AsyncSubagentState, _displayStatus: 'running' | 'completed' | 'error' | 'orphaned'): void {
@@ -377,7 +377,7 @@ export function createAsyncSubagentBlock(
   headerEl.setAttribute('tabindex', '0');
   headerEl.setAttribute('role', 'button');
   headerEl.setAttribute('aria-expanded', 'false');
-  headerEl.setAttribute('aria-label', `Background task: ${description} - Status: running`);
+  headerEl.setAttribute('aria-label', `Background task: ${description} - Status: 백그라운드 작업 중`);
 
   // Robot icon (decorative)
   const iconEl = headerEl.createDiv({ cls: 'ocop-subagent-icon' });
@@ -390,11 +390,11 @@ export function createAsyncSubagentBlock(
 
   // Status text (instead of tool count)
   const statusTextEl = headerEl.createDiv({ cls: 'ocop-subagent-status-text' });
-  statusTextEl.setText('Running');
+  statusTextEl.setText('백그라운드 작업 중');
 
   // Status indicator (spinner initially)
   const statusEl = headerEl.createDiv({ cls: 'ocop-subagent-status status-running' });
-  statusEl.setAttribute('aria-label', 'Status: running');
+  statusEl.setAttribute('aria-label', 'Status: 백그라운드 작업 중');
 
   // Content (collapsed by default)
   const contentEl = wrapperEl.createDiv({ cls: 'ocop-subagent-content' });
@@ -404,7 +404,7 @@ export function createAsyncSubagentBlock(
   const branchEl = statusRow.createDiv({ cls: 'ocop-subagent-branch' });
   branchEl.setText('└─');
   const textEl = statusRow.createDiv({ cls: 'ocop-subagent-done-text' });
-  textEl.setText('run in background');
+  textEl.setText('백그라운드 작업 중');
 
   // Setup collapsible behavior - use info as state (it has isExpanded property)
   setupCollapsible(wrapperEl, headerEl, contentEl, info);
@@ -432,7 +432,7 @@ export function updateAsyncSubagentRunning(
   updateAsyncLabel(state, 'running');
 
   // Update status text
-  state.statusTextEl.setText('Running');
+  state.statusTextEl.setText('백그라운드 작업 중');
 
   // Update content
   state.contentEl.empty();
@@ -441,7 +441,7 @@ export function updateAsyncSubagentRunning(
   branchEl.setText('└─');
   const textEl = statusRow.createDiv({ cls: 'ocop-subagent-done-text ocop-async-agent-id' });
   const shortId = agentId.length > 12 ? agentId.substring(0, 12) + '...' : agentId;
-  textEl.setText(`run in background (${shortId})`);
+  textEl.setText(`백그라운드 작업 중 (${shortId})`);
 }
 
 /** Finalize async subagent with AgentOutputTool result. */
@@ -593,9 +593,9 @@ export function renderStoredAsyncSubagent(
     const shortId = subagent.agentId.length > 12
       ? subagent.agentId.substring(0, 12) + '...'
       : subagent.agentId;
-    textEl.setText(`run in background (${shortId})`);
+    textEl.setText(`백그라운드 작업 중 (${shortId})`);
   } else {
-    textEl.setText('run in background');
+    textEl.setText('백그라운드 작업 중');
   }
 
   // Setup collapsible behavior (handles click, keyboard, ARIA, CSS)

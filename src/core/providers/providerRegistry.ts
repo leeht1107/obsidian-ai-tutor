@@ -20,7 +20,7 @@ export interface ProviderDescriptor {
 export const PROVIDERS: readonly ProviderDescriptor[] = [
   { id: 'copilot', label: 'GitHub Copilot', command: 'copilot', loginCommand: 'copilot login', installCommand: 'npm install -g @github/copilot', windowsInstallCommand: 'npm install -g @github/copilot', status: 'ready' },
   { id: 'claude', label: 'Claude Code', command: 'claude', loginCommand: 'claude', installCommand: 'npm install -g @anthropic-ai/claude-code', windowsInstallCommand: 'npm install -g @anthropic-ai/claude-code', status: 'ready' },
-  { id: 'codex', label: 'Codex', command: 'codex', loginCommand: 'codex login', installCommand: 'npm install -g @openai/codex', windowsInstallCommand: 'npm install -g @openai/codex', status: 'ready' },
+  { id: 'codex', label: 'OpenAI Codex', command: 'codex', loginCommand: 'codex login', installCommand: 'npm install -g @openai/codex', windowsInstallCommand: 'npm install -g @openai/codex', status: 'ready' },
   { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', status: 'manual-setup' },
 ];
 

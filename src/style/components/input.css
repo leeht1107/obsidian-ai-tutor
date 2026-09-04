@@ -88,6 +88,8 @@
 
 /* Input toolbar — model/thinking/web/tools/permission only (learning group moved to chips row) */
 .ocop-input-toolbar {
+  display: flex;
+  flex-direction: column;
   padding: 6px 8px 8px;
 }
 
@@ -109,14 +111,6 @@
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 42%, transparent);
   opacity: 0.78;
-}
-
-.ocop-toolbar-secondary > * {
-  margin-left: 6px;
-}
-
-.ocop-toolbar-secondary > :first-child {
-  margin-left: 0;
 }
 
 /* Compact provider choice; persisted globally and used by the next request. */

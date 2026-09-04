@@ -740,6 +740,7 @@ export class StreamController {
     dotsEl.createSpan({ cls: 'ocop-thinking-dot' });
     dotsEl.createSpan({ cls: 'ocop-thinking-dot' });
     dotsEl.createSpan({ cls: 'ocop-thinking-dot' });
+    state.thinkingEl.createSpan({ text: ' 작업 중', cls: 'ocop-thinking-status' });
     if (!this.deps.plugin.agentService.isCliReady()) {
       state.thinkingEl.createSpan({ text: ' Copilot 시작 중...', cls: 'ocop-thinking-startup' });
     }
