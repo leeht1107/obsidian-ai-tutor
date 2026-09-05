@@ -478,7 +478,33 @@ describe('FileContextManager', () => {
 
     const labels = findAllByClass(containerEl, 'ocop-mention-folder').map((el) => el.textContent);
     expect(new Set(labels).size).toBe(labels.length);
-    expect(labels.some((label) => label?.includes('lecture-financial-data-analysis'))).toBe(true);
+    expect(labels.every((label) => label?.includes('lecture'))).toBe(true);
+    manager.destroy();
+  });
+
+  it('names the subject even when every visible row is from that one subject', () => {
+    // Filtering to one project used to make its folders unique among themselves,
+    // so the label collapsed to `…/Week01` while five other subjects in the vault
+    // looked exactly the same.
+    const app = createMockApp({
+      files: [
+        '01. Projects/lecture-financial-data-analysis/lecture/Week01/notes/a.md',
+        '01. Projects/lecture-financial-data-analysis/lecture/Week01/deck/b.md',
+        '01. Projects/lecture-data-mining-analysis/lecture/Week01/notes/c.md',
+      ],
+      activeFilePath: '01. Projects/lecture-financial-data-analysis/lecture/Week01/notes/a.md',
+    });
+    const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+
+    inputEl.value = '@/deck';
+    inputEl.selectionStart = 6;
+    inputEl.selectionEnd = 6;
+    manager.handleInputChange();
+
+    const labels = findAllByClass(containerEl, 'ocop-mention-folder').map((el) => el.textContent);
+    expect(labels[0]).toContain('lecture-financial-data-analysis');
+    // Whole path, so the subject is always in it.
+    expect(labels[0]).toContain('Week01');
     manager.destroy();
   });
 

@@ -30,46 +30,22 @@ export function formatMentionFolder(folder: string, keepSegments = 2): string {
 }
 
 /**
- * Folder labels that are long enough to tell the rows apart, and no longer.
+ * The folder line shown under a mention's name: the full vault-relative path.
  *
- * A fixed number of trailing segments cannot work: this vault holds six
- * `lecture-*` projects whose folders all end `lecture/WeekNN/notes`, so two
- * segments render every one of them identically, while three would be wasted
- * on a shallow vault. Each label grows from the file end only until it is
- * unique among the rows actually on screen.
+ * Three shortening rules were tried and each failed on this vault. A fixed
+ * number of trailing segments hid the subject, since every lecture project ends
+ * `lecture/WeekNN/notes`. Growing the label until it was unique among the rows
+ * on screen collapsed once the rows all came from one subject. Growing it until
+ * a folder name looked rare picked `2026_1`, which occurs three times and means
+ * nothing, while the subject folder occurs three times and means everything —
+ * frequency cannot tell those apart.
  *
- * Returns a map from full path to the label for the line under the name.
+ * So nothing is hidden. The path is returned whole and the line is allowed to
+ * wrap to two lines; students organise their vaults differently and the depth
+ * that identifies a subject is not something this can infer.
  */
-export function disambiguateFolderLabels(
-  paths: readonly string[],
-  maxSegments = 4
-): Map<string, string> {
-  const split = new Map(paths.map((path) => [path, path.split('/').filter(Boolean)]));
-  const labels = new Map<string, string>();
-
-  for (const path of paths) {
-    const segments = split.get(path) ?? [];
-    // The last segment is the name shown above; the label is what precedes it.
-    let keep = 2;
-    for (; keep <= maxSegments; keep += 1) {
-      const mine = suffixOf(segments, keep);
-      const collides = paths.some(
-        (other) => other !== path && suffixOf(split.get(other) ?? [], keep) === mine
-      );
-      if (!collides) break;
-    }
-    keep = Math.min(keep, maxSegments);
-
-    const shown = segments.slice(Math.max(0, segments.length - keep), segments.length - 1);
-    const truncated = segments.length - 1 > shown.length;
-    labels.set(path, shown.length === 0 ? '' : `${truncated ? '…/' : ''}${shown.join('/')}`);
-  }
-
-  return labels;
-}
-
-function suffixOf(segments: readonly string[], count: number): string {
-  return segments.slice(Math.max(0, segments.length - count)).join('/');
+export function folderLabelFor(folderPath: string): string {
+  return folderPath;
 }
 
 export interface MentionRange { start: number; end: number }

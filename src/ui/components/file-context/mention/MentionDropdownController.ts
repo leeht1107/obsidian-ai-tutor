@@ -7,7 +7,7 @@ import { setIcon } from 'obsidian';
 
 import { getFolderName, normalizePathForComparison } from '../../../../utils/externalContext';
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
-import { disambiguateFolderLabels, formatMentionFolder, splitMentionPath } from '../../../../utils/mentionDisplay';
+import { folderLabelFor, splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
 import { parseFolderQuery, rankFoldersByProximity } from './folderSearch';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
@@ -351,14 +351,6 @@ export class MentionDropdownController {
   }
 
   private renderMentionDropdown(): void {
-    // Labels are computed against the rows actually on screen, so each one is
-    // only as long as it needs to be to tell them apart.
-    const folderLabels = disambiguateFolderLabels(
-      this.filteredMentionItems
-        .map((item) => (item.type === 'vault-folder' ? item.path : (item as { path?: string }).path))
-        .filter((path): path is string => typeof path === 'string')
-    );
-
     this.dropdown.render({
       items: this.filteredMentionItems,
       selectedIndex: this.selectedMentionIndex,
@@ -399,7 +391,7 @@ export class MentionDropdownController {
           const fullPath = item.path || item.name;
           const { name, folder } = splitMentionPath(fullPath);
           textEl.createSpan({ cls: 'ocop-mention-path', text: name || item.name });
-          const label = folderLabels.get(fullPath) ?? formatMentionFolder(folder);
+          const label = folderLabelFor(folder);
           if (label) {
             const folderEl = textEl.createSpan({ cls: 'ocop-mention-folder', text: label });
             // The shortened label is for scanning; the full path stays reachable.

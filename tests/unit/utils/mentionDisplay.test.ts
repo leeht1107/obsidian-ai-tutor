@@ -120,45 +120,19 @@ describe('input highlight segments', () => {
   });
 });
 
-describe('folder labels that actually distinguish the rows', () => {
-  const { disambiguateFolderLabels } = jest.requireActual('@/utils/mentionDisplay');
 
-  // Six lecture projects in the real vault all end in lecture/WeekNN/notes.
-  const LECTURES = [
-    '01. Projects/lecture-financial-data-analysis/lecture/Week01/notes',
-    '01. Projects/lecture-data-mining-analysis/lecture/Week01/notes',
-    '01. Projects/lecture-database-systems/lecture/Week01/notes',
-  ];
+describe('folder line under a mention', () => {
+  const { folderLabelFor } = jest.requireActual('@/utils/mentionDisplay');
 
-  it('keeps going up until the rows stop looking identical', () => {
-    const labels = disambiguateFolderLabels(LECTURES);
-    expect(labels.get(LECTURES[0])).toBe('…/lecture-financial-data-analysis/lecture/Week01');
-    expect(new Set([...labels.values()]).size).toBe(3);
+  it('shows the path whole, because no rule for shortening it survived', () => {
+    // Fixed depth, uniqueness among rows, and name rarity were each tried and
+    // each hid the subject on this vault.
+    const deep = '04. Archives/2026-1/lecture-database-systems/2026_1/lecture/Week01';
+    expect(folderLabelFor(deep)).toBe(deep);
   });
 
-  it('stays short when the nearest folder is already enough', () => {
-    const labels = disambiguateFolderLabels(['Notes/2026/a', 'Archive/2025/b']);
-    expect(labels.get('Notes/2026/a')).toBe('…/2026');
-    expect(labels.get('Archive/2025/b')).toBe('…/2025');
-  });
-
-  it('drops the ellipsis when the whole path is shown', () => {
-    const labels = disambiguateFolderLabels(['Notes/a', 'Archive/b']);
-    expect(labels.get('Notes/a')).toBe('Notes');
-  });
-
-  it('gives a top-level folder an empty label rather than a stray ellipsis', () => {
-    expect(disambiguateFolderLabels(['Archive']).get('Archive')).toBe('');
-  });
-
-  it('handles a single row without inventing context', () => {
-    expect(disambiguateFolderLabels(['a/b/c']).get('a/b/c')).toBe('…/b');
-  });
-
-  it('stops expanding at the cap even when rows still collide', () => {
-    const deep = ['x1/a/b/c/d/e', 'x2/a/b/c/d/e'];
-    const labels = disambiguateFolderLabels(deep, 3);
-    // Capped, so both may still read alike — but never longer than the cap.
-    expect(labels.get(deep[0])!.split('/').length).toBeLessThanOrEqual(4);
+  it('leaves a shallow path alone too', () => {
+    expect(folderLabelFor('Notes')).toBe('Notes');
+    expect(folderLabelFor('')).toBe('');
   });
 });
