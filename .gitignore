@@ -111,3 +111,7 @@ docs/
 .claude/
 .serena/
 HANDOFF.md
+# Session handoffs and their registry: our own continuity notes, not part of the
+# plugin. They carry absolute home paths and verbatim working conversation, and
+# this repository is public. Kept on disk, out of the history from here on.
+.handoff/
