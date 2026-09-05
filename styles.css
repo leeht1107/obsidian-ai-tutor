@@ -2387,6 +2387,14 @@
 .ocop-socratic-banner-icon {
   font-size: 14px;
   flex-shrink: 0;
+  /* A colour emoji is taller than its font size, so line-height:1 alone let the
+     glyph spill out of the header row and get clipped by the banner's rounded
+     edge. Give it a square box and centre it inside. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   line-height: 1;
 }
 
@@ -2432,7 +2440,13 @@
 
 .ocop-socratic-banner-action-btn {
   font-size: 11px;
-  padding: 3px 10px;
+  /* The emoji sets the line box height; without room for it the glyph pushed
+     past the pill's rounded top and bottom. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.5;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid rgba(124, 155, 255, 0.28);
   background: rgba(124, 155, 255, 0.1);
@@ -2646,6 +2660,34 @@
 
 .ocop-setup-skip-btn:hover {
   color: var(--text-muted);
+}
+
+/* Device-code login: the code has to be readable across a lecture room. */
+.ocop-setup-device-code {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 8px;
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+  user-select: all;
+}
+
+.ocop-setup-code-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 13px;
 }
 
 
@@ -2975,6 +3017,12 @@
 .ocop-provider-btn:hover,
 .ocop-send-btn:hover { filter: brightness(1.08); }
 .ocop-provider-mark { display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; }
+/* Each mark carries its own brand colour so the four are told apart at a glance.
+   copilot keeps currentColor: its logo is monochrome by design, and a tint would
+   read as a state rather than a brand. */
+.ocop-provider-mark.is-claude { color: #d97757; }
+.ocop-provider-mark.is-codex { color: #10a37f; }
+.ocop-provider-mark.is-agy { color: #4285f4; }
 .ocop-provider-mark svg { width: 100%; height: 100%; }
 .ocop-provider-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ocop-provider-btn-chevron { flex: 0 0 auto; color: var(--text-muted); margin-left: auto; }
@@ -3272,6 +3320,56 @@
   .ocop-socratic-launcher-btn {
     transition: none;
   }
+}
+
+/*
+ * Backdrop that paints @-mention highlights behind the textarea. Every metric
+ * here must match .ocop-input exactly — a single pixel of difference shows up
+ * as the highlight sliding off the words it belongs to.
+ */
+.ocop-mention-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  padding: 12px 12px 10px 12px;
+  border-radius: 6px;
+  color: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The textarea's own text stays on top and visible. */
+.ocop-input-highlighted {
+  position: relative;
+  z-index: 1;
+}
+
+.ocop-mention-inline {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+}
+
+/* codex writes files even when asked for read-only, so its toggle is shown
+   dimmed rather than removed: a missing control reads as a bug, a dim one
+   reads as "not available here". */
+.ocop-permission-toggle.is-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The send button drew a heavy focus ring after an ordinary mouse click, which
+   read as an unexplained blue box around it. Keyboard focus still shows one. */
+.ocop-send-btn:focus:not(:focus-visible),
+.ocop-provider-btn:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 
 
@@ -3912,191 +4010,6 @@
 
 
 /* ============================================
-   toolbar/mcp-selector.css
-   ============================================ */
-/* MCP Server Selector */
-.ocop-mcp-selector {
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin-left: 8px;
-}
-
-.ocop-mcp-selector-icon-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.ocop-mcp-selector-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  color: var(--text-muted);
-  opacity: 0.5;
-  transition: all 0.2s ease;
-}
-
-.ocop-mcp-selector-icon-wrapper:hover .ocop-mcp-selector-icon {
-  background: var(--background-modifier-hover);
-  opacity: 0.8;
-}
-
-.ocop-mcp-selector-icon.active {
-  color: #38bdf8;
-  opacity: 1;
-  animation: mcp-glow 2s ease-in-out infinite;
-}
-
-.ocop-mcp-selector-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.ocop-mcp-selector-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  font-size: 9px;
-  font-weight: 600;
-  color: #38bdf8;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-}
-
-.ocop-mcp-selector-badge.visible {
-  opacity: 1;
-}
-
-.ocop-mcp-selector-dropdown {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 100%;
-  margin-bottom: 4px;
-  min-width: 200px;
-  max-width: 280px;
-  background: color-mix(in srgb, var(--background-secondary) 82%, #0f172a 18%);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-  z-index: 100;
-}
-
-/* Bridge the gap between icon and dropdown to prevent hover breaks */
-.ocop-mcp-selector-dropdown::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -8px;
-  height: 8px;
-}
-
-.ocop-mcp-selector-dropdown.visible,
-.ocop-mcp-selector:hover .ocop-mcp-selector-dropdown {
-  opacity: 1;
-  visibility: visible;
-}
-
-.ocop-mcp-selector-header {
-  padding: 10px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.ocop-mcp-selector-list {
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.ocop-mcp-selector-empty {
-  padding: 16px 12px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-style: italic;
-}
-
-.ocop-mcp-selector-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  gap: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.ocop-mcp-selector-item:hover {
-  background: var(--background-modifier-hover);
-}
-
-.ocop-mcp-selector-item.enabled {
-  background: color-mix(in srgb, #38bdf8 10%, transparent);
-}
-
-.ocop-mcp-selector-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 3px;
-  color: #38bdf8;
-}
-
-.ocop-mcp-selector-item.enabled .ocop-mcp-selector-check {
-  background: color-mix(in srgb, #38bdf8 16%, transparent);
-  border-color: #38bdf8;
-}
-
-.ocop-mcp-selector-check svg {
-  width: 12px;
-  height: 12px;
-}
-
-.ocop-mcp-selector-item-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  flex: 1;
-  overflow: hidden;
-}
-
-.ocop-mcp-selector-item-name {
-  font-size: 12px;
-  color: var(--text-normal);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ocop-mcp-selector-cs-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: color-mix(in srgb, #38bdf8 16%, transparent);
-  color: #38bdf8;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-
-/* ============================================
    features/file-context.css
    ============================================ */
 /* @ Mention dropdown */
@@ -4158,8 +4071,17 @@
   font-size: 13px;
   color: var(--text-normal);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /*
+   * Two lines, because the path is shown whole. Which folder identifies a
+   * subject sits at a different depth for every person, so nothing here tries
+   * to guess which part to drop — a wrapped line is honest where a clever
+   * abbreviation kept being wrong.
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 
 .ocop-mention-empty {
@@ -4206,8 +4128,17 @@
   font-size: 11px;
   color: var(--text-muted);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /*
+   * Two lines, because the path is shown whole. Which folder identifies a
+   * subject sits at a different depth for every person, so nothing here tries
+   * to guess which part to drop — a wrapped line is honest where a clever
+   * abbreviation kept being wrong.
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 
 /* Context file items in @-mention dropdown */
@@ -4235,11 +4166,27 @@
   overflow: hidden;
   color: var(--text-faint);
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  /*
+   * Two lines, because the path is shown whole. Which folder identifies a
+   * subject sits at a different depth for every person, so nothing here tries
+   * to guess which part to drop — a wrapped line is honest where a clever
+   * abbreviation kept being wrong.
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
+
+/*
+ * No `direction: rtl` here. It was once used to keep the end of a long path
+ * visible, but it reorders the segments on screen: a label of
+ * `…/lecture-financial-data-analysis/lecture/Week01` rendered as `Week01/…`,
+ * which is the opposite of the folder anyone was looking for. The label is
+ * shortened from the front in code instead, so it arrives short enough to read
+ * left to right, and what survives a cut is the part that names the subject.
+ */
 
 /* An @-mention in a sent message reads as prose without this. */
 .ocop-mention-chip {
@@ -5202,244 +5149,40 @@ code .ocop-file-link:hover {
 
 
 /* ============================================
-   modals/mcp-modal.css
+   modals/setup-modal.css
    ============================================ */
-/* MCP Server Modal */
-.ocop-mcp-modal .modal-content {
-  width: 480px;
-  max-width: 90vw;
-}
+/* Shared layout for the quiz and socratic setup modals. */
 
-.ocop-mcp-type-fields {
-  margin: 12px 0;
-  padding: 12px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-}
-
-.ocop-mcp-type-fields .setting-item {
-  padding: 8px 0;
-  border-top: none;
-}
-
-.ocop-mcp-type-fields .setting-item:first-child {
-  padding-top: 0;
-}
-
-.ocop-mcp-cmd-setting,
-.ocop-mcp-env-setting {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.ocop-mcp-cmd-setting .setting-item-control,
-.ocop-mcp-env-setting .setting-item-control {
-  width: 100%;
-  margin-top: 8px;
-}
-
-.ocop-mcp-cmd-textarea,
-.ocop-mcp-env-textarea {
-  width: 100%;
-  min-height: 50px;
-  resize: vertical;
-  font-family: var(--font-monospace);
-  font-size: 12px;
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-}
-
-.ocop-mcp-cmd-textarea:focus,
-.ocop-mcp-env-textarea:focus {
-  border-color: var(--interactive-accent);
-  outline: none;
-}
-
-.ocop-mcp-buttons {
+.ocop-setup-modal-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
 }
 
-/* MCP Test Modal */
-.ocop-mcp-test-modal {
-  width: 500px;
-  max-width: 90vw;
-}
-
-.ocop-mcp-test-modal .modal-content {
-  padding: 0 20px 20px 20px;
-}
-
-.ocop-mcp-test-modal .modal-title {
-  padding: 20px 20px 12px 20px;
-  margin: 0 -20px;
-}
-
-.ocop-mcp-test-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 32px;
-  color: var(--text-muted);
-}
-
-.ocop-mcp-test-spinner {
-  width: 20px;
-  height: 20px;
-  animation: ocop-mcp-spin 1s linear infinite;
-}
-
-.ocop-mcp-test-spinner svg {
-  width: 100%;
-  height: 100%;
-}
-
-.ocop-mcp-test-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-  margin-bottom: 12px;
-}
-
-.ocop-mcp-test-icon {
-  display: flex;
-  align-items: center;
-}
-
-.ocop-mcp-test-icon svg {
-  width: 20px;
-  height: 20px;
-}
-
-.ocop-mcp-test-icon.success {
-  color: var(--color-green);
-}
-
-.ocop-mcp-test-icon.error {
-  color: var(--text-error);
-}
-
-.ocop-mcp-test-text {
-  font-weight: 500;
-}
-
-.ocop-mcp-test-error {
-  padding: 10px 12px;
-  background: rgba(var(--color-red-rgb), 0.1);
-  border: 1px solid var(--text-error);
-  border-radius: 6px;
-  color: var(--text-error);
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-
-.ocop-mcp-test-tools {
-  margin-bottom: 16px;
-}
-
-.ocop-mcp-test-tools-header {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-}
-
-.ocop-mcp-test-tools-list {
+.ocop-quiz-note-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 300px;
+  gap: 2px;
+  max-height: 220px;
   overflow-y: auto;
-}
-
-.ocop-mcp-test-tool {
-  padding: 10px 12px;
-  background: var(--background-secondary);
+  padding: 8px;
+  background: var(--background-primary-alt);
   border-radius: 6px;
 }
 
-.ocop-mcp-test-tool-header {
+.ocop-quiz-note-item {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.ocop-mcp-test-tool-icon {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-}
-
-.ocop-mcp-test-tool-icon svg {
-  width: 14px;
-  height: 14px;
-}
-
-.ocop-mcp-test-tool-name {
-  font-weight: 500;
+  padding: 4px 6px;
+  border-radius: 4px;
   font-size: 13px;
+  color: var(--text-normal);
 }
 
-.ocop-mcp-test-tool-toggle {
-  margin-left: auto;
-}
-
-.ocop-mcp-test-tool-toggle .checkbox-container {
-  display: flex;
-  align-items: center;
-}
-
-.ocop-mcp-test-tool-disabled {
-  opacity: 0.75;
-}
-
-.ocop-mcp-test-tool-disabled .ocop-mcp-test-tool-name {
-  text-decoration: line-through;
-  color: var(--text-muted);
-}
-
-.ocop-mcp-toggle-all-btn {
-  margin-right: 8px;
-}
-
-.ocop-mcp-toggle-all-btn.is-destructive {
-  background: rgba(var(--color-red-rgb), 0.1);
-  border-color: rgba(var(--color-red-rgb), 0.3);
-  color: var(--text-error);
-}
-
-.ocop-mcp-toggle-all-btn.is-destructive:hover {
-  background: rgba(var(--color-red-rgb), 0.2);
-}
-
-.ocop-mcp-test-tool-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.ocop-mcp-test-no-tools {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-  margin-bottom: 16px;
-}
-
-.ocop-mcp-test-buttons {
-  display: flex;
-  justify-content: center;
-  margin-top: 16px;
+.ocop-quiz-note-item:hover {
+  background: var(--background-modifier-hover);
 }
 
 
@@ -6056,222 +5799,6 @@ code .ocop-file-link:hover {
 
 
 /* ============================================
-   settings/mcp-settings.css
-   ============================================ */
-/* MCP Server Settings */
-.ocop-mcp-settings-desc {
-  margin-bottom: 12px;
-}
-
-.ocop-mcp-container {
-  margin-top: 8px;
-}
-
-.ocop-mcp-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  padding: 0 12px;
-}
-
-.ocop-mcp-label {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-  font-weight: var(--font-medium);
-}
-
-.ocop-mcp-add-container {
-  position: relative;
-}
-
-.ocop-add-mcp-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-size: 12px;
-  cursor: pointer;
-  border: none;
-}
-
-.ocop-add-mcp-btn:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.ocop-mcp-add-dropdown {
-  display: none;
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 180px;
-  background-color: var(--modal-background, var(--background-primary));
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  z-index: 100;
-  overflow: hidden;
-}
-
-.ocop-mcp-add-dropdown.is-visible {
-  display: block;
-}
-
-.ocop-mcp-add-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-normal);
-}
-
-.ocop-mcp-add-option:hover {
-  background: var(--background-modifier-hover);
-}
-
-.ocop-mcp-add-option-icon {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-}
-
-.ocop-mcp-add-option-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.ocop-mcp-empty {
-  padding: 16px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-}
-
-.ocop-mcp-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ocop-mcp-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-  transition: background 0.15s ease;
-}
-
-.ocop-mcp-item:hover {
-  background: var(--background-modifier-hover);
-}
-
-.ocop-mcp-item-disabled {
-  opacity: 0.6;
-}
-
-.ocop-mcp-status {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 6px;
-  flex-shrink: 0;
-}
-
-.ocop-mcp-status-enabled {
-  background: var(--color-green);
-}
-
-.ocop-mcp-status-disabled {
-  background: var(--text-muted);
-}
-
-.ocop-mcp-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.ocop-mcp-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.ocop-mcp-name {
-  font-weight: 600;
-}
-
-.ocop-mcp-type-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: var(--background-modifier-border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.ocop-mcp-context-saving-badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-radius: 4px;
-  font-weight: 600;
-}
-
-.ocop-mcp-preview {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ocop-mcp-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ocop-mcp-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.ocop-mcp-action-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.ocop-mcp-action-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.ocop-mcp-delete-btn:hover {
-  color: var(--text-error);
-}
-
-
-/* ============================================
    settings/skills-settings.css
    ============================================ */
 /* Settings - Skills List */
@@ -6429,188 +5956,6 @@ code .ocop-file-link:hover {
 .ocop-skill-chip-icon svg {
   width: 12px;
   height: 12px;
-}
-
-
-/* ============================================
-   settings/mcp-presets.css
-   ============================================ */
-/* MCP Preset Gallery */
-
-/* Recommended bundle callout */
-.ocop-mcp-recommended {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.ocop-mcp-recommended.is-installed {
-  border-color: var(--color-green);
-  opacity: 0.8;
-}
-
-.ocop-mcp-recommended-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.ocop-mcp-recommended-icon {
-  display: flex;
-  align-items: center;
-  color: var(--interactive-accent);
-}
-
-.ocop-mcp-recommended-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.ocop-mcp-recommended-desc {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-bottom: 12px;
-  line-height: 1.4;
-}
-
-.ocop-mcp-recommended-btn {
-  padding: 6px 16px;
-  border-radius: 6px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition: background 0.15s ease;
-}
-
-.ocop-mcp-recommended-btn:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.ocop-mcp-recommended-installed {
-  font-size: 13px;
-  color: var(--color-green);
-  font-weight: 500;
-}
-
-/* Gallery section label */
-.ocop-mcp-gallery-label {
-  font-size: var(--font-ui-small);
-  color: var(--text-muted);
-  font-weight: var(--font-medium);
-  margin-bottom: 8px;
-}
-
-/* Preset card grid */
-.ocop-mcp-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.ocop-mcp-preset-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 12px;
-  transition: border-color 0.15s ease;
-}
-
-.ocop-mcp-preset-card:hover {
-  border-color: var(--interactive-accent);
-}
-
-.ocop-mcp-preset-card.is-installed {
-  opacity: 0.6;
-}
-
-.ocop-mcp-preset-card.is-installed:hover {
-  border-color: var(--background-modifier-border);
-}
-
-/* Preset card icon */
-.ocop-mcp-preset-icon {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.ocop-mcp-preset-icon svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* Preset card name */
-.ocop-mcp-preset-name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-/* Preset card description */
-.ocop-mcp-preset-desc {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-bottom: 8px;
-  flex: 1;
-}
-
-/* API key badge */
-.ocop-mcp-preset-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: var(--background-modifier-error);
-  color: var(--text-on-accent);
-  border-radius: 4px;
-  width: fit-content;
-  margin-bottom: 8px;
-}
-
-/* Installed badge */
-.ocop-mcp-preset-installed-badge {
-  font-size: 12px;
-  color: var(--color-green);
-  font-weight: 500;
-  margin-top: auto;
-}
-
-/* Install button */
-.ocop-mcp-preset-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-size: 12px;
-  cursor: pointer;
-  border: none;
-  margin-top: auto;
-  width: 100%;
-  transition: background 0.15s ease;
-}
-
-.ocop-mcp-preset-btn:hover {
-  background: var(--interactive-accent-hover);
-}
-
-/* Gallery section wrapper */
-.ocop-mcp-gallery-section {
-  margin-bottom: 16px;
 }
 
 

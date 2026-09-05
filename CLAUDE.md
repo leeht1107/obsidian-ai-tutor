@@ -8,12 +8,12 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Complete. Provider foundation, learning controls, direct-process evidence, parser coverage, public documentation, advisor-sol review, BRAT distribution assets, persistent in-chat provider selection, lifecycle-safe dismissal, PATH/configured-path readiness, native thinking concealment, provider-aware model/thinking UI, two-row toolbar repair, bundled community provider marks, activity-status feedback, send action, and tutor-specific compass icon are verified by automated checks.
-- Next likely action: BRAT can update to release `0.1.7`. Obtain fresh in-Obsidian dark/light screenshots and a native-provider model-selection request before treating visual QA as complete; preserve the disclosed manual agy setup and automated-only Windows coverage unless a new scoped request changes them.
+- Status: In progress. `0.1.7` is released, but fresh in-Obsidian feedback found the provider/model layout inadequate: provider controls need a compact left-aligned interaction, native choices must show real compatible models, and effort must be exposed only when direct CLI capability is verified.
+- Next likely action: Claude Opus high continues the `provider-model-ux` handoff. Do not release until focused regressions, full checks, independent review, and a live visual check confirm the change.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-04/194700_obsidian-ai-tutor_brat-0.1.7_handoff.md`
+- Living handoff: `.handoff/2026-09-04/204900_obsidian-ai-tutor_provider-model-ux_handoff.md`
 - Active plan: `goal-contract.md`
 - Relevant artifacts: `.claude/artifacts/obsidian-ai-tutor-20260903-0001/`
 
