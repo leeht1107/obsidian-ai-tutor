@@ -29,6 +29,49 @@ export function formatMentionFolder(folder: string, keepSegments = 2): string {
   return `…/${segments.slice(-keepSegments).join('/')}`;
 }
 
+/**
+ * Folder labels that are long enough to tell the rows apart, and no longer.
+ *
+ * A fixed number of trailing segments cannot work: this vault holds six
+ * `lecture-*` projects whose folders all end `lecture/WeekNN/notes`, so two
+ * segments render every one of them identically, while three would be wasted
+ * on a shallow vault. Each label grows from the file end only until it is
+ * unique among the rows actually on screen.
+ *
+ * Returns a map from full path to the label for the line under the name.
+ */
+export function disambiguateFolderLabels(
+  paths: readonly string[],
+  maxSegments = 4
+): Map<string, string> {
+  const split = new Map(paths.map((path) => [path, path.split('/').filter(Boolean)]));
+  const labels = new Map<string, string>();
+
+  for (const path of paths) {
+    const segments = split.get(path) ?? [];
+    // The last segment is the name shown above; the label is what precedes it.
+    let keep = 2;
+    for (; keep <= maxSegments; keep += 1) {
+      const mine = suffixOf(segments, keep);
+      const collides = paths.some(
+        (other) => other !== path && suffixOf(split.get(other) ?? [], keep) === mine
+      );
+      if (!collides) break;
+    }
+    keep = Math.min(keep, maxSegments);
+
+    const shown = segments.slice(Math.max(0, segments.length - keep), segments.length - 1);
+    const truncated = segments.length - 1 > shown.length;
+    labels.set(path, shown.length === 0 ? '' : `${truncated ? '…/' : ''}${shown.join('/')}`);
+  }
+
+  return labels;
+}
+
+function suffixOf(segments: readonly string[], count: number): string {
+  return segments.slice(Math.max(0, segments.length - count)).join('/');
+}
+
 export interface MentionRange { start: number; end: number }
 
 // Same shape the input transformer accepts: @"quoted name", @'quoted', or @path.ext.

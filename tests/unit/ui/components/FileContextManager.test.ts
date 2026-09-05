@@ -459,6 +459,29 @@ describe('FileContextManager', () => {
     manager.destroy();
   });
 
+  it('shows enough of the path to tell identical folder names apart', () => {
+    // The real vault has several lecture-* projects that all end lecture/WeekNN,
+    // so a fixed two segments rendered every one of them the same.
+    const app = createMockApp({
+      files: [
+        '01. Projects/lecture-financial-data-analysis/lecture/Week01/a.md',
+        '01. Projects/lecture-data-mining-analysis/lecture/Week01/b.md',
+      ],
+      activeFilePath: '01. Projects/lecture-financial-data-analysis/lecture/Week01/a.md',
+    });
+    const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+
+    inputEl.value = '@/Week01';
+    inputEl.selectionStart = 8;
+    inputEl.selectionEnd = 8;
+    manager.handleInputChange();
+
+    const labels = findAllByClass(containerEl, 'ocop-mention-folder').map((el) => el.textContent);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels.some((label) => label?.includes('lecture-financial-data-analysis'))).toBe(true);
+    manager.destroy();
+  });
+
   it('transforms manually typed basename @mentions to unique vault-relative paths', () => {
     const app = createMockApp({
       files: ['folder/teachers.md'],
