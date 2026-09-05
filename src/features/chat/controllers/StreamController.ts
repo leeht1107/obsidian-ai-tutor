@@ -427,7 +427,9 @@ export class StreamController {
     }
 
     state.currentTextContent += text;
-    state.currentTextEl.textContent = state.currentTextContent;
+    // Append the new text only. Re-assigning textContent rewrote the whole answer
+    // into the DOM on every chunk, so a long one got slower the longer it ran.
+    state.currentTextEl.append(text);
   }
 
   /** Finalizes the current text block. */

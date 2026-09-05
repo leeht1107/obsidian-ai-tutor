@@ -90,6 +90,13 @@ function createMockElement() {
       return child;
     },
     appendChild: (child: any) => { children.push(child); return child; },
+    // Streaming appends text instead of rewriting the whole block each chunk.
+    append: (...parts: any[]) => {
+      for (const part of parts) {
+        if (typeof part === 'string') element.textContent += part;
+        else children.push(part);
+      }
+    },
     querySelector: jest.fn().mockReturnValue(null),
     querySelectorAll: jest.fn().mockReturnValue([]),
     remove: jest.fn(),
