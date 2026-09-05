@@ -362,6 +362,62 @@ describe('SetupWizardModal — review regressions', () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+
+  it('leaves the student on manual setup when they stop a Node.js install', async () => {
+    // Cancelling resolves `done` with a failure. Treating that as a real failure
+    // dragged the student from the screen they chose to an error screen.
+    let resolveInstall: (r: any) => void = () => undefined;
+    const cancel = jest.fn(() => resolveInstall({ success: false, error: '설치를 취소했습니다.' }));
+    startNode.mockReturnValue({ cancel, done: new Promise((r) => { resolveInstall = r; }) });
+    setupStatus.mockReturnValue({ cliFound: false, npmFound: false, status: 'ready' });
+    detectPm.mockReturnValue({
+      id: 'brew', binPath: '/opt/homebrew/bin/brew',
+      installArgs: ['install', 'node'], displayCommand: 'brew install node',
+    });
+
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    const running = wizard.runNodeInstall();
+    await Promise.resolve();
+
+    // '직접 설치할게요' releases ownership, then cancels.
+    const session = wizard.nodeSession;
+    wizard.nodeSession = null;
+    session.cancel();
+    wizard.phase = 'manual';
+    await running;
+
+    expect(wizard.phase).toBe('manual');
+  });
+
+  it('leaves the student on manual setup when they stop a CLI install', async () => {
+    let resolveInstall: (r: any) => void = () => undefined;
+    const cancel = jest.fn(() => resolveInstall({ success: false, error: '설치를 취소했습니다.' }));
+    install.mockReturnValue({ cancel, done: new Promise((r) => { resolveInstall = r; }) });
+
+    const wizard = makeWizard();
+    await wizard.chooseProvider('codex');
+    const running = wizard.runInstall();
+    await Promise.resolve();
+
+    const session = wizard.cliInstallSession;
+    wizard.cliInstallSession = null;
+    session.cancel();
+    wizard.phase = 'manual';
+    await running;
+
+    expect(wizard.phase).toBe('manual');
+  });
+
+  it('aborts status probes when the wizard closes', async () => {
+    const wizard = makeWizard();
+    expect(wizard.probes.signal.aborted).toBe(false);
+
+    closeForReal(wizard);
+
+    expect(wizard.probes.signal.aborted).toBe(true);
+  });
+
   it('does not write into the modal after it has been closed', async () => {
     let finishLogin: (r: any) => void = () => undefined;
     startLogin.mockReturnValue({

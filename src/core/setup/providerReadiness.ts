@@ -94,7 +94,7 @@ export interface ReadinessResult {
  */
 export async function checkProviderReadiness(
   providerId: ProviderId,
-  options: { cliPath?: string; timeoutMs?: number } = {}
+  options: { cliPath?: string; timeoutMs?: number; signal?: AbortSignal } = {}
 ): Promise<ReadinessResult> {
   const probe = PROBES[providerId];
   const cliPath = findProviderCliPath(providerId, options.cliPath);
@@ -102,6 +102,8 @@ export async function checkProviderReadiness(
   if (!probe) return { state: 'unknown' };
 
   const timeoutMs = options.timeoutMs ?? 8000;
+  // Closing the wizard should not leave a CLI running for the rest of the timeout.
+  if (options.signal?.aborted) return { state: 'unknown' };
 
   return new Promise<ReadinessResult>((resolve) => {
     let settled = false;
@@ -109,7 +111,16 @@ export async function checkProviderReadiness(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
       resolve(result);
+    };
+
+    const onAbort = () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      killTree(child);
+      child.unref();
+      finish({ state: 'unknown' });
     };
 
     const child = spawn(cliPath, [...probe.args], {
@@ -134,6 +145,8 @@ export async function checkProviderReadiness(
     let stderr = '';
     child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
     child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    options.signal?.addEventListener('abort', onAbort, { once: true });
 
     child.on('error', () => finish({ state: 'unknown' }));
     child.on('close', (code) => finish({

@@ -64,6 +64,8 @@ export class SetupWizardModal extends Modal {
   /** Set when the student pressed 취소, so the flow does not advance anyway. */
   private loginCancelled = false;
   private nodeSession: NodeInstallSession | null = null;
+  /** Aborts in-flight status probes when the wizard closes. */
+  private readonly probes = new AbortController();
   private cliInstallSession: InstallSession | null = null;
   /** Kept across re-renders so streaming output cannot wipe what was typed. */
   private pastedCode = '';
@@ -173,9 +175,11 @@ export class SetupWizardModal extends Modal {
 
     const skip = wrap.createEl('button', { text: '직접 설치할게요', cls: 'ocop-setup-skip-btn' });
     skip.addEventListener('click', () => {
-      // Without this the install keeps running and later moves the student off
-      // whatever screen they chose instead.
-      this.nodeSession?.cancel();
+      // Release ownership before cancelling, so the awaited continuation sees a
+      // mismatch and leaves this screen alone.
+      const session = this.nodeSession;
+      this.nodeSession = null;
+      session?.cancel();
       this.phase = 'manual';
       this.render();
     });
@@ -183,13 +187,17 @@ export class SetupWizardModal extends Modal {
 
   private async runNodeInstall() {
     if (this.closed || this.nodeSession) return;
-    this.nodeSession = startNodeInstall((line) => {
+    const session = startNodeInstall((line) => {
       this.nodeLog.push(line);
       if (this.phase === 'node') this.render();
     }, this.packageManager);
-    const result = await this.nodeSession.done;
+    this.nodeSession = session;
+    const result = await session.done;
+    // Ownership, not identity of the result: a cancel clears the field first, so
+    // a mismatch here means the student already chose another screen and this
+    // continuation must not move them off it.
+    if (this.closed || this.nodeSession !== session) return;
     this.nodeSession = null;
-    if (this.closed) return;
 
     if (!result.success) {
       this.errorDetail = result.error ?? 'Node.js 설치에 실패했습니다.';
@@ -223,7 +231,9 @@ export class SetupWizardModal extends Modal {
     // A stalled npm install would otherwise hold the wizard with no way out.
     const cancel = wrap.createEl('button', { text: '중지', cls: 'ocop-setup-skip-btn' });
     cancel.addEventListener('click', () => {
-      this.cliInstallSession?.cancel();
+      const session = this.cliInstallSession;
+      this.cliInstallSession = null;
+      session?.cancel();
       this.phase = 'manual';
       this.render();
     });
@@ -398,7 +408,10 @@ export class SetupWizardModal extends Modal {
   }
 
   private async readCurrentLoginState() {
-    const { state } = await checkProviderReadiness(this.provider, { cliPath: this.configuredCliPath() });
+    const { state } = await checkProviderReadiness(this.provider, {
+      cliPath: this.configuredCliPath(),
+      signal: this.probes.signal,
+    });
     return state;
   }
 
@@ -530,6 +543,8 @@ export class SetupWizardModal extends Modal {
     // Otherwise brew, winget or npm keeps installing with no window and no stop.
     this.nodeSession?.cancel();
     this.cliInstallSession?.cancel();
+    // A status probe would otherwise keep a CLI running behind a closed window.
+    this.probes.abort();
     this.contentEl.empty();
   }
 }

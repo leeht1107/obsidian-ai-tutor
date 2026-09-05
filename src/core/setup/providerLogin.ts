@@ -199,6 +199,9 @@ export function startProviderLogin(
 
   child.stdout?.on('data', consume);
   child.stderr?.on('data', consume);
+  // A CLI that exits while the student is typing leaves a broken pipe; without
+  // a handler the EPIPE surfaces as an unhandled error and takes down the view.
+  child.stdin?.on('error', () => { /* the close/error handlers own the outcome */ });
 
   child.on('error', (err: Error) => {
     finish({ success: false, exitCode: null, output, error: err.message });
@@ -210,7 +213,9 @@ export function startProviderLogin(
   return {
     submitCode(code: string) {
       if (settled) return;
-      child.stdin?.write(`${code.trim()}\n`);
+      try {
+        child.stdin?.write(`${code.trim()}\n`);
+      } catch { /* the CLI already exited; its outcome is reported by `done` */ }
     },
     cancel() {
       if (settled) return;

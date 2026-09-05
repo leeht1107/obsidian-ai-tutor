@@ -142,3 +142,34 @@ describe('readiness labels', () => {
     expect(isReadyState('cli-missing')).toBe(false);
   });
 });
+
+describe('readiness probe cancellation', () => {
+  let dir: string;
+  beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'readiness-abort-')); });
+  afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('stops a probe as soon as the caller aborts, without waiting for the timeout', async () => {
+    if (process.platform === 'win32') return;
+    const p = path.join(dir, 'claude-slow');
+    fs.writeFileSync(p, '#!/bin/sh\nsleep 30\n');
+    fs.chmodSync(p, 0o755);
+
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = checkProviderReadiness('claude', {
+      cliPath: p, timeoutMs: 30000, signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({ state: 'unknown' });
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it('does not spawn at all when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(checkProviderReadiness('claude', {
+      cliPath: path.join(dir, 'anything'), signal: controller.signal,
+    })).resolves.toMatchObject({ state: 'cli-missing' });
+  });
+});

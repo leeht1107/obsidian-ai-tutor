@@ -3,7 +3,7 @@ import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
 import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
-import { checkProviderReadiness, isReadyState, readinessLabel } from '../../core/setup/providerReadiness';
+import { checkProviderReadiness, isReadyState, type LoginState, readinessLabel } from '../../core/setup/providerReadiness';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
   COPILOT_MODELS,
@@ -719,6 +719,9 @@ export function createProviderSelector(
   const close = () => { popover.removeClass('is-visible'); button.setAttribute('aria-expanded', 'false'); };
   // Probing spawns real CLI processes, so it is confined to an explicit open.
   // The initial render below builds the same markup with probing switched off.
+  // Reopening while a probe is still running reuses it rather than spawning a
+  // second copy, so toggling the menu cannot pile up child processes.
+  const inFlight = new Map<ProviderId, Promise<{ state: string }>>();
   const renderPopover = (probe = true) => {
     popover.empty();
     setupHint = null;
@@ -743,11 +746,14 @@ export function createProviderSelector(
         // Runs on popover open only, never on a timer and never at construction.
         // Two CLIs can answer this (claude, codex); the rest resolve to
         // 확인 불가 without spawning anything.
-        void checkProviderReadiness(provider.id, { cliPath: configuredPath || undefined })
-          .then(({ state }) => {
-            statusEl.setText(readinessLabel(state));
-            statusEl.toggleClass('is-ready', isReadyState(state));
-          });
+        const pending = inFlight.get(provider.id)
+          ?? checkProviderReadiness(provider.id, { cliPath: configuredPath || undefined })
+            .finally(() => inFlight.delete(provider.id));
+        inFlight.set(provider.id, pending);
+        void pending.then(({ state }) => {
+          statusEl.setText(readinessLabel(state as LoginState));
+          statusEl.toggleClass('is-ready', isReadyState(state as LoginState));
+        });
       }
       option.addEventListener('click', async (event) => {
         event.stopPropagation();

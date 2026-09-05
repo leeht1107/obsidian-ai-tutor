@@ -248,8 +248,9 @@ describe('chat provider selector', () => {
     // Nothing is claimed before the CLI has answered.
     expect(claudeStatus.elementOptions.text).toBe('확인 중…');
 
-    await Promise.resolve();
-    await Promise.resolve();
+    // The probe chain now has a .finally() stage, so flush the queue rather than
+    // counting microtask ticks.
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(probe).toHaveBeenCalledWith('claude', expect.any(Object));
     expect(claudeStatus.setText).toHaveBeenCalledWith('로그인 필요');
