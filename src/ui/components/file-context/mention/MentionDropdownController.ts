@@ -9,7 +9,7 @@ import { getFolderName, normalizePathForComparison } from '../../../../utils/ext
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
 import { formatMentionFolder, splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
-import { filterVaultFolders, parseFolderQuery } from './folderSearch';
+import { parseFolderQuery, rankFoldersByProximity } from './folderSearch';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
 
 export interface MentionDropdownOptions {
@@ -24,6 +24,8 @@ export interface MentionDropdownCallbacks {
   getCachedMarkdownFiles: () => TFile[];
   /** Every folder path in the vault, so folders can be mentioned like files. */
   getVaultFolders?: () => string[];
+  /** Path of the note on screen, used to order folders by closeness to it. */
+  getCurrentNotePath?: () => string | null;
   normalizePathForVault: (path: string | undefined | null) => string | null;
 }
 
@@ -292,24 +294,17 @@ export class MentionDropdownController {
       }
     }
 
-    // Vault folders sit with the files so they are found without being taught,
-    // and a leading `/` narrows to folders when a folder and a note share a name.
+    // `@` and `@/` are separate menus on purpose. Mixing folders into `@` pushed
+    // the note names down and made the common case worse, so folders live
+    // behind `@/` only — and there they are ordered by closeness to the note in
+    // front of the student, since alphabetical is useless in a real vault.
     const folderQuery = parseFolderQuery(searchText);
-    const vaultFolders = this.callbacks.getVaultFolders?.() ?? [];
-    const folderSlots = folderQuery.foldersOnly ? 10 : 4;
-    for (const folderPath of filterVaultFolders(
-      vaultFolders,
-      folderQuery.text,
-      Math.max(0, Math.min(folderSlots, 10 - this.filteredMentionItems.length))
-    )) {
-      this.filteredMentionItems.push({
-        type: 'vault-folder',
-        name: folderPath,
-        path: folderPath,
-      });
-    }
-
     if (folderQuery.foldersOnly) {
+      const vaultFolders = this.callbacks.getVaultFolders?.() ?? [];
+      const currentFolder = splitMentionPath(this.callbacks.getCurrentNotePath?.() ?? '').folder || null;
+      for (const folderPath of rankFoldersByProximity(vaultFolders, currentFolder, folderQuery.text, 10)) {
+        this.filteredMentionItems.push({ type: 'vault-folder', name: folderPath, path: folderPath });
+      }
       this.selectedMentionIndex = 0;
       this.renderMentionDropdown();
       return;

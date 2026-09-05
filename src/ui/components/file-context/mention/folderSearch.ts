@@ -55,3 +55,60 @@ function folderNameOf(path: string): string {
   const cut = path.lastIndexOf('/');
   return cut < 0 ? path : path.slice(cut + 1);
 }
+
+/**
+ * Folders ordered by how close they are to the note the student is looking at.
+ *
+ * An alphabetical list is useless in a vault of any size: the folder they want
+ * is almost always the one holding the current note, one of its subfolders, or
+ * a sibling. Distance is measured in path segments — how many leading segments
+ * a folder shares with the current one, then how far it sits from it.
+ */
+export function rankFoldersByProximity(
+  folderPaths: readonly string[],
+  currentFolder: string | null,
+  query: string,
+  limit: number
+): string[] {
+  if (limit <= 0) return [];
+  const needle = query.toLowerCase();
+  const matches = folderPaths.filter((path) => {
+    const lower = path.toLowerCase();
+    return lower.includes(needle) || folderNameOf(lower).includes(needle);
+  });
+
+  if (!currentFolder) {
+    return matches.sort(byDepthThenName).slice(0, limit);
+  }
+
+  const here = currentFolder.split('/').filter(Boolean);
+  return matches
+    .map((path) => {
+      const segments = path.split('/').filter(Boolean);
+      let shared = 0;
+      while (shared < segments.length && shared < here.length && segments[shared] === here[shared]) {
+        shared += 1;
+      }
+      return {
+        path,
+        // More shared segments means a closer branch.
+        shared,
+        // Within a branch, prefer the current folder, then what is under it.
+        distance: Math.abs(segments.length - here.length) + (segments.length < here.length ? 1 : 0),
+        depth: segments.length,
+      };
+    })
+    .sort((a, b) => (
+      b.shared - a.shared
+      || a.distance - b.distance
+      || a.depth - b.depth
+      || a.path.localeCompare(b.path)
+    ))
+    .map((entry) => entry.path)
+    .slice(0, limit);
+}
+
+function byDepthThenName(a: string, b: string): number {
+  const depth = a.split('/').length - b.split('/').length;
+  return depth !== 0 ? depth : a.localeCompare(b);
+}

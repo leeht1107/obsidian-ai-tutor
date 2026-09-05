@@ -400,7 +400,9 @@ describe('FileContextManager', () => {
   });
 
 
-  it('offers vault folders in the @ menu and attaches one by path', () => {
+  it('keeps folders out of the plain @ menu so note names stay at the top', () => {
+    // Mixing folders in pushed the note names down and made the common case
+    // worse; folders live behind @/ instead.
     const app = createMockApp({ files: ['clipping/file.md', 'clipping/notes/deep.md'] });
     const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
 
@@ -409,12 +411,29 @@ describe('FileContextManager', () => {
     inputEl.selectionEnd = 9;
     manager.handleInputChange();
 
-    // Folders sit alongside files, so a student finds them without being told.
     const rendered = findAllByClass(containerEl, 'ocop-mention-path').map((el) => el.textContent);
-    expect(rendered).toContain('clipping');
+    expect(rendered).not.toContain('clipping');
+    expect(rendered).toContain('file.md');
+    manager.destroy();
+  });
 
-    // Files stay preselected — they are the common case — so the folder is
-    // offered, not forced.
+  it('orders @/ folders around the note currently open', () => {
+    const app = createMockApp({
+      files: ['01. Projects/DB_26/week01/a.md', '01. Projects/ML_26/b.md', 'Archive/c.md'],
+      activeFilePath: '01. Projects/DB_26/week01/a.md',
+    });
+    const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+
+    inputEl.value = '@/';
+    inputEl.selectionStart = 2;
+    inputEl.selectionEnd = 2;
+    manager.handleInputChange();
+
+    // Rows show the folder name, with its parent path on the line beneath.
+    const rendered = findAllByClass(containerEl, 'ocop-mention-path').map((el) => el.textContent);
+    // The folder holding the open note comes first; a stranger sorts last.
+    expect(rendered[0]).toBe('week01');
+    expect(rendered.indexOf('ML_26')).toBeLessThan(rendered.indexOf('Archive'));
     manager.destroy();
   });
 

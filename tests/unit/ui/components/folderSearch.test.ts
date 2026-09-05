@@ -47,3 +47,49 @@ describe('mention folder search', () => {
     expect(filterVaultFolders(FOLDERS, '', 0)).toEqual([]);
   });
 });
+
+describe('folder ranking around the current note', () => {
+  const { rankFoldersByProximity } = jest.requireActual(
+    '@/ui/components/file-context/mention/folderSearch'
+  );
+
+  const VAULT = [
+    '01. Projects',
+    '01. Projects/DB_26',
+    '01. Projects/DB_26/week01',
+    '01. Projects/DB_26/week02',
+    '01. Projects/ML_26',
+    '02. Areas',
+    'Archive',
+  ];
+
+  it('puts the folder the note lives in first', () => {
+    const ranked = rankFoldersByProximity(VAULT, '01. Projects/DB_26', '', 10);
+    expect(ranked[0]).toBe('01. Projects/DB_26');
+  });
+
+  it('puts the note’s own subfolders next, before unrelated branches', () => {
+    const ranked = rankFoldersByProximity(VAULT, '01. Projects/DB_26', '', 10);
+    expect(ranked.slice(1, 3).sort()).toEqual(['01. Projects/DB_26/week01', '01. Projects/DB_26/week02']);
+    expect(ranked.indexOf('Archive')).toBeGreaterThan(ranked.indexOf('01. Projects/ML_26'));
+  });
+
+  it('ranks a sibling above a stranger', () => {
+    const ranked = rankFoldersByProximity(VAULT, '01. Projects/DB_26', '', 10);
+    expect(ranked.indexOf('01. Projects/ML_26')).toBeLessThan(ranked.indexOf('02. Areas'));
+  });
+
+  it('still honours the typed filter while ranking', () => {
+    const ranked = rankFoldersByProximity(VAULT, '01. Projects/DB_26', 'week', 10);
+    expect(ranked).toEqual(['01. Projects/DB_26/week01', '01. Projects/DB_26/week02']);
+  });
+
+  it('falls back to a plain ordering when no note is open', () => {
+    const ranked = rankFoldersByProximity(VAULT, null, '', 3);
+    expect(ranked).toEqual(['01. Projects', '02. Areas', 'Archive']);
+  });
+
+  it('respects the limit', () => {
+    expect(rankFoldersByProximity(VAULT, '01. Projects/DB_26', '', 2)).toHaveLength(2);
+  });
+});

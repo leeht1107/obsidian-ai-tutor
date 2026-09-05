@@ -103,6 +103,9 @@ export class FileContextManager {
         getExternalContexts: () => this.callbacks.getExternalContexts?.() || [],
         getCachedMarkdownFiles: () => this.fileCache.getFiles(),
         getVaultFolders: () => this.listVaultFolders(),
+        // The note in front of the student, not the one already sent as
+        // context — folder ranking should follow where they are looking.
+        getCurrentNotePath: () => this.app.workspace.getActiveFile()?.path ?? this.getCurrentNotePath(),
         normalizePathForVault: (rawPath) => this.normalizePathForVault(rawPath),
       }
     );
