@@ -46,6 +46,31 @@ export function findMentionRanges(text: string): MentionRange[] {
   return ranges;
 }
 
+export interface MentionSegment { text: string; isMention: boolean }
+
+/**
+ * Splits raw input into plain runs and @-mention runs.
+ *
+ * A textarea cannot style part of its own value, so the input box paints these
+ * segments onto a backdrop sitting behind it. Concatenating every `text` back
+ * together must reproduce the input exactly, or the highlight drifts out of
+ * alignment with the characters the student is actually typing.
+ */
+export function buildMentionSegments(text: string): MentionSegment[] {
+  if (!text) return [];
+  const segments: MentionSegment[] = [];
+  let cursor = 0;
+  for (const range of findMentionRanges(text)) {
+    if (range.start > cursor) {
+      segments.push({ text: text.slice(cursor, range.start), isMention: false });
+    }
+    segments.push({ text: text.slice(range.start, range.end), isMention: true });
+    cursor = range.end;
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), isMention: false });
+  return segments;
+}
+
 /**
  * Wraps every @-mention already rendered inside `root` in a chip span, so a sent message
  * shows at a glance which files went along with it. Walks text nodes only, leaving links

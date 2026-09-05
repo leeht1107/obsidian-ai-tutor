@@ -455,3 +455,37 @@
     transition: none;
   }
 }
+
+/*
+ * Backdrop that paints @-mention highlights behind the textarea. Every metric
+ * here must match .ocop-input exactly — a single pixel of difference shows up
+ * as the highlight sliding off the words it belongs to.
+ */
+.ocop-mention-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  padding: 12px 12px 10px 12px;
+  border-radius: 6px;
+  color: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The textarea's own text stays on top and visible. */
+.ocop-input-highlighted {
+  position: relative;
+  z-index: 1;
+}
+
+.ocop-mention-inline {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+}

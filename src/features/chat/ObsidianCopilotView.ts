@@ -32,6 +32,7 @@ import {
   type WebSearchToggle,
 } from '../../ui';
 import { QuizSetupModal, SocraticSetupModal } from '../../ui';
+import { MentionHighlighter } from '../../ui/components/MentionHighlighter';
 import { getVaultPath } from '../../utils/path';
 import { LOGO_SVG, PROVIDER_MARKS } from './constants';
 import {
@@ -66,6 +67,7 @@ export class ObsidianCopilotView extends ItemView {
   private messagesEl: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
   private inputWrapper: HTMLElement | null = null;
+  private mentionHighlighter: MentionHighlighter | null = null;
   private historyDropdown: HTMLElement | null = null;
   private welcomeEl: HTMLElement | null = null;
   private selectionIndicatorEl: HTMLElement | null = null;
@@ -149,6 +151,8 @@ export class ObsidianCopilotView extends ItemView {
   }
 
   async onClose() {
+    this.mentionHighlighter?.destroy();
+    this.mentionHighlighter = null;
     this.selectionController?.stop();
     this.selectionController?.clear();
     this.navigationController?.dispose();
@@ -215,10 +219,14 @@ export class ObsidianCopilotView extends ItemView {
     this.inputEl = this.inputWrapper.createEl('textarea', {
       cls: 'ocop-input',
       attr: {
-        placeholder: 'Ask Copilot about this note or attached files...',
+        placeholder: '이 노트나 첨부한 파일에 대해 물어보세요…',
         rows: '3',
       },
     });
+
+    // Paints @-mention highlights behind the textarea so a registered mention
+    // is visually distinct from the same characters merely typed.
+    this.mentionHighlighter = new MentionHighlighter(this.inputWrapper, this.inputEl);
 
     this.fileContextManager = new FileContextManager(
       this.plugin.app,

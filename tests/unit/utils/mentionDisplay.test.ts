@@ -81,3 +81,41 @@ describe('folder label for a deep path', () => {
     expect(formatMentionFolder('')).toBe('');
   });
 });
+
+describe('input highlight segments', () => {
+  const { buildMentionSegments } = jest.requireActual('@/utils/mentionDisplay');
+
+  it('splits typed text into plain and mention runs', () => {
+    expect(buildMentionSegments('보고 @Week01.md 정리해줘')).toEqual([
+      { text: '보고 ', isMention: false },
+      { text: '@Week01.md', isMention: true },
+      { text: ' 정리해줘', isMention: false },
+    ]);
+  });
+
+  it('marks several mentions in one line', () => {
+    const segments = buildMentionSegments('@Week01_notes_compiled.md  @BOARD.md');
+    expect(segments.filter((s: any) => s.isMention).map((s: any) => s.text))
+      .toEqual(['@Week01_notes_compiled.md', '@BOARD.md']);
+  });
+
+  it('returns a single plain run when nothing was mentioned', () => {
+    expect(buildMentionSegments('그냥 질문입니다')).toEqual([
+      { text: '그냥 질문입니다', isMention: false },
+    ]);
+  });
+
+  it('does not mistake an email address for a mention', () => {
+    const segments = buildMentionSegments('mark@example.com 으로 보내줘');
+    expect(segments.some((s: any) => s.isMention)).toBe(false);
+  });
+
+  it('keeps the text recoverable exactly, so the overlay cannot drift', () => {
+    const raw = '앞 @a.md 사이 @b.md 뒤';
+    expect(buildMentionSegments(raw).map((s: any) => s.text).join('')).toBe(raw);
+  });
+
+  it('has no segments for empty input', () => {
+    expect(buildMentionSegments('')).toEqual([]);
+  });
+});

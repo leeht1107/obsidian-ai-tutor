@@ -498,7 +498,9 @@ export class ConversationController {
 
   getGreeting(): string {
     const name = this.deps.plugin.settings.userName?.trim();
-    return name ? `Copilot ready, ${name}.` : 'Copilot ready.';
+    // The plugin drives whichever CLI the student picked, so the greeting no
+    // longer names one of them.
+    return name ? `${name}님, 준비됐어요.` : '준비됐어요.';
   }
 
   /** Updates welcome element visibility based on message count. */
