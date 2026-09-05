@@ -136,9 +136,16 @@
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
+
+/*
+ * No `direction: rtl` here. It was once used to keep the end of a long path
+ * visible, but it reorders the segments on screen: a label of
+ * `…/lecture-financial-data-analysis/lecture/Week01` rendered as `Week01/…`,
+ * which is the opposite of the folder anyone was looking for. The label is
+ * shortened from the front in code instead, so it arrives short enough to read
+ * left to right, and what survives a cut is the part that names the subject.
+ */
 
 /* An @-mention in a sent message reads as prose without this. */
 .ocop-mention-chip {

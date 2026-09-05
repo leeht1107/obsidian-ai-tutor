@@ -44,3 +44,21 @@ describe('modal CSS class coverage', () => {
     expect(missing).toEqual([]);
   });
 });
+
+/**
+ * `direction: rtl` on the @-mention folder line reverses the path segments on
+ * screen: `…/lecture-financial-data-analysis/lecture/Week01` rendered as
+ * `Week01/…`, hiding the one part that says which subject the folder belongs
+ * to. The label is shortened in code now, so the rule must not come back.
+ */
+describe('mention folder label direction', () => {
+  it('never sets rtl on the folder line', () => {
+    const css = readFileSync(
+      join(__dirname, '../../../src/style/features/file-context.css'),
+      'utf8'
+    );
+    const rule = css.slice(css.indexOf('.ocop-mention-folder {'));
+    const body = rule.slice(0, rule.indexOf('}'));
+    expect(body).not.toMatch(/direction\s*:\s*rtl/);
+  });
+});
