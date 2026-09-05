@@ -47,6 +47,14 @@
 .ocop-socratic-banner-icon {
   font-size: 14px;
   flex-shrink: 0;
+  /* A colour emoji is taller than its font size, so line-height:1 alone let the
+     glyph spill out of the header row and get clipped by the banner's rounded
+     edge. Give it a square box and centre it inside. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   line-height: 1;
 }
 
@@ -92,7 +100,13 @@
 
 .ocop-socratic-banner-action-btn {
   font-size: 11px;
-  padding: 3px 10px;
+  /* The emoji sets the line box height; without room for it the glyph pushed
+     past the pill's rounded top and bottom. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.5;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid rgba(124, 155, 255, 0.28);
   background: rgba(124, 155, 255, 0.1);

@@ -41,10 +41,10 @@ export interface QuizHintPromptInput {
   questionContext?: QuizQuestionContext;
 }
 
-const DIFFICULTY_INSTRUCTIONS: Record<QuizDifficulty, string> = {
+export const DIFFICULTY_INSTRUCTIONS: Record<QuizDifficulty, string> = {
   '하': 'Ask simple recall/definition questions. Keep choices straightforward. Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.',
   '중': 'Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.',
-  '상': 'Create application-level questions that apply the core concepts to novel real-world scenarios (e.g., applying "data science project" concepts to "AI development project"). You may use @context7 or web search to find related official documentation and supplement the questions. Do not be strictly bounded by the notes.',
+  '상': 'Create application-level questions that apply the core concepts to novel real-world scenarios (e.g., applying "data science project" concepts to "AI development project"). You may use web search to find related official documentation and supplement the questions. Do not be strictly bounded by the notes.',
 };
 
 export function shouldEnableQuizExternalTools(difficulty: QuizDifficulty): boolean {

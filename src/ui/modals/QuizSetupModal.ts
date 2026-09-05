@@ -21,7 +21,7 @@ export interface QuizSetupResult {
   difficulty: QuizDifficulty;
   sourceInstruction: string;
   focusText?: string;
-  /** True when difficulty is '상' — caller should enable web search and context7. */
+  /** True when difficulty is '상' — caller should enable web search. */
   enableExternalTools?: boolean;
 }
 
@@ -181,7 +181,7 @@ export class QuizSetupModal extends Modal {
       .addDropdown((dropdown) => {
         dropdown.addOption('하', '하 — 기본 암기/이해 확인');
         dropdown.addOption('중', '중 — 종합 이해 (기본값)');
-        dropdown.addOption('상', '상 — 심화 (Web + Context7 자동 활성화)');
+        dropdown.addOption('상', '상 — 심화 (웹 검색 자동 활성화)');
         dropdown.setValue(this.difficulty).onChange((value: QuizDifficulty) => {
           this.difficulty = value;
         });

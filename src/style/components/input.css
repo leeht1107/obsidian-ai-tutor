@@ -157,6 +157,12 @@
 .ocop-provider-btn:hover,
 .ocop-send-btn:hover { filter: brightness(1.08); }
 .ocop-provider-mark { display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; }
+/* Each mark carries its own brand colour so the four are told apart at a glance.
+   copilot keeps currentColor: its logo is monochrome by design, and a tint would
+   read as a state rather than a brand. */
+.ocop-provider-mark.is-claude { color: #d97757; }
+.ocop-provider-mark.is-codex { color: #10a37f; }
+.ocop-provider-mark.is-agy { color: #4285f4; }
 .ocop-provider-mark svg { width: 100%; height: 100%; }
 .ocop-provider-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ocop-provider-btn-chevron { flex: 0 0 auto; color: var(--text-muted); margin-left: auto; }
@@ -488,4 +494,20 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+}
+
+/* codex writes files even when asked for read-only, so its toggle is shown
+   dimmed rather than removed: a missing control reads as a bug, a dim one
+   reads as "not available here". */
+.ocop-permission-toggle.is-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The send button drew a heavy focus ring after an ordinary mouse click, which
+   read as an unexplained blue box around it. Keyboard focus still shows one. */
+.ocop-send-btn:focus:not(:focus-visible),
+.ocop-provider-btn:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
 }

@@ -3,6 +3,7 @@ import {
   buildQuizHintPrompt,
   buildSocraticContinuationPrompt,
   buildSocraticPrompt,
+  DIFFICULTY_INSTRUCTIONS,
   inferSocraticSupportLevel,
   parseQuizDisplayContent,
   parseSocraticMeta,
@@ -175,5 +176,24 @@ describe('learning helpers', () => {
         isSummary: true,
       });
     });
+  });
+});
+
+/**
+ * Context7 was dropped from the quiz on 2026-09-05. It reached only two of the
+ * four CLIs, so a 상 quiz answered differently depending on which AI a student
+ * had selected. Web search covers all four and was already the only thing the
+ * 상 difficulty actually switched on — `enableExternalTools` sets the web
+ * search toggle and never configured an MCP server.
+ */
+describe('quiz difficulty instructions', () => {
+  it('no longer promises a tool that only some providers have', () => {
+    for (const instruction of Object.values(DIFFICULTY_INSTRUCTIONS)) {
+      expect(instruction).not.toMatch(/context7/i);
+    }
+  });
+
+  it('keeps web search as the way a 상 question reaches outside the notes', () => {
+    expect(DIFFICULTY_INSTRUCTIONS['상']).toMatch(/web search/i);
   });
 });
