@@ -28,13 +28,14 @@ import {
   type PackageManager,
   startNodeInstall,
 } from '../../core/setup/nodeInstall';
+import { checkProviderConnection, type ConnectionState } from '../../core/setup/providerConnection';
 import {
   canDriveLogin,
   getLoginRecipe,
   type LoginSession,
   startProviderLogin,
 } from '../../core/setup/providerLogin';
-import { checkProviderReadiness, hasLoginCheck } from '../../core/setup/providerReadiness';
+import { hasLoginCheck } from '../../core/setup/providerReadiness';
 import type ObsidianCopilotPlugin from '../../main';
 
 /**
@@ -72,7 +73,11 @@ export class SetupWizardModal extends Modal {
   /** Set in onClose; every render and phase change checks it. */
   private closed = false;
 
-  constructor(app: App, private plugin: ObsidianCopilotPlugin) {
+  /**
+   * @param target Provider the student just clicked. Without it the wizard
+   * reopens on the chooser and asks a question they already answered.
+   */
+  constructor(app: App, private plugin: ObsidianCopilotPlugin, private target?: ProviderId) {
     super(app);
   }
 
@@ -80,6 +85,7 @@ export class SetupWizardModal extends Modal {
     markShownThisSession();
     this.modalEl.addClass('ocop-setup-modal');
     this.setTitle('Obsidian AI Tutor 초기 설정');
+    if (this.target) { void this.chooseProvider(this.target); return; }
     this.render();
   }
 
@@ -125,11 +131,12 @@ export class SetupWizardModal extends Modal {
 
     if (cliFound) {
       // The binary existing says nothing about being logged in, so ask the CLI.
-      const state = await this.readCurrentLoginState();
+      const state = await this.readConnectionState();
       if (this.closed) return;
-      if (state === 'logged-in') this.phase = 'done';
-      // An unaskable CLI has nothing to log into here; sending it to the login
-      // screen would offer a button that cannot resolve anything.
+      if (state === 'connected') this.phase = 'done';
+      // Only a check that could not decide at all lands on the warning screen.
+      // copilot used to arrive here always, so an installed-but-logged-out
+      // student was never offered the login this wizard can actually drive.
       else if (state === 'unknown') this.phase = 'unverified';
       else this.phase = 'login';
     } else if (!npmFound) {
@@ -392,9 +399,9 @@ export class SetupWizardModal extends Modal {
       return;
     }
 
-    const state = await this.readCurrentLoginState();
+    const state = await this.readConnectionState();
     if (this.closed) return;
-    if (state === 'logged-in') {
+    if (state === 'connected') {
       this.phase = 'done';
     } else if (state === 'unknown' && outcome.success) {
       // The CLI exited cleanly but cannot be asked to confirm. Say exactly that
@@ -402,17 +409,26 @@ export class SetupWizardModal extends Modal {
       this.phase = 'unverified';
     } else {
       this.loginFailure = outcome.error
-        ?? (state === 'logged-out' ? '아직 로그인되지 않았습니다. 다시 시도해 주세요.' : '로그인을 확인하지 못했습니다.');
+        ?? (state === 'not-connected' ? '아직 로그인되지 않았습니다. 다시 시도해 주세요.' : '로그인을 확인하지 못했습니다.');
     }
     this.render();
   }
 
-  private async readCurrentLoginState() {
-    const { state } = await checkProviderReadiness(this.provider, {
+  /**
+   * Ask whether this provider is usable, by whatever means it allows.
+   *
+   * Deliberately the connection check, not the login probe. copilot has no
+   * status command, so the probe could only ever answer 'unknown' — which sent
+   * a student who had just logged in to a screen saying the login could not be
+   * confirmed, with a command to copy into a terminal. copilot stores its token
+   * in the system credential store (`copilot login --help`), so on macOS the
+   * credential check answers this properly.
+   */
+  private async readConnectionState(): Promise<ConnectionState> {
+    return checkProviderConnection(this.provider, {
       cliPath: this.configuredCliPath(),
       signal: this.probes.signal,
     });
-    return state;
   }
 
   // ── Phase: done ─────────────────────────────────────────────────────────────
@@ -436,7 +452,9 @@ export class SetupWizardModal extends Modal {
     wrap.createEl('p', {
       text: hasLoginCheck(this.provider)
         ? `${descriptor.label}의 로그인 상태를 확인하는 명령이 응답하지 않았습니다. 잠시 후 다시 확인해 보세요.`
-        : `${descriptor.label}에는 로그인 상태를 물어볼 수 있는 명령이 없습니다. 설치는 끝났으니 대화를 시작해 보시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
+        // copilot: macOS reads the keychain, so reaching here means this
+        // machine keeps its credentials somewhere this plugin cannot read yet.
+        : `이 컴퓨터에서는 ${descriptor.label}의 로그인 여부를 확인할 방법이 없습니다. 로그인을 이미 마쳤다면 그대로 시작하시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
       cls: 'ocop-setup-desc',
     });
     this.renderCmdRow(wrap, descriptor.loginCommand);
@@ -497,12 +515,12 @@ export class SetupWizardModal extends Modal {
       new Notice('CLI를 아직 찾을 수 없습니다. 설치 후 다시 확인해 주세요.');
       return;
     }
-    const state = await this.readCurrentLoginState();
+    const state = await this.readConnectionState();
     if (this.closed) return;
-    // 'unknown' is not success: the CLI offers no way to ask, so the student is
-    // told that instead of being shown a completion screen.
-    if (state === 'logged-in') this.phase = 'done';
-    else if (state === 'logged-out') this.phase = 'login';
+    // 'unknown' is not success: nothing could answer, so the student is told
+    // that instead of being shown a completion screen.
+    if (state === 'connected') this.phase = 'done';
+    else if (state === 'not-connected') this.phase = 'login';
     else this.phase = 'unverified';
     this.render();
   }

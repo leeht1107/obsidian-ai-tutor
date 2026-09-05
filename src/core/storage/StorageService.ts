@@ -12,6 +12,8 @@
 
 import type { App, Plugin } from 'obsidian';
 
+import type { ProviderId } from '../providers/providerRegistry';
+import type { ProviderConnections } from '../setup/providerConnection';
 import type { Conversation, ObsidianCopilotSettings, SlashCommand } from '../types';
 import { DEFAULT_SETTINGS } from '../types';
 import { SESSIONS_PATH, SessionStorage } from './SessionStorage';
@@ -25,6 +27,16 @@ export const COPILOT_PATH = '.copilot';
 /** Machine-specific state stored in Obsidian's data.json. */
 export interface PluginState {
   activeConversationId: string | null;
+  /**
+   * Whether each provider is connected on this machine. Machine state, not
+   * vault settings: it describes this student's install and login, so it must
+   * not travel with a vault shared with a class.
+   */
+  providerConnections?: ProviderConnections;
+  /** Which providers the bundled Obsidian skills were auto-installed for.
+   * Per provider, because each CLI reads a different folder — and machine
+   * state, because it records what this install already did to this vault. */
+  skillsAutoInstalled?: Partial<Record<ProviderId, boolean>>;
 }
 
 const DEFAULT_STATE: PluginState = {
@@ -46,6 +58,8 @@ export class StorageService {
   readonly sessions: SessionStorage;
 
   private adapter: VaultFileAdapter;
+  /** Tail of the serialised data.json write chain; see updateState. */
+  private stateWrites: Promise<void> = Promise.resolve();
   private plugin: Plugin;
   private app: App;
 
@@ -162,6 +176,8 @@ export class StorageService {
       const data = await this.plugin.loadData();
       return {
         activeConversationId: data?.activeConversationId ?? DEFAULT_STATE.activeConversationId,
+        providerConnections: data?.providerConnections ?? undefined,
+        skillsAutoInstalled: data?.skillsAutoInstalled ?? undefined,
       };
     } catch {
       return { ...DEFAULT_STATE };
@@ -173,10 +189,22 @@ export class StorageService {
     await this.plugin.saveData(state);
   }
 
-  /** Update specific state fields in data.json. */
+  /**
+   * Update specific state fields in data.json.
+   *
+   * Serialised, because this is a read-modify-write and the settings tab now
+   * checks four providers at once. Run in parallel, two updates both read the
+   * state as it was before either wrote, and whichever saves last erases the
+   * other one's verdict.
+   */
   async updateState(updates: Partial<PluginState>): Promise<void> {
-    const current = await this.loadState();
-    await this.saveState({ ...current, ...updates });
+    const write = this.stateWrites.then(async () => {
+      const current = await this.loadState();
+      await this.saveState({ ...current, ...updates });
+    });
+    // A rejected write must not wedge every later one behind it.
+    this.stateWrites = write.catch(() => undefined);
+    return write;
   }
 
   /** Ensure all required directories exist. */

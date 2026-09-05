@@ -217,8 +217,14 @@ describe('provider login driver', () => {
       cliPath: cli,
       env: { PIDFILE: pidFile },
     });
-    // Give the fixture a moment to record its helper pid.
-    await new Promise((r) => setTimeout(r, 400));
+    // Poll for the pid file rather than sleeping a fixed interval. A flat 400ms
+    // was enough when this test ran alone and not when the full suite loaded the
+    // machine, which made the whole suite fail intermittently.
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(pidFile) || fs.readFileSync(pidFile, 'utf8').trim().length === 0) {
+      if (Date.now() > deadline) throw new Error('login fixture never recorded its helper pid');
+      await new Promise((r) => setTimeout(r, 25));
+    }
     const descendantPid = Number(fs.readFileSync(pidFile, 'utf8').trim());
     expect(Number.isFinite(descendantPid)).toBe(true);
 

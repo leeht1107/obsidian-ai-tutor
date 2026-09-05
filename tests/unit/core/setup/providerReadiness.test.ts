@@ -50,9 +50,16 @@ describe('provider readiness — real login checks', () => {
   it('knows which CLIs can answer at all', () => {
     expect(hasLoginCheck('claude')).toBe(true);
     expect(hasLoginCheck('codex')).toBe(true);
-    // Neither CLI exposes a status command; guessing would recreate the lying badge.
+    // agy has no auth command, which is why it was once listed as unaskable.
+    // `agy models` asks the account anyway: verified 2026-09-05, it printed a
+    // model list when signed in and "Please sign in to view available models."
+    // under a fresh HOME.
+    expect(hasLoginCheck('agy')).toBe(true);
+    // copilot still cannot be asked. Every non-interactive subcommand answers
+    // from local files — identical output under a fresh HOME — and its only
+    // account-backed surfaces are interactive. Guessing from a credential file
+    // would recreate the lying badge.
     expect(hasLoginCheck('copilot')).toBe(false);
-    expect(hasLoginCheck('agy')).toBe(false);
   });
 
   it('reads claude JSON as logged in', async () => {
@@ -121,25 +128,6 @@ describe('provider readiness — real login checks', () => {
     await expect(checkProviderReadiness('claude', { cliPath: p, timeoutMs: 300 }))
       .resolves.toMatchObject({ state: 'unknown' });
     expect(Date.now() - started).toBeLessThan(3000);
-  });
-});
-
-describe('readiness labels', () => {
-  it('never labels an unverified provider as ready', () => {
-    const { readinessLabel } = jest.requireActual('@/core/setup/providerReadiness');
-    expect(readinessLabel('logged-in')).toBe('로그인됨');
-    expect(readinessLabel('logged-out')).toBe('로그인 필요');
-    expect(readinessLabel('cli-missing')).toBe('설치 필요');
-    // The old badge said 준비됨 here, which is the whole bug.
-    expect(readinessLabel('unknown')).toBe('확인 불가');
-  });
-
-  it('marks only a confirmed login as good', () => {
-    const { isReadyState } = jest.requireActual('@/core/setup/providerReadiness');
-    expect(isReadyState('logged-in')).toBe(true);
-    expect(isReadyState('logged-out')).toBe(false);
-    expect(isReadyState('unknown')).toBe(false);
-    expect(isReadyState('cli-missing')).toBe(false);
   });
 });
 

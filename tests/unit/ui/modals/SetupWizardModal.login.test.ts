@@ -16,16 +16,21 @@ jest.mock('@/core/setup/providerLogin', () => ({
   getLoginRecipe: jest.fn(),
 }));
 jest.mock('@/core/setup/providerReadiness', () => ({
-  checkProviderReadiness: jest.fn(),
   hasLoginCheck: jest.fn(),
+}));
+// The wizard asks for a connection verdict, not a login probe: copilot has no
+// status command but does store a credential, and the probe could only ever
+// answer 'unknown' for it.
+jest.mock('@/core/setup/providerConnection', () => ({
+  checkProviderConnection: jest.fn(),
 }));
 
 import { App } from 'obsidian';
 
 import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager, installNode, startNodeInstall } from '@/core/setup/nodeInstall';
+import { checkProviderConnection } from '@/core/setup/providerConnection';
 import { canDriveLogin, getLoginRecipe, startProviderLogin } from '@/core/setup/providerLogin';
-import { checkProviderReadiness } from '@/core/setup/providerReadiness';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { SetupWizardModal } from '@/ui/modals/SetupWizardModal';
 
@@ -42,7 +47,7 @@ describe('SetupWizardModal — install and login are actually driven', () => {
   const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
   const startLogin = startProviderLogin as jest.MockedFunction<typeof startProviderLogin>;
   const recipe = getLoginRecipe as jest.MockedFunction<typeof getLoginRecipe>;
-  const readiness = checkProviderReadiness as jest.MockedFunction<typeof checkProviderReadiness>;
+  const connection = checkProviderConnection as jest.MockedFunction<typeof checkProviderConnection>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -52,7 +57,7 @@ describe('SetupWizardModal — install and login are actually driven', () => {
     nodeInstall.mockResolvedValue({ success: true });
     canDrive.mockReturnValue(true);
     recipe.mockReturnValue({ args: ['login', '--device-auth'], expectsPastedCode: false });
-    readiness.mockResolvedValue({ state: 'logged-in' });
+    connection.mockResolvedValue('connected');
     startLogin.mockReturnValue({
       submitCode: jest.fn(),
       cancel: jest.fn(),
@@ -112,12 +117,12 @@ describe('SetupWizardModal — install and login are actually driven', () => {
     await wizard.runInstall();
     await wizard.beginLogin();
 
-    expect(readiness).toHaveBeenCalledWith('codex', expect.any(Object));
+    expect(connection).toHaveBeenCalledWith('codex', expect.any(Object));
     expect(wizard.phase).toBe('done');
   });
 
   it('does not declare success when the CLI still reports logged out', async () => {
-    readiness.mockResolvedValue({ state: 'logged-out' });
+    connection.mockResolvedValue('not-connected');
     const wizard = makeWizard();
     await wizard.chooseProvider('codex');
     await wizard.runInstall();
@@ -150,7 +155,7 @@ describe('SetupWizardModal — review regressions', () => {
   const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
   const startLogin = startProviderLogin as jest.MockedFunction<typeof startProviderLogin>;
   const recipe = getLoginRecipe as jest.MockedFunction<typeof getLoginRecipe>;
-  const readiness = checkProviderReadiness as jest.MockedFunction<typeof checkProviderReadiness>;
+  const connection = checkProviderConnection as jest.MockedFunction<typeof checkProviderConnection>;
   const startNode = startNodeInstall as jest.MockedFunction<typeof startNodeInstall>;
   const detectPm = detectPackageManager as jest.MockedFunction<typeof detectPackageManager>;
 
@@ -160,7 +165,7 @@ describe('SetupWizardModal — review regressions', () => {
     install.mockReturnValue({ cancel: jest.fn(), done: Promise.resolve({ success: true, cliPath: '/usr/local/bin/codex' }) });
     canDrive.mockReturnValue(true);
     recipe.mockReturnValue({ args: ['login', '--device-auth'], expectsPastedCode: false });
-    readiness.mockResolvedValue({ state: 'logged-in' });
+    connection.mockResolvedValue('connected');
     detectPm.mockReturnValue(null);
     startNode.mockReturnValue({ cancel: jest.fn(), done: Promise.resolve({ success: true }) });
     startLogin.mockReturnValue({
@@ -189,7 +194,7 @@ describe('SetupWizardModal — review regressions', () => {
 
   it('does not claim setup is done when the CLI cannot confirm a login', async () => {
     // copilot and agy expose no status command. Exiting 0 is not proof.
-    readiness.mockResolvedValue({ state: 'unknown' });
+    connection.mockResolvedValue('unknown');
     const wizard = makeWizard();
     await wizard.chooseProvider('codex');
     await wizard.runInstall();
@@ -200,7 +205,7 @@ describe('SetupWizardModal — review regressions', () => {
   });
 
   it('does not claim setup is done when 다시 확인 cannot confirm a login', async () => {
-    readiness.mockResolvedValue({ state: 'unknown' });
+    connection.mockResolvedValue('unknown');
     const wizard = makeWizard();
     wizard.plugin.settings.selectedProvider = 'copilot';
     jest.spyOn(wizard, 'hasSelectedProviderCli').mockReturnValue(true);
@@ -278,23 +283,48 @@ describe('SetupWizardModal — review regressions', () => {
     const loginDone = wizard.beginLogin();
 
     closeForReal(wizard);
-    readiness.mockClear();
+    connection.mockClear();
     finishLogin({ success: false, exitCode: null, output: '', error: 'cancelled' });
     await loginDone;
 
     // A status check here spawns a real CLI behind a closed window.
-    expect(readiness).not.toHaveBeenCalled();
+    expect(connection).not.toHaveBeenCalled();
   });
 
   it('sends an installed but unaskable provider to the unverified screen, not to login', async () => {
-    // agy and copilot have no login command to drive; offering one is a dead end.
+    // agy has no login command to drive; offering one is a dead end.
     setupStatus.mockReturnValue({ cliFound: true, npmFound: true, status: 'ready' });
-    readiness.mockResolvedValue({ state: 'unknown' });
+    connection.mockResolvedValue('unknown');
     const wizard = makeWizard();
 
     await wizard.chooseProvider('agy');
 
     expect(wizard.phase).toBe('unverified');
+  });
+
+  /**
+   * The screen Mark hit: copilot was installed, so the wizard asked the login
+   * probe, which cannot answer for copilot, and showed "로그인 여부를 확인할 수
+   * 없습니다" with a command to copy — never offering the login it can drive.
+   */
+  it('offers copilot the login it can drive instead of a command to copy', async () => {
+    setupStatus.mockReturnValue({ cliFound: true, npmFound: true, status: 'ready' });
+    connection.mockResolvedValue('not-connected');
+    const wizard = makeWizard();
+
+    await wizard.chooseProvider('copilot');
+
+    expect(wizard.phase).toBe('login');
+  });
+
+  it('finishes as soon as copilot has a credential', async () => {
+    setupStatus.mockReturnValue({ cliFound: true, npmFound: true, status: 'ready' });
+    connection.mockResolvedValue('connected');
+    const wizard = makeWizard();
+
+    await wizard.chooseProvider('copilot');
+
+    expect(wizard.phase).toBe('done');
   });
 
   it('keeps a half-typed code when the CLI prints another line', () => {
@@ -327,7 +357,7 @@ describe('SetupWizardModal — review regressions', () => {
       done: new Promise((r) => { finishLogin = r; }),
     });
     // A stale logged-in status would otherwise carry a cancelled login to 'done'.
-    readiness.mockResolvedValue({ state: 'logged-in' });
+    connection.mockResolvedValue('connected');
 
     const wizard = makeWizard();
     await wizard.chooseProvider('codex');
