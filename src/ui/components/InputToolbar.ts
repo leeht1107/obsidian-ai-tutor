@@ -9,6 +9,8 @@ import {
   type ProviderId,
   type ProviderModelOption,
   supportsEffortSelection,
+  supportsReadOnlyMode,
+  writesWithoutAsking,
 } from '../../core/providers/providerRegistry';
 import type {
   CopilotModel,
@@ -31,6 +33,7 @@ export interface ToolbarSettings {
   lastNonPlanPermissionMode?: 'agent' | 'ask';
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
+  blanketWriteAcknowledged?: string[];
 }
 
 /**
@@ -46,6 +49,7 @@ export function toToolbarSettings(settings: {
   lastNonPlanPermissionMode?: 'agent' | 'ask';
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
+  blanketWriteAcknowledged?: string[];
 }): ToolbarSettings {
   return {
     model: settings.model,
@@ -55,6 +59,7 @@ export function toToolbarSettings(settings: {
     lastNonPlanPermissionMode: settings.lastNonPlanPermissionMode,
     providerModels: settings.providerModels,
     providerEfforts: settings.providerEfforts,
+    blanketWriteAcknowledged: settings.blanketWriteAcknowledged,
   };
 }
 
@@ -71,6 +76,8 @@ export interface ToolbarCallbacks {
   getEnvironmentVariables?: () => string;
   isAgentInitiatedPlanMode?: () => boolean;
   isPlanModeRequested?: () => boolean;
+  /** Ask the student, in a dialog they must answer, before a blanket-write provider may write. */
+  confirmBlanketWrite?: (provider: ProviderId) => Promise<boolean>;
 }
 
 type CostBucket = 'best' | '0x' | '0.33x' | '1x' | '3x';
@@ -517,18 +524,39 @@ export class PermissionToggle {
     if (!this.toggleEl || !this.labelEl) return;
 
     this.container.removeClass('plan-mode');
+    this.container.removeClass('is-unavailable');
     this.labelEl.empty();
 
-    const mode = this.callbacks.getSettings().permissionMode;
-    if (mode === 'plan') {
-      this.container.addClass('plan-mode');
-      this.toggleEl.removeClass('active');
-      const iconEl = this.labelEl.createSpan({ cls: 'ocop-plan-mode-icon' });
-      iconEl.textContent = '▎▎';
-      iconEl.style.fontSize = '0.8em';
-      iconEl.style.letterSpacing = '-4px';
-      this.labelEl.createSpan({ text: 'Plan' });
-    } else if (mode === 'agent') {
+    // codex writes files even when asked for read-only, so the toggle would be a
+    // guardrail that is not there. It is shown, disabled, with the reason.
+    if (!supportsReadOnlyMode(this.callbacks.getSettings().selectedProvider as ProviderId)) {
+      this.container.addClass('is-unavailable');
+      this.toggleEl.addClass('active');
+      this.labelEl.setText('Agent');
+      this.container.setAttribute('aria-disabled', 'true');
+      this.container.setAttribute('title', '이 CLI는 읽기 전용을 지원하지 않습니다. 읽기만 시키려면 다른 provider를 고르세요.');
+      return;
+    }
+    this.container.removeAttribute('aria-disabled');
+    const provider = this.callbacks.getSettings().selectedProvider as ProviderId;
+    const blocked = this.needsBlanketWriteConsent(provider);
+    // agy has no middle setting: headless, it either cannot use a tool at all or
+    // auto-approves every one. A student turning on Agent should know which.
+    if (provider === 'agy') {
+      this.container.setAttribute('title', 'Agent로 두면 Antigravity가 금고 안에서 모든 도구를 확인 없이 사용합니다. Ask면 아무것도 고치지 않습니다.');
+    } else {
+      this.container.removeAttribute('title');
+    }
+
+    // Plan was a third label for the same read-only restriction and is no longer
+    // offered. A setting saved as 'plan' reads and behaves as Ask, so it can never
+    // present as one thing and become another on the next click.
+    //
+    // A provider awaiting consent dispatches read-only whatever the stored mode is,
+    // so it must READ as Ask. Showing Agent there was the same class of lie as the
+    // rows that did nothing: the label promised what the request would not do.
+    const mode = blocked ? 'ask' : this.callbacks.getSettings().permissionMode;
+    if (mode === 'agent') {
       this.toggleEl.addClass('active');
       this.labelEl.setText('Agent');
     } else {
@@ -538,19 +566,37 @@ export class PermissionToggle {
   }
 
   private async toggle() {
-    const current = this.callbacks.getSettings().permissionMode;
-    let next: PermissionMode;
+    const settings = this.callbacks.getSettings();
+    const provider = settings.selectedProvider as ProviderId;
+    if (!supportsReadOnlyMode(provider)) {
+      new Notice('이 CLI는 읽기 전용을 지원하지 않습니다. 읽기만 시키려면 다른 provider를 고르세요.');
+      return;
+    }
+    // Two states only: read-only, or allowed to write. Plan was a third label for
+    // the same read-only restriction and is normalised to Ask when settings load.
+    // The click acts on the state the student can SEE, so a provider awaiting
+    // consent moves toward Agent on the first click rather than the second.
+    const shown: PermissionMode = this.needsBlanketWriteConsent(provider) ? 'ask' : settings.permissionMode;
+    const next: PermissionMode = shown === 'agent' ? 'ask' : 'agent';
 
-    if (current === 'agent') {
-      next = 'plan';
-    } else if (current === 'plan') {
-      next = 'ask';
-    } else {
-      next = 'agent';
+    // A provider with no per-tool permission is asked about once, in a dialog the
+    // student has to answer. A tooltip they may never hover is not consent.
+    if (next === 'agent' && this.needsBlanketWriteConsent(provider)) {
+      const accepted = await this.callbacks.confirmBlanketWrite?.(provider);
+      if (!accepted) {
+        this.updateDisplay();
+        return;
+      }
     }
 
     await this.callbacks.onPermissionModeChange(next);
     this.updateDisplay();
+  }
+
+  private needsBlanketWriteConsent(provider: ProviderId): boolean {
+    if (!writesWithoutAsking(provider)) return false;
+    const acknowledged = this.callbacks.getSettings().blanketWriteAcknowledged;
+    return !(Array.isArray(acknowledged) && acknowledged.includes(provider));
   }
 
   async togglePlanMode() {

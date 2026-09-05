@@ -18,7 +18,11 @@ import {
   parseCodexModels,
   type ProviderId,
   type ProviderModelOption,
+  resolveNativeSelection,
+  supportsReadOnlyMode,
+  writesWithoutAsking,
 } from '../providers/providerRegistry';
+import type { RequestOutcome } from '../setup/providerConnection';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -29,6 +33,7 @@ import type {
   UsageInfo,
 } from '../types';
 import { THINKING_BUDGETS } from '../types';
+import { classifyCopilotFailure, copilotRequestOutcome } from './copilotOutcome';
 
 export interface QueryOptions {
   allowedTools?: string[];
@@ -295,6 +300,8 @@ interface CopilotCliCapabilities {
   outputFormatJson: boolean;
   stream: boolean;
   resume: boolean;
+  /** `--session-id` accepts a UUID we invented; `--resume` does not. */
+  sessionId: boolean;
   model: boolean;
   denyTool: boolean;
   availableTools: boolean;
@@ -312,6 +319,30 @@ function stripWrappingQuotes(value: string): string {
   return value;
 }
 
+/**
+ * How to ask copilot to continue a conversation.
+ *
+ * The plugin owns the conversation UUID, so it used to pass it to `--resume` —
+ * which fails on the first request of every new chat, because copilot has no
+ * session by that id yet:
+ *   Error: No session, task, or name matched '<uuid>'.
+ * `--session-id` is documented as "Resume an existing session or task by ID, or
+ * set the UUID for a new session", and was confirmed against the real CLI to
+ * accept a fresh UUID and then recall context on a second call with the same one.
+ *
+ * @param confirmed whether copilot itself reported this id. Only then is
+ * `--resume` safe on a CLI too old to have `--session-id`.
+ */
+export function sessionArgs(
+  capabilities: Pick<CopilotCliCapabilities, 'resume' | 'sessionId'>,
+  sessionId: string,
+  confirmed = false
+): string[] {
+  if (capabilities.sessionId) return ['--session-id', sessionId];
+  if (capabilities.resume && confirmed) return ['--resume', sessionId];
+  return [];
+}
+
 export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabilities {
   return {
     noAskUser: helpText.includes('--no-ask-user'),
@@ -319,6 +350,7 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
     outputFormatJson: helpText.includes('--output-format') && helpText.includes('json'),
     stream: helpText.includes('--stream'),
     resume: helpText.includes('--resume'),
+    sessionId: helpText.includes('--session-id'),
     model: helpText.includes('--model'),
     denyTool: helpText.includes('--deny-tool'),
     availableTools: helpText.includes('--available-tools'),
@@ -328,16 +360,33 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
 }
 
 export class CopilotBridgeService {
+  /**
+   * Told what each real request did, so a CLI that cannot be asked about login
+   * still has honest evidence behind its badge. Set by the plugin at startup.
+   */
+  onOutcome?: (providerId: ProviderId, outcome: RequestOutcome) => void;
+  /**
+   * Something changed what the CLI is allowed to do, and the student must see it.
+   * A callback rather than a Notice because this file must not reach into the UI,
+   * and rather than a stream chunk because the conversation is the model's own
+   * transcript — a warning written there is replayed as if the model had said it.
+   */
+  onPermissionNotice?: (message: string) => void;
   private plugin: ObsidianCopilotPlugin;
   private currentProcess: ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private sessionId: string | null = null;
+  /** True once copilot has reported this session id itself. A locally invented
+   * id must never be handed to --resume. */
+  private sessionConfirmedByCli = false;
   private wasInterrupted = false;
   private cachedCopilotPath: string | null | undefined = undefined;
   private cachedCapabilities = new Map<string, CopilotCliCapabilities>();
   private capabilityProbePromises = new Map<string, Promise<CopilotCliCapabilities>>();
 
   private exitPlanModeCallback: ExitPlanModeCallback | null = null;
+  /** The last permission notice shown per provider, so the same one is not repeated. */
+  private readonly shownPermissionNotices = new Map<ProviderId, string>();
   private currentPlanFilePath: string | null = null;
   private approvedPlanContent: string | null = null;
   private askUserQuestionAnswers = new Map<string, Record<string, string | string[]>>();
@@ -413,6 +462,7 @@ export class CopilotBridgeService {
     if (this.wasInterrupted && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
       this.sessionId = null;
+      this.sessionConfirmedByCli = false;
       this.wasInterrupted = false;
       return historyContext ? `${historyContext}\n\nUser: ${injectedPrompt}` : injectedPrompt;
     }
@@ -492,6 +542,7 @@ export class CopilotBridgeService {
         timeout: CLI_CAPABILITY_PROBE_TIMEOUT_MS,
         // shell:true only needed as fallback when .cmd shim resolution fails
         shell: !probeShim && process.platform === 'win32',
+        windowsHide: true,
       }, (error, stdout, stderr) => {
         const helpText = typeof stdout === 'string' && stdout.trim().length > 0
           ? stdout
@@ -608,8 +659,8 @@ export class CopilotBridgeService {
     if (capabilities.outputFormatJson) {
       args.push('--output-format', 'json');
     }
-    if (capabilities.resume && !queryOptions?.skipResume) {
-      args.push('--resume', sessionId);
+    if (!queryOptions?.skipResume) {
+      args.push(...sessionArgs(capabilities, sessionId, this.sessionConfirmedByCli));
     }
     args.push('-p', fullPrompt, '-s');
     if (capabilities.stream) {
@@ -697,9 +748,37 @@ export class CopilotBridgeService {
     }
 
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
-    const modelOverride = queryOptions?.model?.trim() || this.plugin.settings.providerModels?.[provider]?.trim() || '';
-    const effortOverride = this.plugin.settings.providerEfforts?.[provider]?.trim() || '';
-    const native = buildNativeProviderCommand(provider, fullPrompt, modelOverride, effortOverride);
+    const selection = resolveNativeSelection(this.plugin.settings, queryOptions?.model);
+    // Plan mode is a read-only exploration, so it maps to the same restriction as Ask.
+    // A provider that cannot be held read-only gets `agent` whatever the toggle says;
+    // pretending otherwise would be a guardrail that is not there.
+    const mode = this.plugin.settings.permissionMode;
+    const wantsReadOnly = mode === 'ask' || mode === 'plan' || Boolean(queryOptions?.planMode);
+    // The consent gate lives here, not on the toggle: Agent is the default mode, so a
+    // student who never touched the toggle would otherwise reach a blanket-write CLI
+    // simply by selecting it. Until they have confirmed, this provider runs read-only.
+    const acknowledged = this.plugin.settings.blanketWriteAcknowledged;
+    // A hand-edited settings file can leave anything here, and `undefined.includes`
+    // would take the request down rather than fall back to the safe answer.
+    const needsConsent = writesWithoutAsking(provider)
+      && !(Array.isArray(acknowledged) && acknowledged.includes(provider));
+    const permissionMode = (wantsReadOnly && supportsReadOnlyMode(provider)) || needsConsent ? 'ask' : 'agent';
+
+    // Both of these change what the CLI is allowed to do, so neither may be silent.
+    // A Notice rather than a stream chunk: the conversation is the model's transcript,
+    // and a warning written into it would be replayed back as if the model had said it.
+    // Once per provider per session. Repeating it on every question would train the
+    // student to dismiss the one notice that changes what the CLI may do.
+    const notice = needsConsent && !wantsReadOnly
+      ? `${provider}에 파일을 고칠 권한을 주려면 Ask/Agent 토글을 눌러 확인해 주세요. 지금은 읽기 전용으로 실행합니다.`
+      : wantsReadOnly && !supportsReadOnlyMode(provider)
+        ? `${provider}는 읽기 전용으로 제한할 수 없습니다. 파일을 고칠 수 있는 상태로 실행합니다.`
+        : '';
+    if (notice && this.shownPermissionNotices.get(provider) !== notice) {
+      this.shownPermissionNotices.set(provider, notice);
+      this.onPermissionNotice?.(notice);
+    }
+    const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode);
     const cmdShim = resolveCmdShim(cliPath);
     const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
     let child: ChildProcess;
@@ -717,6 +796,8 @@ export class CopilotBridgeService {
       })(),
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: !cmdShim && process.platform === 'win32',
+      // No console window should flash on a student's screen per request.
+      windowsHide: true,
       });
     } catch (error) {
       yield { type: 'error', content: `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}` };
@@ -772,7 +853,13 @@ export class CopilotBridgeService {
       // on success (codex prints "Reading additional input from stdin..." on every run),
       // and surfacing those as an error bubble made healthy runs look broken. A user-
       // requested stop is not a failure either, even though SIGTERM reports code === null.
+      if (!this.wasInterrupted && exitCode === 0) {
+        this.onOutcome?.(provider, 'ok');
+      }
       if (!this.wasInterrupted && exitCode !== 0) {
+        // Only 'failed'. These CLIs have no auth string we have verified, and
+        // inventing one would be a guess about the student's login.
+        this.onOutcome?.(provider, 'failed');
         // Never silent: a CLI that dies without writing to stderr would otherwise render
         // as an empty but successful answer.
         yield {
@@ -837,6 +924,8 @@ export class CopilotBridgeService {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: !cmdShim && process.platform === 'win32',
+        // No console window should flash on a student's screen per request.
+        windowsHide: true,
       });
     } catch (spawnErr) {
       // spawn() throws synchronously for invalid args/cwd (e.g. EINVAL on Windows).
@@ -897,14 +986,14 @@ export class CopilotBridgeService {
           chunks.push({ type: 'text', content: stdoutBuffer });
         }
       }
+      // Read before the error below is appended, so the answer is judged on
+      // what it already carried.
+      const sawErrorChunk = chunks.some((chunk) => chunk.type === 'error');
+      this.onOutcome?.('copilot', copilotRequestOutcome(code, stderrBuffer, sawErrorChunk));
       if (code !== 0 && stderrBuffer.trim()) {
-        const rawError = stderrBuffer.trim();
-        const formattedError = rawError.includes('No authentication information found')
-            ? 'GitHub Copilot authentication required. Please run "copilot" in terminal and use /login to authenticate.'
-            : rawError;
         chunks.push({
           type: 'error',
-          content: formattedError,
+          content: classifyCopilotFailure(stderrBuffer.trim()).message,
         });
       }
       resolveWait?.();
@@ -966,6 +1055,7 @@ export class CopilotBridgeService {
   private translateCopilotEvent(event: CopilotJsonEvent): StreamChunk[] {
     const chunks = translateCopilotJsonEvent(event, (sessionId) => {
       this.sessionId = sessionId;
+      this.sessionConfirmedByCli = true;
     });
 
     // Normalize MCP tool names: "context7-resolve-library-id" → "mcp__context7__resolve-library-id"
@@ -998,6 +1088,7 @@ export class CopilotBridgeService {
 
   resetSession(): void {
     this.sessionId = null;
+    this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
     this.askUserQuestionAnswers.clear();
     this.approvedPlanContent = null;

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { getEnhancedPath } from '../../utils/env';
+import { expandHomePath } from '../../utils/path';
 
 export type ProviderId = 'copilot' | 'claude' | 'codex' | 'agy';
 export type ProviderStatus = 'ready' | 'not-installed' | 'manual-setup' | 'unsupported';
@@ -96,6 +97,43 @@ export function supportsEffortSelection(id: ProviderId): boolean {
   return getProviderEffortLevels(id).length > 0;
 }
 
+/** Where the settings tab can get a provider's model list from. */
+export type DefaultModelSource =
+  /** The bundled Copilot catalog. */
+  | 'copilot-catalog'
+  /** A fixed list shipped here; no process needed. */
+  | 'bundled'
+  /** Only the CLI knows, and asking it spawns one. */
+  | 'ask-cli';
+
+export function defaultModelSource(id: ProviderId): DefaultModelSource {
+  if (id === 'copilot') return 'copilot-catalog';
+  return getStaticProviderModels(id).length > 0 ? 'bundled' : 'ask-cli';
+}
+
+/**
+ * Store a chosen default model where the request path will actually read it.
+ *
+ * copilot's model is `settings.model`, from the bundled catalog. Every other
+ * provider dispatches from `settings.providerModels[id]`, so writing a native
+ * choice into `settings.model` changed nothing the student could see — and
+ * offering them a Copilot id was worse than useless: `claude --model gpt-5-mini`
+ * is rejected outright.
+ */
+export function storeDefaultModel(
+  settings: { model: string; providerModels?: Partial<Record<ProviderId, string>> },
+  id: ProviderId,
+  value: string
+): void {
+  if (id === 'copilot') { settings.model = value; return; }
+  const models = { ...settings.providerModels };
+  // An empty choice means "let the CLI decide", which is the absence of a
+  // pinned model rather than a model whose id is the empty string.
+  if (value.trim()) models[id] = value.trim();
+  else delete models[id];
+  settings.providerModels = models;
+}
+
 export function getStaticProviderModels(id: ProviderId): readonly ProviderModelOption[] {
   return STATIC_PROVIDER_MODELS[id] ?? [];
 }
@@ -169,7 +207,61 @@ export function getProviderDescriptor(id: ProviderId): ProviderDescriptor {
   return PROVIDERS.find((provider) => provider.id === id) ?? PROVIDERS[0];
 }
 
-export function buildNativeProviderCommand(id: ProviderId, prompt: string, model = '', effort = ''): { command: string; args: string[] } {
+/**
+ * What the chat toolbar's provider / model / effort picks turn into for one request.
+ * The toolbar writes them per provider, so switching provider must not carry the
+ * previous one's model across.
+ */
+export function resolveNativeSelection(
+  settings: {
+    selectedProvider: ProviderId;
+    providerModels?: Partial<Record<ProviderId, string>>;
+    providerEfforts?: Partial<Record<ProviderId, string>>;
+  },
+  requestedModel?: string
+): { provider: ProviderId; model: string; effort: string } {
+  const provider = settings.selectedProvider;
+  return {
+    provider,
+    model: requestedModel?.trim() || settings.providerModels?.[provider]?.trim() || '',
+    effort: settings.providerEfforts?.[provider]?.trim() || '',
+  };
+}
+
+/**
+ * Whether asking this CLI for read-only actually holds it to read-only.
+ *
+ * Measured 2026-09-05 by asking each CLI in `-p` mode to create a file:
+ * claude refuses under `--disallowedTools`, agy cannot write headless at all,
+ * copilot has `--deny-tool`. codex wrote the file under `-s read-only` — that
+ * flag governs only model-generated shell commands, not its own edit tool, and
+ * no `tools.*` config key exists to switch that tool off.
+ */
+export function supportsReadOnlyMode(id: ProviderId): boolean {
+  return id !== 'codex';
+}
+
+/**
+ * Whether letting this CLI write means auto-approving every tool it has.
+ *
+ * agy cannot ask for a permission headless, so `--dangerously-skip-permissions`
+ * is the only thing that lets it write at all — there is no per-tool middle
+ * setting to fall back on. A student should confirm that once, in writing.
+ */
+export function writesWithoutAsking(id: ProviderId): boolean {
+  return id === 'agy';
+}
+
+/** What the chat toolbar's Ask / Agent choice means to a CLI. */
+export type NativePermissionMode = 'ask' | 'agent';
+
+export function buildNativeProviderCommand(
+  id: ProviderId,
+  prompt: string,
+  model = '',
+  effort = '',
+  permissionMode: NativePermissionMode = 'agent'
+): { command: string; args: string[] } {
   const selectedModel = model.trim();
   // A level this CLI never validated is dropped rather than passed through: agy aborts the
   // run on an unknown --effort, and codex would fail the request at the API enum.
@@ -178,21 +270,46 @@ export function buildNativeProviderCommand(id: ProviderId, prompt: string, model
   // for agy it already encodes the level. Sending both aborts the run.
   if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = '';
   const modelArgs = selectedModel ? ['--model', selectedModel] : [];
+  const readOnly = permissionMode === 'ask';
   switch (id) {
-    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
+    // A positive `--allowedTools` list did NOT stop claude writing; only the
+    // disallow list did. The three names go in ONE comma-separated argument: the
+    // flag is variadic, so `--disallowedTools Write Edit Bash <prompt>` eats the
+    // prompt and the run dies with "Input must be provided ... as a prompt argument".
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
-    case 'codex': return { command: 'codex', args: ['exec', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '--json', prompt] };
-    case 'agy': return { command: 'agy', args: [...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '-p', prompt] };
+    // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
+    // repository, and a student's vault usually is not one.
+    case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '--json', prompt] };
+    // agy cannot use a writing tool headless — it has no way to ask permission — so
+    // read-only is its default and this flag is the only thing that lifts it.
+    case 'agy': return { command: 'agy', args: [...(readOnly ? [] : ['--dangerously-skip-permissions']), ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '-p', prompt] };
     case 'copilot': return { command: 'copilot', args: ['-p', prompt] };
   }
 }
 
 export function findProviderCliPath(id: ProviderId, customPath = ''): string | null {
-  if (customPath.trim()) return isFile(customPath.trim()) ? customPath.trim() : null;
+  const configured = customPath.trim();
+  if (configured) {
+    // The settings field validates what was typed through expandHomePath, so a
+    // student who pastes `~/bin/copilot` sees no error. Stat'ing the literal
+    // string here accepted that path and then failed every check and request.
+    const resolved = expandHomePath(configured);
+    return isFile(resolved) ? resolved : null;
+  }
   const descriptor = getProviderDescriptor(id);
   const delimiter = process.platform === 'win32' ? ';' : ':';
+  // .exe before .cmd. A .cmd shim can only be run through cmd.exe or by
+  // parsing the shim to find its .js target, and the cmd.exe path mangles
+  // quotes, %, ^, & and Korean text in a long prompt. obsidian-copilot refuses
+  // .cmd entirely for the same reason ("requires shell: true and breaks SDK
+  // stdio streaming"); we keep it as a last resort so npm-only installs work.
+  // The extensionless name goes LAST on Windows. npm global installs drop
+  // `claude`, `claude.cmd` and `claude.ps1` side by side, and the
+  // extensionless one is a bash script Windows cannot run: cmd.exe will not
+  // execute a file with no extension, and resolveCmdShim only reads .cmd.
   const names = process.platform === 'win32'
-    ? [descriptor.command, `${descriptor.command}.cmd`, `${descriptor.command}.exe`]
+    ? [`${descriptor.command}.exe`, `${descriptor.command}.cmd`, descriptor.command]
     : [descriptor.command];
   for (const dir of getEnhancedPath().split(delimiter)) {
     for (const name of names) {

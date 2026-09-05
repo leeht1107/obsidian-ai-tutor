@@ -1,6 +1,7 @@
 import {
   detectCopilotCliCapabilities,
   resolveCopilotAllowedTools,
+  sessionArgs,
   shouldUseCopilotAllowAllTools,
   translateCopilotJsonEvent,
 } from '@/core/agent/CopilotBridgeService';
@@ -14,6 +15,7 @@ describe('CopilotBridgeService helpers', () => {
         --output-format <format>
         --stream <mode>
         --resume [sessionId]
+        --session-id <id>
         --model <model>
         --deny-tool [tools...]
         --available-tools [tools...]
@@ -27,6 +29,7 @@ describe('CopilotBridgeService helpers', () => {
         outputFormatJson: true,
         stream: true,
         resume: true,
+        sessionId: true,
         model: true,
         denyTool: true,
         availableTools: true,
@@ -42,6 +45,7 @@ describe('CopilotBridgeService helpers', () => {
         outputFormatJson: false,
         stream: false,
         resume: false,
+        sessionId: false,
         model: false,
         denyTool: false,
         availableTools: false,
@@ -228,5 +232,40 @@ describe('CopilotBridgeService helpers', () => {
         exitCode: 2,
       })).toEqual([{ type: 'error', content: 'Copilot exited with code 2' }]);
     });
+  });
+});
+
+/**
+ * Session continuity with copilot.
+ *
+ * The plugin generates its own conversation UUID, then asked copilot to
+ * `--resume` it. copilot has no such session on the first request of a
+ * conversation, so every new chat opened with:
+ *
+ *   Error: No session, task, or name matched '<uuid>'.
+ *
+ * Reproduced against the real CLI on 2026-09-05, along with the fix:
+ * `--session-id <uuid>` is documented as "Resume an existing session or task by
+ * ID, or set the UUID for a new session", and it accepted a fresh UUID, then
+ * recalled a number across a second call with the same UUID.
+ */
+describe('copilot session flag selection', () => {
+  it('prefers --session-id, which accepts a UUID the plugin invented', () => {
+    const capabilities = detectCopilotCliCapabilities('--resume[=value]  --session-id <id>');
+    expect(capabilities.sessionId).toBe(true);
+    expect(sessionArgs(capabilities, 'abc-123')).toEqual(['--session-id', 'abc-123']);
+  });
+
+  it('never resumes an id copilot has not confirmed, on an older CLI without --session-id', () => {
+    const capabilities = detectCopilotCliCapabilities('--resume[=value]');
+    expect(capabilities.sessionId).toBe(false);
+    // Nothing: a locally generated id would fail, and the real id is captured
+    // from copilot's own output for the next request.
+    expect(sessionArgs(capabilities, 'abc-123')).toEqual([]);
+  });
+
+  it('resumes a confirmed id on an older CLI', () => {
+    const capabilities = detectCopilotCliCapabilities('--resume[=value]');
+    expect(sessionArgs(capabilities, 'abc-123', true)).toEqual(['--resume', 'abc-123']);
   });
 });

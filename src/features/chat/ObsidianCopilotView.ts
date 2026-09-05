@@ -2,8 +2,8 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
-import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
-import { checkProviderReadiness, isReadyState, type LoginState, readinessLabel } from '../../core/setup/providerReadiness';
+import { findProviderCliPath, getProviderDescriptor, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
+import { connectionLabel } from '../../core/setup/providerConnection';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
   COPILOT_MODELS,
@@ -33,6 +33,7 @@ import {
 } from '../../ui';
 import { QuizSetupModal, SocraticSetupModal } from '../../ui';
 import { MentionHighlighter } from '../../ui/components/MentionHighlighter';
+import { BlanketWriteConsentModal } from '../../ui/modals';
 import { getVaultPath } from '../../utils/path';
 import { LOGO_SVG, PROVIDER_MARKS } from './constants';
 import {
@@ -283,6 +284,17 @@ export class ObsidianCopilotView extends ItemView {
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => this.state.planModeState?.agentInitiated ?? false,
       isPlanModeRequested: () => this.state.planModeRequested,
+      confirmBlanketWrite: async (provider) => {
+        const accepted = await new Promise<boolean>((resolve) => {
+          new BlanketWriteConsentModal(this.app, getProviderDescriptor(provider).label, resolve).open();
+        });
+        if (!accepted) return false;
+        const acknowledged = new Set(this.plugin.settings.blanketWriteAcknowledged ?? []);
+        acknowledged.add(provider);
+        this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
+        await this.plugin.saveSettings();
+        return true;
+      },
       onModelChange: async (model: CopilotModel) => {
         this.plugin.settings.model = model;
         const isDefaultModel = COPILOT_MODELS.find((m) => m.value === model);
@@ -706,9 +718,24 @@ export class ObsidianCopilotView extends ItemView {
   }
 }
 
+/**
+ * Open the install/login wizard. Imported lazily so the settings tab and the
+ * provider popover can both reach it without pulling the modal into startup.
+ */
+type ProviderSelectorPlugin = Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings' | 'app' | 'agentService' | 'providerConnections'>;
+
+async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: ProviderId): Promise<void> {
+  try {
+    const { SetupWizardModal } = await import('../../ui/modals/SetupWizardModal');
+    new SetupWizardModal(plugin.app, plugin as ObsidianCopilotPlugin, target).open();
+  } catch (err) {
+    console.warn('[ObsidianCopilot] Setup wizard failed to open:', err);
+  }
+}
+
 export function createProviderSelector(
   toolbar: HTMLElement,
-  plugin: Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings'>,
+  plugin: ProviderSelectorPlugin,
   onProviderChange?: (provider: ProviderId) => void,
   registerDocumentClick?: (handler: (event: MouseEvent) => void) => void
 ): HTMLElement {
@@ -719,18 +746,17 @@ export function createProviderSelector(
   const updateButton = () => {
     const provider = PROVIDERS.find((item) => item.id === plugin.settings.selectedProvider) ?? PROVIDERS[0];
     button.empty();
-    const mark = button.createSpan({ cls: 'ocop-provider-mark' });
+    const mark = button.createSpan({ cls: `ocop-provider-mark is-${provider.id}` });
     mark.innerHTML = PROVIDER_MARKS[provider.id];
     button.createSpan({ cls: 'ocop-provider-btn-label', text: provider.label });
     button.createSpan({ cls: 'ocop-provider-btn-chevron', text: '⌄' });
   };
   const close = () => { popover.removeClass('is-visible'); button.setAttribute('aria-expanded', 'false'); };
-  // Probing spawns real CLI processes, so it is confined to an explicit open.
-  // The initial render below builds the same markup with probing switched off.
-  // Reopening while a probe is still running reuses it rather than spawning a
-  // second copy, so toggling the menu cannot pile up child processes.
-  const inFlight = new Map<ProviderId, Promise<{ state: string }>>();
-  const renderPopover = (probe = true) => {
+  // This menu spawns nothing. It used to run a login probe per installed CLI on
+  // every open — slow, and unanswerable for copilot, which has no status
+  // command and so always read 확인 불가. Settings owns the check now; this
+  // draws what it stored, corrected by whatever the last real request did.
+  const renderPopover = () => {
     popover.empty();
     setupHint = null;
     popover.createDiv({ cls: 'ocop-provider-popover-title', text: 'AI 제공자' });
@@ -743,26 +769,15 @@ export function createProviderSelector(
       // actually work is a separate question, asked of the CLI below.
       const ready = !!findProviderCliPath(provider.id, configuredPath);
       const option = popover.createEl('button', { cls: 'ocop-provider-option', attr: { type: 'button', 'aria-pressed': String(plugin.settings.selectedProvider === provider.id) } });
-      const mark = option.createSpan({ cls: 'ocop-provider-mark' });
+      const mark = option.createSpan({ cls: `ocop-provider-mark is-${provider.id}` });
       mark.innerHTML = PROVIDER_MARKS[provider.id];
       option.createSpan({ cls: 'ocop-provider-option-name', text: provider.label });
-      const statusEl = option.createSpan({
-        cls: 'ocop-provider-option-status',
-        text: ready ? '확인 중…' : '설치 필요',
-      });
-      if (ready && probe) {
-        // Runs on popover open only, never on a timer and never at construction.
-        // Two CLIs can answer this (claude, codex); the rest resolve to
-        // 확인 불가 without spawning anything.
-        const pending = inFlight.get(provider.id)
-          ?? checkProviderReadiness(provider.id, { cliPath: configuredPath || undefined })
-            .finally(() => inFlight.delete(provider.id));
-        inFlight.set(provider.id, pending);
-        void pending.then(({ state }) => {
-          statusEl.setText(readinessLabel(state as LoginState));
-          statusEl.toggleClass('is-ready', isReadyState(state as LoginState));
-        });
-      }
+      // Only a state the student can act on gets words. A connected provider
+      // and one nothing has checked yet both read as "nothing to do here", and
+      // labelling the second 확인 안 됨 made a working default look broken.
+      const connection = plugin.providerConnections?.[provider.id]?.state;
+      const needsAction = !ready ? '설치 필요' : connection === 'not-connected' ? connectionLabel(connection) : '';
+      if (needsAction) option.createSpan({ cls: 'ocop-provider-option-status', text: needsAction });
       option.addEventListener('click', async (event) => {
         event.stopPropagation();
         if (ready) {
@@ -772,12 +787,15 @@ export function createProviderSelector(
         } else {
           if (!setupHint) setupHint = popover.createDiv({ cls: 'ocop-provider-setup-hint' });
           setupHint.setText(provider.status === 'manual-setup' ? 'Add agy to PATH, then reopen this provider menu.' : `Install or sign in to ${provider.label}, then reopen this provider menu.`);
+          // The hint alone was a dead end: it told a student what to do and
+          // offered no way to do it. The wizard drives the install and login.
+          await openProviderSetupWizard(plugin, provider.id);
         }
       });
     }
     if (plugin.settings.selectedProvider !== 'copilot') popover.createDiv({ cls: 'ocop-provider-cli-note', text: '모델과 추론 강도는 오른쪽 모델 버튼에서 선택합니다.' });
   };
-  updateButton(); renderPopover(false);
+  updateButton(); renderPopover();
   const firstToolbarChild = toolbar.firstElementChild;
   if (firstToolbarChild && firstToolbarChild !== container) toolbar.insertBefore(container, firstToolbarChild);
   button.addEventListener('click', (event) => { event.stopPropagation(); if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); } });

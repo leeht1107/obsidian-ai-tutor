@@ -1,6 +1,7 @@
 /** ObsidianCode UI modals - barrel export. */
 
 export { type ApprovalDecision, ApprovalModal } from './ApprovalModal';
+export { BlanketWriteConsentModal } from './BlanketWriteConsentModal';
 export {
   type InlineEditContext,
   type InlineEditDecision,

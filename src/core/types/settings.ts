@@ -148,6 +148,8 @@ export interface ObsidianCopilotSettings {
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
   lastNonPlanPermissionMode?: NonPlanPermissionMode;
+  /** Providers whose all-or-nothing write permission the student has confirmed once. */
+  blanketWriteAcknowledged?: string[];
   permissions: Permission[];
   excludedTags: string[];
   mediaFolder: string;
@@ -179,6 +181,7 @@ export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   thinkingBudget: 'off',
   permissionMode: 'agent',
   lastNonPlanPermissionMode: 'agent',
+  blanketWriteAcknowledged: [],
   permissions: [],
   excludedTags: [],
   mediaFolder: '',

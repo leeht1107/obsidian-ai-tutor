@@ -217,50 +217,11 @@ describe('chat provider selector', () => {
     expect(selector).toBeTruthy();
   });
 
-  it('asks the CLI whether it is logged in instead of trusting the binary', async () => {
-    // The badge used to read 준비됨 straight off findProviderCliPath, so a
-    // logged-out CLI showed green and only failed when the student hit send.
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
-      .mockImplementation((id) => (id === 'claude' ? '/usr/local/bin/claude' : null));
-    const probe = jest.spyOn(readiness, 'checkProviderReadiness')
-      .mockResolvedValue({ state: 'logged-out' });
-
-    const toolbar = makeElement();
-    createProviderSelector(toolbar, {
-      settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
-      saveSettings: jest.fn().mockResolvedValue(undefined),
-    } as any);
-
-    // Probing happens on open, so open the menu.
-    const container = toolbar.children[0];
-    container.children[0].emit('click');
-
-    const popover = container.children[1];
-    // The mock's empty() does not drop children, so take the newest render's
-    // four provider rows rather than the ones built before the menu opened.
-    const options = popover.children
-      .filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option')
-      .slice(-4);
-    const claudeStatus = options[1].children.find(
-      (child: any) => String(child.elementOptions?.cls ?? '').includes('ocop-provider-option-status')
-    );
-
-    // Nothing is claimed before the CLI has answered.
-    expect(claudeStatus.elementOptions.text).toBe('확인 중…');
-
-    // The probe chain now has a .finally() stage, so flush the queue rather than
-    // counting microtask ticks.
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(probe).toHaveBeenCalledWith('claude', expect.any(Object));
-    expect(claudeStatus.setText).toHaveBeenCalledWith('로그인 필요');
-    findPath.mockRestore();
-    probe.mockRestore();
-  });
-
-  it('spawns no CLI process just because the chat view loaded', async () => {
-    // Building the toolbar used to fire a readiness probe per installed provider,
-    // so opening the view spawned real processes before anyone clicked anything.
+  it('draws the menu from stored state instead of spawning a CLI', async () => {
+    // Opening this menu used to run a login probe per installed provider, so a
+    // student who just wanted to switch model waited on three child processes
+    // — and copilot, which has no status command, never resolved to anything
+    // but 확인 불가. The check moved to the settings tab.
     const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
       .mockReturnValue('/usr/local/bin/anything');
     const probe = jest.spyOn(readiness, 'checkProviderReadiness')
@@ -270,31 +231,24 @@ describe('chat provider selector', () => {
     createProviderSelector(toolbar, {
       settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
       saveSettings: jest.fn().mockResolvedValue(undefined),
+      providerConnections: { claude: { state: 'connected' as const, at: 1 } },
     } as any);
 
-    expect(probe).not.toHaveBeenCalled();
-
-    // Opening the menu is what asks.
     const container = toolbar.children[0];
     container.children[0].emit('click');
-    expect(probe).toHaveBeenCalled();
 
-    findPath.mockRestore();
-    probe.mockRestore();
-  });
+    const options = container.children[1].children
+      .filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option')
+      .slice(-4);
+    const claudeStatus = options[1].children.find(
+      (child: any) => String(child.elementOptions?.cls ?? '').includes('ocop-provider-option-status')
+    );
 
-  it('does not probe a provider whose binary is missing', async () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
-    const probe = jest.spyOn(readiness, 'checkProviderReadiness')
-      .mockResolvedValue({ state: 'logged-in' });
-
-    const toolbar = makeElement();
-    createProviderSelector(toolbar, {
-      settings: { selectedProvider: 'claude' as const, providerCliPaths: {} },
-      saveSettings: jest.fn().mockResolvedValue(undefined),
-    } as any);
-
+    // A connected provider says nothing: there is nothing for the student to do.
+    expect(claudeStatus).toBeUndefined();
+    // Neither the initial render nor the open may ask a CLI anything.
     expect(probe).not.toHaveBeenCalled();
+
     findPath.mockRestore();
     probe.mockRestore();
   });

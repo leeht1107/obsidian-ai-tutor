@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import type { App } from 'obsidian';
 import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
-import { findProviderCliPath, getProviderDescriptor, PROVIDERS } from '../../core/providers/providerRegistry';
+import { defaultModelSource, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption,PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
+import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
@@ -13,6 +14,7 @@ import {
   getInstalledSkills,
   installObsidianSkills,
   installSkillFromUrl,
+  isMachineWideSkillsRoot,
   isObsidianSkillsInstalled,
   removeSkill,
   uninstallObsidianSkills,
@@ -74,14 +76,333 @@ function getHotkeyForCommand(app: App, commandId: string): string | null {
 
 export class ObsidianCopilotSettingTab extends PluginSettingTab {
   plugin: ObsidianCopilotPlugin;
+  /**
+   * Cancels the connection checks of the previous render. display() re-runs on
+   * every provider switch and whenever the wizard closes, and without this each
+   * render leaves four CLIs running against rows that no longer exist.
+   */
+  private probes = new AbortController();
 
   constructor(app: App, plugin: ObsidianCopilotPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
+  /**
+   * One provider's install-and-login row.
+   *
+   * The stored state is drawn first so the row is never blank, then the live
+   * check replaces it. Every check here is free: three CLIs answer a status
+   * command, and copilot is decided by whether a credential exists.
+   */
+  private renderProviderConnectionRow(containerEl: HTMLElement, providerId: ProviderId): void {
+    const descriptor = getProviderDescriptor(providerId);
+    // The legacy copilotCliPath setting still holds the path for upgraded
+    // installs; ignoring it reports an installed copilot as not connected.
+    // Optional chaining to match the chat popover: a settings file written
+    // before providerCliPaths existed would otherwise throw here and take the
+    // whole settings tab down with it.
+    const configuredPath = this.plugin.settings.providerCliPaths?.[providerId]
+      || (providerId === 'copilot' ? this.plugin.settings.copilotCliPath || '' : '');
+    const stored = this.plugin.providerConnections?.[providerId]?.state;
+
+    const row = new Setting(containerEl)
+      .setName(descriptor.label)
+      .setDesc(connectionLabel(stored));
+    row.addButton((button) => {
+      const label = (state: typeof stored) => (state === 'connected' ? '다시 연결' : '연결');
+      button.setButtonText(label(stored));
+      // Never disabled. Finding the binary says nothing about being logged in,
+      // and disabling here once left copilot and agy users with no route to
+      // the login flow at all.
+      button.onClick(async () => {
+        const { SetupWizardModal } = await import('../../ui/modals/SetupWizardModal');
+        // Carry the provider this row is about, so the wizard does not ask
+        // again for something the settings tab already showed.
+        const modal = new SetupWizardModal(this.app, this.plugin, providerId);
+        const close = modal.onClose.bind(modal);
+        // Redraw once the wizard is done, or a student who just logged in
+        // would be left looking at the 연결 필요 that sent them there.
+        modal.onClose = () => { close(); this.display(); };
+        modal.open();
+      });
+
+      const { signal } = this.probes;
+      void checkProviderConnection(providerId, { cliPath: configuredPath || undefined, signal })
+        .then((checked) => {
+          // A later render owns the rows now; this answer is about dead ones.
+          if (signal.aborted) return;
+          // An inconclusive check must not erase what a working request proved:
+          // on Windows the copilot check can only ever answer 'unknown'.
+          const state = resolveCheckedState(stored, checked);
+          this.plugin.setProviderConnection(providerId, state);
+          row.setDesc(connectionLabel(state));
+          button.setButtonText(label(state));
+        });
+    });
+  }
+
+  /**
+   * The default model row, for whichever provider is selected.
+   *
+   * It used to list the bundled Copilot catalog no matter what, and write every
+   * choice into settings.model — which native providers never read. Picking a
+   * model after choosing Claude changed nothing.
+   */
+  private renderDefaultModelRow(containerEl: HTMLElement): void {
+    const provider = this.plugin.settings.selectedProvider;
+    const descriptor = getProviderDescriptor(provider);
+    const save = async (value: string) => {
+      storeDefaultModel(this.plugin.settings, provider, value);
+      await this.plugin.saveSettings();
+    };
+
+    if (defaultModelSource(provider) === 'copilot-catalog') {
+      new Setting(containerEl)
+        .setName('기본 모델')
+        .setDesc('채팅과 인라인 편집에 쓸 GitHub Copilot 모델입니다.')
+        .addDropdown((dropdown) => {
+          for (const model of COPILOT_MODELS) {
+            dropdown.addOption(model.value, `${model.label} - ${model.costLabel}`);
+          }
+          dropdown.setValue(this.plugin.settings.model).onChange(save);
+        });
+      return;
+    }
+
+    const stored = this.plugin.settings.providerModels?.[provider]?.trim() || '';
+    const row = new Setting(containerEl)
+      .setName('기본 모델')
+      .setDesc(`${descriptor.label}에 보낼 모델입니다. 비워 두면 CLI 기본값을 씁니다.`);
+
+    const showList = (options: readonly ProviderModelOption[]) => {
+      row.controlEl.empty();
+      row.addDropdown((dropdown) => {
+        dropdown.addOption('', 'CLI 기본값');
+        for (const option of options) dropdown.addOption(option.id, option.label);
+        // A stored id the CLI no longer lists still has to be selectable, or
+        // the dropdown would quietly show the first option as if it were saved.
+        if (stored && !options.some((option) => option.id === stored)) dropdown.addOption(stored, stored);
+        dropdown.setValue(stored).onChange(save);
+      });
+    };
+
+    const bundled = getStaticProviderModels(provider);
+    if (bundled.length > 0) { showList(bundled); return; }
+
+    // codex and agy know their own model list and nothing here does, so asking
+    // costs a process. It happens on this button, never on opening settings.
+    row.addButton((button) => {
+      button.setButtonText(stored ? `${stored} · 목록 불러오기` : '모델 목록 불러오기');
+      button.onClick(async () => {
+        button.setButtonText('불러오는 중…');
+        button.setDisabled(true);
+        try {
+          const options = await this.plugin.agentService.listNativeProviderModels(provider);
+          if (options.length === 0) throw new Error('empty list');
+          showList(options);
+        } catch {
+          new Notice(`${descriptor.label}에서 모델 목록을 가져오지 못했습니다. 로그인 여부를 확인해 주세요.`);
+          button.setButtonText(stored ? `${stored} · 다시 시도` : '다시 시도');
+          button.setDisabled(false);
+        }
+      });
+    });
+  }
+
+  /**
+   * The skills section, for the provider that is selected.
+   *
+   * Skipped entirely when that CLI has no skills mechanism. It used to return
+   * out of display() instead, which took Chat Behavior and Advanced with it —
+   * choosing Codex emptied the rest of the settings screen.
+   */
+  private renderSkillsSection(containerEl: HTMLElement): void {
+    const skillProvider = this.plugin.settings.selectedProvider;
+
+    // Skills & Obsidian Context — collapsible, default collapsed
+    const skillsWrapperEl = containerEl.createDiv({ cls: 'ocop-settings-advanced-wrapper' });
+    const skillsHeaderEl = skillsWrapperEl.createDiv({ cls: 'ocop-settings-advanced-header' });
+    skillsHeaderEl.setAttribute('tabindex', '0');
+    skillsHeaderEl.createSpan({ cls: 'ocop-settings-advanced-title', text: 'Skills & Obsidian Context' });
+    skillsHeaderEl.createSpan({ cls: 'ocop-settings-advanced-toggle', text: 'Show' });
+    const skillsContentEl = skillsWrapperEl.createDiv({ cls: 'ocop-settings-advanced-content' });
+    setupCollapsible(skillsWrapperEl, skillsHeaderEl, skillsContentEl, { isExpanded: false }, {
+      initiallyExpanded: false,
+      onToggle: (isExpanded) => {
+        const toggleEl = skillsHeaderEl.querySelector('.ocop-settings-advanced-toggle');
+        if (toggleEl) toggleEl.textContent = isExpanded ? 'Hide' : 'Show';
+      },
+      baseAriaLabel: 'Skills & Obsidian Context settings',
+    });
+
+    // Every skill action targets the folder the SELECTED provider reads. The
+    // installer used to write .copilot/skills whoever was chosen, so a Claude
+    // Code student was told the skills were installed and their CLI never saw
+    // them.
+    skillsContentEl.createDiv({
+      cls: 'setting-item-description',
+      text: `${getProviderDescriptor(skillProvider).label}가 위키링크·콜아웃·속성·캔버스를 이해하도록 Obsidian 스킬을 설치합니다.`,
+    });
+    if (isMachineWideSkillsRoot(skillProvider)) {
+      // codex keeps skills in CODEX_HOME, not in the vault, so this install
+      // reaches every codex session on the computer. Saying so beats a student
+      // discovering it later.
+      skillsContentEl.createDiv({
+        cls: 'setting-item-description',
+        text: 'OpenAI Codex는 스킬을 이 컴퓨터 전체에 저장합니다 (~/.codex/skills). 다른 금고에서도 함께 적용됩니다.',
+      });
+    }
+
+    const skillsInstalled = isObsidianSkillsInstalled(this.app, skillProvider);
+    new Setting(skillsContentEl)
+      .setName('Obsidian context skills')
+      .setDesc(
+        skillsInstalled
+          ? `설치됨 - ${getProviderDescriptor(skillProvider).label}가 Obsidian 문법을 이해합니다.`
+          : '설치 안 됨 - 대부분의 학생에게 권장합니다.'
+      )
+      .addButton((button) => {
+        if (skillsInstalled) {
+          button.setButtonText('Reinstall').onClick(async () => {
+            await installObsidianSkills(this.app, skillProvider);
+            this.display();
+          });
+        } else {
+          button.setButtonText('Install').setCta().onClick(async () => {
+            await installObsidianSkills(this.app, skillProvider);
+            this.display();
+          });
+        }
+      })
+      .addButton((button) => {
+        if (skillsInstalled) {
+          button.setButtonText('Remove').onClick(async () => {
+            await uninstallObsidianSkills(this.app, skillProvider);
+            this.display();
+          });
+        }
+      });
+
+    let skillUrl = '';
+    let textInput: HTMLInputElement | null = null;
+    new Setting(skillsContentEl)
+      .setName('Install custom skill from GitHub')
+      .setDesc(`${getProviderDescriptor(skillProvider).label}의 스킬 폴더로 받습니다. 스킬 폴더 주소(.../tree/main/skills/docx)를 넣으면 딸린 스크립트까지 받고, 저장소나 SKILL.md 주소는 그 파일 한 장만 받습니다.`)
+      .addText((text) => {
+        textInput = text.inputEl;
+        text
+          .setPlaceholder('https://github.com/username/repo')
+          .onChange(async (value) => {
+            skillUrl = value;
+          });
+      })
+      .addButton((button) => {
+        button.setButtonText('Install').setCta().onClick(async () => {
+          if (!skillUrl) {
+            new Notice('Please enter a URL');
+            return;
+          }
+
+          button.setButtonText('Installing...').setDisabled(true);
+          try {
+            const success = await installSkillFromUrl(this.app, skillUrl, skillProvider);
+            if (success) {
+              if (textInput) textInput.value = '';
+              skillUrl = '';
+              this.display();
+            }
+          } finally {
+            button.setButtonText('Install').setDisabled(false);
+          }
+        });
+      });
+
+    // Anthropic publishes these three at github.com/anthropics/skills; the folder
+    // URL matters, because each one ships scripts/ next to its SKILL.md.
+    // The chips that stood here pointed at three repositories that do not exist.
+    const SKILL_SUGGESTIONS = [
+      {
+        label: 'Word 문서 (docx)',
+        url: 'https://github.com/anthropics/skills/tree/main/skills/docx',
+        icon: 'file-text',
+      },
+      {
+        label: '슬라이드 (pptx)',
+        url: 'https://github.com/anthropics/skills/tree/main/skills/pptx',
+        icon: 'presentation',
+      },
+      {
+        label: '엑셀 (xlsx)',
+        url: 'https://github.com/anthropics/skills/tree/main/skills/xlsx',
+        icon: 'table',
+      },
+    ];
+
+    skillsContentEl.createDiv({
+      cls: 'setting-item-description',
+      text: 'Anthropic 공식 스킬 (github.com/anthropics/skills). 눌러서 주소를 채운 뒤 Install을 누릅니다.',
+    });
+
+    const suggestionsEl = skillsContentEl.createDiv({ cls: 'ocop-skill-suggestions' });
+    for (const suggestion of SKILL_SUGGESTIONS) {
+      const chipEl = suggestionsEl.createDiv({ cls: 'ocop-skill-chip' });
+      const iconEl = chipEl.createSpan({ cls: 'ocop-skill-chip-icon' });
+      setIcon(iconEl, suggestion.icon);
+      chipEl.createSpan({ text: suggestion.label });
+      chipEl.addEventListener('click', () => {
+        if (textInput) {
+          textInput.value = suggestion.url;
+          textInput.dispatchEvent(new Event('input'));
+          skillUrl = suggestion.url;
+        }
+      });
+    }
+
+    const installedSkills = getInstalledSkills(this.app, skillProvider);
+    if (installedSkills.length > 0) {
+      const installedSkillsDesc = skillsContentEl.createDiv({ cls: 'ocop-skills-installed-desc' });
+      installedSkillsDesc.createEl('p', {
+        text: `Installed Skills (${installedSkills.length}):`,
+        cls: 'setting-item-description',
+      });
+
+      const skillsListEl = skillsContentEl.createDiv({ cls: 'ocop-skills-list' });
+      for (const skill of installedSkills) {
+        const skillItemEl = skillsListEl.createDiv({ cls: 'ocop-skills-item' });
+        const skillInfoEl = skillItemEl.createDiv({ cls: 'ocop-skills-item-info' });
+        skillInfoEl.createSpan({ cls: 'ocop-skills-item-name', text: skill.name });
+        if (skill.isBuiltIn) {
+          skillInfoEl.createSpan({ cls: 'ocop-skills-builtin-badge', text: 'Built-in' });
+        } else if (skill.isGlobal) {
+          skillInfoEl.createSpan({ cls: 'ocop-skills-builtin-badge', text: 'Global' });
+        }
+        skillInfoEl.createDiv({
+          cls: 'ocop-skills-item-desc',
+          text: skill.description.length > 100 ? `${skill.description.substring(0, 100)}...` : skill.description,
+        });
+
+        if (!skill.isBuiltIn && !skill.isGlobal) {
+          const removeBtn = skillItemEl.createEl('button', {
+            text: 'Remove',
+            cls: 'ocop-skills-remove-btn',
+          });
+          removeBtn.addEventListener('click', async () => {
+            await removeSkill(this.app, skill.name, skillProvider);
+            this.display();
+          });
+        }
+      }
+    } else {
+      skillsContentEl.createDiv({ cls: 'ocop-skills-empty', text: 'No skills installed. Install Obsidian context skills above or add a custom skill from GitHub.' });
+    }
+  }
+
   display(): void {
     const { containerEl } = this;
+    // Stop the previous render's provider checks before dropping its rows.
+    this.probes.abort();
+    this.probes = new AbortController();
     containerEl.empty();
     containerEl.addClass('ocop-settings');
 
@@ -111,43 +432,34 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           this.plugin.settings.selectedProvider = value as typeof this.plugin.settings.selectedProvider;
           await this.plugin.saveSettings();
           this.plugin.agentService?.cleanup();
+          // The new provider reads a different skills folder, which has never
+          // had the bundled skills. Put them there before redrawing.
+          await this.plugin.installBundledSkillsOnce();
           this.display();
         });
       });
 
-    const selectedProvider = getProviderDescriptor(this.plugin.settings.selectedProvider);
-    const selectedPath = this.plugin.settings.providerCliPaths[this.plugin.settings.selectedProvider] || '';
-    const detectedPath = findProviderCliPath(this.plugin.settings.selectedProvider, selectedPath);
-    new Setting(containerEl)
-      .setName(`${selectedProvider.label} setup`)
-      .setDesc(detectedPath ? `Ready: ${detectedPath}` : selectedProvider.installCommand
-        ? `Install, then run ${selectedProvider.loginCommand}.`
-        : 'Guided manual setup is required; this provider has no verified package-manager installer.')
-      .addButton((button) => button.setButtonText(detectedPath ? 'Ready' : 'Setup').setDisabled(!!detectedPath).onClick(() => {
-        const command = process.platform === 'win32' && selectedProvider.windowsInstallCommand
-          ? selectedProvider.windowsInstallCommand : selectedProvider.installCommand;
-        new Notice(command ? `Copy and run: ${command}` : `Copy and run: ${selectedProvider.loginCommand}`);
-      }));
+    // One row per provider: what it is, whether it is connected here, and the
+    // one button that fixes it. The chat popover used to ask this question
+    // itself by spawning every installed CLI each time it opened — which
+    // copilot could not answer at all. It now reads what these rows decided.
+    for (const provider of PROVIDERS) {
+      this.renderProviderConnectionRow(containerEl, provider.id);
+    }
 
-    new Setting(containerEl)
-      .setName('Default model')
-      .setDesc('Choose the default GitHub Copilot model for chat and inline tasks.')
-      .addDropdown((dropdown) => {
-        for (const model of COPILOT_MODELS) {
-          dropdown.addOption(model.value, `${model.label} - ${model.costLabel}`);
-        }
-        dropdown
-          .setValue(this.plugin.settings.model)
-          .onChange(async (value) => {
-            this.plugin.settings.model = value;
-            await this.plugin.saveSettings();
-          });
-      });
+    this.renderDefaultModelRow(containerEl);
 
-    // Copilot CLI path — essential for first-time setup
+    // The path of whichever CLI is selected. This row said "Copilot CLI path"
+    // and wrote settings.copilotCliPath whatever provider was chosen — a
+    // leftover from when the plugin was Copilot-only, which left the other
+    // three with no way to point at a binary outside PATH.
+    const pathProvider = this.plugin.settings.selectedProvider;
+    const pathDescriptor = getProviderDescriptor(pathProvider);
+    const storedCliPath = this.plugin.settings.providerCliPaths?.[pathProvider]
+      || (pathProvider === 'copilot' ? this.plugin.settings.copilotCliPath || '' : '');
     const cliPathSetting = new Setting(containerEl)
-      .setName('Copilot CLI path')
-      .setDesc('Leave empty for auto-detection. Paste "which copilot" output (macOS/Linux) or full path on Windows.');
+      .setName(`${pathDescriptor.label} 실행 경로`)
+      .setDesc(`자동으로 찾으면 비워 두세요. 못 찾을 때만 "which ${pathDescriptor.command}" 결과를 붙여 넣습니다.`);
 
     const cliPathValidationEl = containerEl.createDiv({ cls: 'ocop-cli-path-validation' });
     cliPathValidationEl.style.color = 'var(--text-error)';
@@ -158,7 +470,8 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     const validateCliPath = (value: string): string | null => {
       const trimmed = value.trim();
-      if (!trimmed || trimmed === 'copilot') return null;
+      // The bare command name means "find it on PATH", which is not a path to check.
+      if (!trimmed || trimmed === pathDescriptor.command) return null;
       const expandedPath = expandHomePath(trimmed);
       if (!fs.existsSync(expandedPath)) return 'Path does not exist';
       return fs.statSync(expandedPath).isFile() ? null : 'Path is a directory, not a file';
@@ -166,11 +479,11 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     cliPathSetting.addText((text) => {
       const placeholder = process.platform === 'win32'
-        ? 'C:\\Program Files\\GitHub Copilot\\copilot.exe'
-        : '/usr/local/bin/copilot';
+        ? `C:\\Program Files\\${pathDescriptor.command}.exe`
+        : `/usr/local/bin/${pathDescriptor.command}`;
       text
         .setPlaceholder(placeholder)
-        .setValue(this.plugin.settings.copilotCliPath || '')
+        .setValue(storedCliPath)
         .onChange(async (value) => {
           const error = validateCliPath(value);
           if (error) {
@@ -181,14 +494,20 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             cliPathValidationEl.style.display = 'none';
             text.inputEl.style.borderColor = '';
           }
-          this.plugin.settings.copilotCliPath = value.trim();
+          this.plugin.settings.providerCliPaths = {
+            ...this.plugin.settings.providerCliPaths,
+            [pathProvider]: value.trim(),
+          };
+          // The request path still reads the legacy field for copilot, so the
+          // two must not drift apart.
+          if (pathProvider === 'copilot') this.plugin.settings.copilotCliPath = value.trim();
           await this.plugin.saveSettings();
           this.plugin.cliResolver?.reset();
           this.plugin.agentService?.cleanup();
         });
       text.inputEl.addClass('ocop-settings-cli-path-input');
       text.inputEl.style.width = '100%';
-      const initialCliError = validateCliPath(this.plugin.settings.copilotCliPath || '');
+      const initialCliError = validateCliPath(storedCliPath);
       if (initialCliError) {
         cliPathValidationEl.setText(initialCliError);
         cliPathValidationEl.style.display = 'block';
@@ -196,162 +515,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       }
     });
 
-    // Skills & Obsidian Context — collapsible, default collapsed
-    const skillsWrapperEl = containerEl.createDiv({ cls: 'ocop-settings-advanced-wrapper' });
-    const skillsHeaderEl = skillsWrapperEl.createDiv({ cls: 'ocop-settings-advanced-header' });
-    skillsHeaderEl.setAttribute('tabindex', '0');
-    skillsHeaderEl.createSpan({ cls: 'ocop-settings-advanced-title', text: 'Skills & Obsidian Context' });
-    skillsHeaderEl.createSpan({ cls: 'ocop-settings-advanced-toggle', text: 'Show' });
-    const skillsContentEl = skillsWrapperEl.createDiv({ cls: 'ocop-settings-advanced-content' });
-    setupCollapsible(skillsWrapperEl, skillsHeaderEl, skillsContentEl, { isExpanded: false }, {
-      initiallyExpanded: false,
-      onToggle: (isExpanded) => {
-        const toggleEl = skillsHeaderEl.querySelector('.ocop-settings-advanced-toggle');
-        if (toggleEl) toggleEl.textContent = isExpanded ? 'Hide' : 'Show';
-      },
-      baseAriaLabel: 'Skills & Obsidian Context settings',
-    });
-
-    skillsContentEl.createDiv({
-      cls: 'setting-item-description',
-      text: 'Install Obsidian-specific skills so Copilot understands wikilinks, callouts, properties, and canvas files.',
-    });
-
-    const skillsInstalled = isObsidianSkillsInstalled(this.app);
-    new Setting(skillsContentEl)
-      .setName('Obsidian context skills')
-      .setDesc(
-        skillsInstalled
-          ? 'Installed - Copilot understands Obsidian syntax better.'
-          : 'Not installed - recommended for most students.'
-      )
-      .addButton((button) => {
-        if (skillsInstalled) {
-          button.setButtonText('Reinstall').onClick(async () => {
-            await installObsidianSkills(this.app);
-            this.display();
-          });
-        } else {
-          button.setButtonText('Install').setCta().onClick(async () => {
-            await installObsidianSkills(this.app);
-            this.display();
-          });
-        }
-      })
-      .addButton((button) => {
-        if (skillsInstalled) {
-          button.setButtonText('Remove').onClick(async () => {
-            await uninstallObsidianSkills(this.app);
-            this.display();
-          });
-        }
-      });
-
-    let skillUrl = '';
-    let textInput: HTMLInputElement | null = null;
-    new Setting(skillsContentEl)
-      .setName('Install custom skill from GitHub')
-      .setDesc('Enter a GitHub repository URL or raw SKILL.md link to add another skill to Copilot.')
-      .addText((text) => {
-        textInput = text.inputEl;
-        text
-          .setPlaceholder('https://github.com/username/repo')
-          .onChange(async (value) => {
-            skillUrl = value;
-          });
-      })
-      .addButton((button) => {
-        button.setButtonText('Install').setCta().onClick(async () => {
-          if (!skillUrl) {
-            new Notice('Please enter a URL');
-            return;
-          }
-
-          button.setButtonText('Installing...').setDisabled(true);
-          try {
-            const success = await installSkillFromUrl(this.app, skillUrl);
-            if (success) {
-              if (textInput) textInput.value = '';
-              skillUrl = '';
-              this.display();
-            }
-          } finally {
-            button.setButtonText('Install').setDisabled(false);
-          }
-        });
-      });
-
-    // Skill suggestion chips
-    const SKILL_SUGGESTIONS = [
-      {
-        label: 'Obsidian MCP',
-        url: 'https://github.com/MarkusPfworlds/copilot-obsidian-mcp',
-        icon: 'box',
-      },
-      {
-        label: 'Prompt 모음',
-        url: 'https://github.com/MarkusPfworlds/copilot-prompt-skills',
-        icon: 'message-square',
-      },
-      {
-        label: 'Markdown 도우미',
-        url: 'https://github.com/MarkusPfworlds/copilot-markdown-skills',
-        icon: 'file-text',
-      },
-    ];
-
-    const suggestionsEl = skillsContentEl.createDiv({ cls: 'ocop-skill-suggestions' });
-    for (const suggestion of SKILL_SUGGESTIONS) {
-      const chipEl = suggestionsEl.createDiv({ cls: 'ocop-skill-chip' });
-      const iconEl = chipEl.createSpan({ cls: 'ocop-skill-chip-icon' });
-      setIcon(iconEl, suggestion.icon);
-      chipEl.createSpan({ text: suggestion.label });
-      chipEl.addEventListener('click', () => {
-        if (textInput) {
-          textInput.value = suggestion.url;
-          textInput.dispatchEvent(new Event('input'));
-          skillUrl = suggestion.url;
-        }
-      });
-    }
-
-    const installedSkills = getInstalledSkills(this.app);
-    if (installedSkills.length > 0) {
-      const installedSkillsDesc = skillsContentEl.createDiv({ cls: 'ocop-skills-installed-desc' });
-      installedSkillsDesc.createEl('p', {
-        text: `Installed Skills (${installedSkills.length}):`,
-        cls: 'setting-item-description',
-      });
-
-      const skillsListEl = skillsContentEl.createDiv({ cls: 'ocop-skills-list' });
-      for (const skill of installedSkills) {
-        const skillItemEl = skillsListEl.createDiv({ cls: 'ocop-skills-item' });
-        const skillInfoEl = skillItemEl.createDiv({ cls: 'ocop-skills-item-info' });
-        skillInfoEl.createSpan({ cls: 'ocop-skills-item-name', text: skill.name });
-        if (skill.isBuiltIn) {
-          skillInfoEl.createSpan({ cls: 'ocop-skills-builtin-badge', text: 'Built-in' });
-        } else if (skill.isGlobal) {
-          skillInfoEl.createSpan({ cls: 'ocop-skills-builtin-badge', text: 'Global' });
-        }
-        skillInfoEl.createDiv({
-          cls: 'ocop-skills-item-desc',
-          text: skill.description.length > 100 ? `${skill.description.substring(0, 100)}...` : skill.description,
-        });
-
-        if (!skill.isBuiltIn && !skill.isGlobal) {
-          const removeBtn = skillItemEl.createEl('button', {
-            text: 'Remove',
-            cls: 'ocop-skills-remove-btn',
-          });
-          removeBtn.addEventListener('click', async () => {
-            await removeSkill(this.app, skill.name);
-            this.display();
-          });
-        }
-      }
-    } else {
-      skillsContentEl.createDiv({ cls: 'ocop-skills-empty', text: 'No skills installed. Install Obsidian context skills above or add a custom skill from GitHub.' });
-    }
+    this.renderSkillsSection(containerEl);
 
     // Chat Behavior — collapsible, default collapsed
     const chatWrapperEl = containerEl.createDiv({ cls: 'ocop-settings-advanced-wrapper' });
@@ -431,7 +595,10 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           })
       );
 
-    if (this.plugin.settings.enableAutoTitleGeneration) {
+    // Copilot only. The chosen id is passed straight to the selected CLI as
+    // --model, so offering a Copilot id here to a claude or codex user made
+    // every title generation fail on an unrecognised model.
+    if (this.plugin.settings.enableAutoTitleGeneration && this.plugin.settings.selectedProvider === 'copilot') {
       new Setting(chatContentEl)
         .setName('Title generation model')
         .setDesc('Model used for auto-generating conversation titles.')
@@ -629,7 +796,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     new Setting(advancedContentEl).setName('Authentication & Environment').setHeading();
     advancedContentEl.createDiv({
       cls: 'setting-item-description',
-      text: 'Most students can leave these alone if `copilot login` already worked in the terminal.',
+      text: `대부분의 학생은 그대로 두면 됩니다. ${getProviderDescriptor(this.plugin.settings.selectedProvider).label} 로그인이 이미 끝났다면 손댈 필요가 없습니다.`,
     });
 
     new Setting(advancedContentEl)
@@ -647,7 +814,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(advancedContentEl)
       .setName('Custom variables')
-      .setDesc('Environment variables for Copilot CLI (KEY=VALUE format, one per line)')
+      .setDesc('선택한 provider의 CLI에 넘길 환경 변수입니다 (KEY=VALUE, 한 줄에 하나).')
       .addTextArea((text) => {
         text
           .setPlaceholder('COPILOT_GITHUB_TOKEN=your-token\nGH_TOKEN=your-token')
@@ -671,7 +838,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(advancedContentEl)
       .setName('Custom system prompt')
-      .setDesc('Additional instructions appended to the default Copilot prompt')
+      .setDesc('선택한 provider의 기본 프롬프트 뒤에 붙는 추가 지시입니다.')
       .addTextArea((text) => {
         text
           .setPlaceholder('Add custom instructions here...')

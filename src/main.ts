@@ -4,14 +4,14 @@
  * Registers the sidebar chat view, settings tab, and commands.
  * Manages conversation persistence and environment variable configuration.
  */
-
 import type { Editor, MarkdownView } from 'obsidian';
 import { addIcon, Notice, Plugin } from 'obsidian';
 
 import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
-import { findProviderCliPath, migrateProviderModels } from './core/providers/providerRegistry';
+import { findProviderCliPath, migrateProviderModels, type ProviderId } from './core/providers/providerRegistry';
+import { applyRequestOutcome, type ConnectionState, type ProviderConnections } from './core/setup/providerConnection';
 import { StorageService } from './core/storage';
 import type {
   Conversation,
@@ -38,6 +38,10 @@ export default class ObsidianCopilotPlugin extends Plugin {
   storage: StorageService;
   private conversations: Conversation[] = [];
   private activeConversationId: string | null = null;
+  /** Whether each provider is connected, as last decided by the settings tab
+   * or by a finished request. The chat popover reads this instead of asking
+   * the CLIs itself. */
+  providerConnections: ProviderConnections | undefined;
   private runtimeEnvironmentVariables = '';
   private hasNotifiedEnvChange = false;
 
@@ -57,10 +61,20 @@ export default class ObsidianCopilotPlugin extends Plugin {
     }
 
     this.agentService = new CopilotBridgeService(this);
+    this.agentService.onOutcome = (providerId, outcome) => {
+      const next = applyRequestOutcome(this.providerConnections, providerId, outcome, Date.now());
+      // A failure that was not an authentication failure returns the map
+      // untouched, and there is nothing to write.
+      if (next !== this.providerConnections) this.persistProviderConnections(next);
+    };
+    this.agentService.onPermissionNotice = (message) => { new Notice(message); };
     void this.agentService.prewarmCapabilities();
 
     // Show setup wizard on first launch if CLI is missing (fires after layout is ready)
-    this.app.workspace.onLayoutReady(() => void this.checkAndShowSetupWizard());
+    this.app.workspace.onLayoutReady(() => {
+      void this.checkAndShowSetupWizard();
+      void this.installBundledSkillsOnce();
+    });
 
     addIcon('obsidian-ai-tutor-icon', COPILOT_ICON_SVG);
 
@@ -186,6 +200,35 @@ export default class ObsidianCopilotPlugin extends Plugin {
     }
   }
 
+  /**
+   * Put the bundled Obsidian skills in the vault, once.
+   *
+   * They teach the CLI wikilinks, callouts, properties and canvas files, and
+   * they used to wait behind an Install button in a collapsed settings section
+   * — so the students who needed them most never got them. Installed on first
+   * launch only: the flag means a student who removes them keeps them removed.
+   */
+  async installBundledSkillsOnce(): Promise<void> {
+    try {
+      // Per provider: each CLI reads a different folder, so switching provider
+      // means a folder that has never had these skills.
+      const provider = this.settings.selectedProvider;
+      const state = await this.storage.loadState();
+      const { installObsidianSkills, isObsidianSkillsInstalled, shouldInstallBundledSkills } =
+        await import('./features/skills/ObsidianSkillsInstaller');
+      if (!shouldInstallBundledSkills(state, provider, isObsidianSkillsInstalled(this.app, provider))) return;
+      // Only record the attempt when it worked, so a vault path that was not
+      // ready yet gets another chance next launch instead of being written off.
+      if (await installObsidianSkills(this.app, provider)) {
+        await this.storage.updateState({
+          skillsAutoInstalled: { ...state.skillsAutoInstalled, [provider]: true },
+        });
+      }
+    } catch (error) {
+      console.warn('[ObsidianCopilot] Could not install the bundled skills:', error);
+    }
+  }
+
   /** Loads settings and conversations from persistent storage. */
   async loadSettings() {
     // Initialize storage service (handles migration if needed)
@@ -208,6 +251,11 @@ export default class ObsidianCopilotPlugin extends Plugin {
     if ((this.settings.lastNonPlanPermissionMode as string) === 'yolo') this.settings.lastNonPlanPermissionMode = 'agent';
     if ((this.settings.lastNonPlanPermissionMode as string) === 'normal') this.settings.lastNonPlanPermissionMode = 'ask';
 
+    // Plan is no longer one of the toggle's states. Normalising it here rather than
+    // at each reader keeps `permissionMode` to the two values the UI can show, so a
+    // stored 'plan' cannot make the toolbar say one thing and the plan lock another.
+    if (this.settings.permissionMode === 'plan') this.settings.permissionMode = 'ask';
+
     // Migrate deprecated model names
     if ((this.settings.model as string) === 'gpt-4o') this.settings.model = 'gpt-4.1';
 
@@ -217,6 +265,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
     // Load all conversations from session files
     this.conversations = await this.storage.sessions.loadAllConversations();
     this.activeConversationId = state.activeConversationId;
+    this.providerConnections = state.providerConnections;
 
     // Validate active conversation exists
     if (this.activeConversationId &&
@@ -262,7 +311,27 @@ export default class ObsidianCopilotPlugin extends Plugin {
 
     await this.storage.saveState({
       activeConversationId: this.activeConversationId,
+      // saveState writes the whole state object, so anything omitted here is
+      // erased. Picking a provider in the chat popover calls saveSettings, and
+      // without this line that click wiped every stored connection.
+      providerConnections: this.providerConnections,
     });
+  }
+
+  /** Store what a check or a request just decided about one provider. */
+  setProviderConnection(providerId: ProviderId, state: ConnectionState): void {
+    this.persistProviderConnections({
+      ...this.providerConnections,
+      [providerId]: { state, at: Date.now() },
+    });
+  }
+
+  private persistProviderConnections(next: ProviderConnections): void {
+    this.providerConnections = next;
+    // Nothing above awaits this, so a failed disk write must be swallowed here
+    // rather than surfacing as an unhandled rejection in the settings tab.
+    void this.storage?.updateState({ providerConnections: next })
+      .catch((error: unknown) => console.warn('[ObsidianCopilot] Failed to store provider connection:', error));
   }
 
   getActiveEnvironmentVariables(): string {
