@@ -186,12 +186,26 @@ function createMockApp(options: {
     fileMap.set(filePath, createMockTFile(filePath));
   });
 
+  // Every ancestor folder of the given files, which is what a real vault reports.
+  const folders = Array.from(new Set(
+    files.flatMap((filePath) => {
+      const segments = filePath.split('/').slice(0, -1);
+      return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
+    })
+  ));
+
   return {
     vault: {
       on: jest.fn(() => ({ id: 'event-ref' })),
       offref: jest.fn(),
       getAbstractFileByPath: jest.fn((filePath: string) => fileMap.get(filePath) || null),
       getMarkdownFiles: jest.fn(() => Array.from(fileMap.values())),
+      // Obsidian returns files and folders together; folders are the non-TFile
+      // entries, which is how the @ menu learns which folders exist.
+      getAllLoadedFiles: jest.fn(() => [
+        ...Array.from(fileMap.values()),
+        ...folders.map((path) => ({ path })),
+      ]),
     },
     workspace: {
       getActiveFile: jest.fn(() => {
@@ -382,6 +396,47 @@ describe('FileContextManager', () => {
     const attached = (manager as any).state.getAttachedFiles();
     expect(attached.has('clipping/file.md')).toBe(true);
 
+    manager.destroy();
+  });
+
+
+  it('offers vault folders in the @ menu and attaches one by path', () => {
+    const app = createMockApp({ files: ['clipping/file.md', 'clipping/notes/deep.md'] });
+    const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+
+    inputEl.value = '@clipping';
+    inputEl.selectionStart = 9;
+    inputEl.selectionEnd = 9;
+    manager.handleInputChange();
+
+    // Folders sit alongside files, so a student finds them without being told.
+    const rendered = findAllByClass(containerEl, 'ocop-mention-path').map((el) => el.textContent);
+    expect(rendered).toContain('clipping');
+
+    // Files stay preselected — they are the common case — so the folder is
+    // offered, not forced.
+    manager.destroy();
+  });
+
+  it('narrows the @ menu to folders only when the query starts with a slash', () => {
+    // A folder and a note can share a name; this is the way out of that.
+    const app = createMockApp({ files: ['database/database.md'] });
+    const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+
+    inputEl.value = '@/database';
+    inputEl.selectionStart = 10;
+    inputEl.selectionEnd = 10;
+    manager.handleInputChange();
+
+    const rendered = findAllByClass(containerEl, 'ocop-mention-path').map((el) => el.textContent);
+    expect(rendered).toContain('database');
+    expect(rendered).not.toContain('database.md');
+
+    manager.handleMentionKeydown({ key: 'Enter', preventDefault: jest.fn() } as any);
+
+    // Quoted so a folder name containing spaces survives, and nothing is read:
+    // the CLI already has the vault as its working directory.
+    expect(inputEl.value).toBe('@"database/" ');
     manager.destroy();
   });
 

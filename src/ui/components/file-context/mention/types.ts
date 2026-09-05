@@ -22,10 +22,18 @@ export interface ContextFolderMentionItem {
   folderName: string;
 }
 
+/** A folder inside the vault, attached so the CLI can explore it itself. */
+export interface VaultFolderMentionItem {
+  type: 'vault-folder';
+  name: string;
+  path: string;
+}
+
 export type MentionItem =
   | FileMentionItem
   | ContextFileMentionItem
-  | ContextFolderMentionItem;
+  | ContextFolderMentionItem
+  | VaultFolderMentionItem;
 
 export interface ExternalContextEntry {
   contextRoot: string;

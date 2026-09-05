@@ -9,6 +9,7 @@ import { getFolderName, normalizePathForComparison } from '../../../../utils/ext
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
 import { formatMentionFolder, splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
+import { filterVaultFolders, parseFolderQuery } from './folderSearch';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
 
 export interface MentionDropdownOptions {
@@ -21,6 +22,8 @@ export interface MentionDropdownCallbacks {
   onAttachContextFile?: (displayName: string, absolutePath: string) => void;
   getExternalContexts: () => string[];
   getCachedMarkdownFiles: () => TFile[];
+  /** Every folder path in the vault, so folders can be mentioned like files. */
+  getVaultFolders?: () => string[];
   normalizePathForVault: (path: string | undefined | null) => string | null;
 }
 
@@ -289,6 +292,29 @@ export class MentionDropdownController {
       }
     }
 
+    // Vault folders sit with the files so they are found without being taught,
+    // and a leading `/` narrows to folders when a folder and a note share a name.
+    const folderQuery = parseFolderQuery(searchText);
+    const vaultFolders = this.callbacks.getVaultFolders?.() ?? [];
+    const folderSlots = folderQuery.foldersOnly ? 10 : 4;
+    for (const folderPath of filterVaultFolders(
+      vaultFolders,
+      folderQuery.text,
+      Math.max(0, Math.min(folderSlots, 10 - this.filteredMentionItems.length))
+    )) {
+      this.filteredMentionItems.push({
+        type: 'vault-folder',
+        name: folderPath,
+        path: folderPath,
+      });
+    }
+
+    if (folderQuery.foldersOnly) {
+      this.selectedMentionIndex = 0;
+      this.renderMentionDropdown();
+      return;
+    }
+
     const firstVaultFileIndex = this.filteredMentionItems.length;
     const remainingSlots = 10 - this.filteredMentionItems.length;
 
@@ -337,6 +363,7 @@ export class MentionDropdownController {
       getItemClass: (item) => {
         if (item.type === 'context-file') return 'context-file';
         if (item.type === 'context-folder') return 'context-folder';
+        if (item.type === 'vault-folder') return 'vault-folder';
         return undefined;
       },
       renderItem: (item, itemEl) => {
@@ -344,6 +371,8 @@ export class MentionDropdownController {
         if (item.type === 'context-file') {
           setIcon(iconEl, 'folder-open');
         } else if (item.type === 'context-folder') {
+          setIcon(iconEl, 'folder');
+        } else if (item.type === 'vault-folder') {
           setIcon(iconEl, 'folder');
         } else {
           setIcon(iconEl, 'file-text');
@@ -442,6 +471,15 @@ export class MentionDropdownController {
       const replacement = `${displayName} `;
       this.inputEl.value = beforeAt + replacement + afterCursor;
       this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;
+    } else if (selectedItem.type === 'vault-folder') {
+      // The vault is already the CLI's working directory, so naming the folder
+      // is enough — nothing is read here and a large folder costs no tokens.
+      const replacement = `@"${selectedItem.path}/" `;
+      this.inputEl.value = beforeAt + replacement + afterCursor;
+      this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;
+      this.inputEl.focus();
+      this.hide();
+      return;
     } else {
       const file = selectedItem.file;
       if (file) {

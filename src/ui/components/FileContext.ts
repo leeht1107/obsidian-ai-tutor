@@ -102,6 +102,7 @@ export class FileContextManager {
         },
         getExternalContexts: () => this.callbacks.getExternalContexts?.() || [],
         getCachedMarkdownFiles: () => this.fileCache.getFiles(),
+        getVaultFolders: () => this.listVaultFolders(),
         normalizePathForVault: (rawPath) => this.normalizePathForVault(rawPath),
       }
     );
@@ -116,6 +117,29 @@ export class FileContextManager {
   }
 
   /** Returns the current note path (shown as chip). */
+  /**
+   * Folder paths in the vault, root excluded. Read from the already-loaded file
+   * list rather than walked, so opening the @ menu costs nothing extra.
+   */
+  private listVaultFolders(): string[] {
+    // Guarded rather than assumed: a vault API that is absent should cost the
+    // dropdown its folder rows, not throw and take the whole @ menu with it.
+    const loaded = this.app.vault.getAllLoadedFiles?.();
+    if (!Array.isArray(loaded)) return [];
+    const folders = new Set<string>();
+    for (const entry of loaded) {
+      // Structural, not `instanceof`: a folder is the entry with children and no
+      // file stat. Checking the shape survives the class identity differing
+      // between Obsidian builds.
+      const candidate = entry as { path?: string; children?: unknown; stat?: unknown };
+      const isFolder = Array.isArray(candidate.children) || candidate.stat === undefined;
+      if (!isFolder || typeof candidate.path !== 'string') continue;
+      const path = candidate.path.replace(/\\/g, '/').replace(/\/+$/, '');
+      if (path && path !== '/') folders.add(path);
+    }
+    return [...folders];
+  }
+
   getCurrentNotePath(): string | null {
     return this.currentNotePath;
   }
