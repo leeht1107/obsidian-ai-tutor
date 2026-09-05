@@ -64,3 +64,20 @@ describe('marking @-mentions inside a sent message', () => {
     expect(found('그냥 평범한 문장입니다')).toEqual([]);
   });
 });
+
+describe('folder label for a deep path', () => {
+  it('keeps the folder nearest the file, which is the one that identifies it', () => {
+    const { formatMentionFolder } = jest.requireActual('@/utils/mentionDisplay');
+    // CSS ellipsis cuts the tail, so a long path lost `program` — the only part
+    // that says which folder this actually is — and kept `01. Projects`.
+    expect(formatMentionFolder('01. Projects/연구_response_of_macro/program'))
+      .toBe('…/연구_response_of_macro/program');
+  });
+
+  it('leaves a short path exactly as it is', () => {
+    const { formatMentionFolder } = jest.requireActual('@/utils/mentionDisplay');
+    expect(formatMentionFolder('Notes/2026')).toBe('Notes/2026');
+    expect(formatMentionFolder('Notes')).toBe('Notes');
+    expect(formatMentionFolder('')).toBe('');
+  });
+});

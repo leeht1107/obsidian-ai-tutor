@@ -13,6 +13,22 @@ export function splitMentionPath(rawPath: string): { name: string; folder: strin
   return { name: normalized.slice(cut + 1), folder: normalized.slice(0, cut) };
 }
 
+/**
+ * Shortens a folder path from the FRONT.
+ *
+ * The folder line is a single ellipsised row, and CSS cuts the tail — which
+ * removes the folder immediately containing the file and keeps the top-level
+ * one every path shares. In a vault like `01. Projects/연구_.../program` that
+ * left every candidate looking identical. Dropping the distant ancestors
+ * instead keeps the part that tells them apart; the full path stays in the
+ * element's tooltip.
+ */
+export function formatMentionFolder(folder: string, keepSegments = 2): string {
+  const segments = folder.split('/').filter(Boolean);
+  if (segments.length <= keepSegments) return segments.join('/');
+  return `…/${segments.slice(-keepSegments).join('/')}`;
+}
+
 export interface MentionRange { start: number; end: number }
 
 // Same shape the input transformer accepts: @"quoted name", @'quoted', or @path.ext.

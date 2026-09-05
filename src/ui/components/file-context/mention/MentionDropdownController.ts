@@ -7,7 +7,7 @@ import { setIcon } from 'obsidian';
 
 import { getFolderName, normalizePathForComparison } from '../../../../utils/externalContext';
 import { type ExternalContextFile, externalContextScanner } from '../../../../utils/externalContextScanner';
-import { splitMentionPath } from '../../../../utils/mentionDisplay';
+import { formatMentionFolder, splitMentionPath } from '../../../../utils/mentionDisplay';
 import { SelectableDropdown } from '../../SelectableDropdown';
 import { createExternalContextEntry, type ExternalContextEntry, type MentionItem } from './types';
 
@@ -366,7 +366,14 @@ export class MentionDropdownController {
           // part being searched for once the sidebar got narrow.
           const { name, folder } = splitMentionPath(item.path || item.name);
           textEl.createSpan({ cls: 'ocop-mention-path', text: name || item.name });
-          if (folder) textEl.createSpan({ cls: 'ocop-mention-folder', text: folder });
+          if (folder) {
+            const folderEl = textEl.createSpan({
+              cls: 'ocop-mention-folder',
+              text: formatMentionFolder(folder),
+            });
+            // The shortened label is for scanning; the full path stays reachable.
+            folderEl.setAttribute('title', folder);
+          }
         }
       },
       onItemClick: (_item, index) => {
