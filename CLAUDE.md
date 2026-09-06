@@ -8,19 +8,28 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: In progress past `0.1.7`. Six commits landed on local `main` (`2c3640e`): the skill chips now point at real Anthropic skill folders and install whole, Ask/Agent is enforced per CLI from measured behaviour, `codex exec` no longer fails in a non-Git vault, and the streaming redraw cost is gone. Typecheck, lint, 72 suites / 1063 tests green; deployed to the live vault; nothing pushed.
-- Next likely action: Mark's four open asks — PowerShell/cmd hardening, a student error-report channel, Settings/UI UX proposals, and quiz/socratic improvements. Then decide on pushing.
+- Status: Released `0.1.8`. `main` == `origin/main` at `671eb3b`; 73 suites / 1095 tests green; tree
+  clean. The Ask/Agent toggle now sets a measured permission flag on all four CLIs — a lock for
+  claude/codex in Ask, a key for agy/copilot in Agent — codex's toggle is no longer disabled, claude
+  joins agy in requiring one written write-consent, and a CLI that exits 0 having said nothing is
+  reported as failed instead of showing an empty answer. Reviewed by two peers, deployed to the vault.
+  KNOWN FALSE in the plan: copilot Agent was never blocked in the plugin, so the registry's copilot
+  argv row is inert — `query()` bypasses the builder for copilot (DEC-26 in the living handoff).
+- Next likely action: Mark runs the manual four-CLI pass from the plan's `## 검증` table after
+  reloading the plugin; only a failure there reopens the work. Then his four standing asks —
+  PowerShell/cmd hardening, a student error-report channel, Settings/UI UX proposals, and
+  quiz/socratic improvements.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-06/004500_obsidian-ai-tutor_latency-and-windows_handoff.md`
+- Living handoff: `.handoff/2026-09-06/141500_obsidian-ai-tutor_ask-agent-toggle_handoff.md`
 - NOTE: `.handoff/` and `.claude/` are gitignored. Both live on this machine only, so a fresh clone resolves neither.
-- Active plan: `goal-contract.md`
-- Relevant artifacts: `.claude/artifacts/provider-settings-20260905-2100/` (CLI capability measurements, 13 ai-review rounds, scratchpad) — gitignored, on this disk only
+- Active plan: `.claude/artifacts/ask-agent-toggle-20260906-1020/plan.md` — implemented; its `## 검증` manual table is the only step left. Objective contract stays `goal-contract.md`
+- Relevant artifacts: `.claude/artifacts/ask-agent-toggle-20260906-1020/` (locked contract, measured flag table, plan, scratchpad, and the `ai-review-20260906-1307/` peer reports) and `.claude/artifacts/provider-settings-20260905-2100/` (earlier CLI capability measurements) — gitignored, on this disk only
 
 ## Context Chain
 
-- Previous handoff: `.handoff/2026-09-05/213000_obsidian-ai-tutor_provider-settings_handoff.md`
+- Previous handoff: `.handoff/2026-09-06/123500_obsidian-ai-tutor_ask-agent-toggle_handoff.md` (planning half of the same task)
 - History index: `.handoff/LATEST.md` (this project's handoff registry, newest first)
 
 ## Resume Guidance
