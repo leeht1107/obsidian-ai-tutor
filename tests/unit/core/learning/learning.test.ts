@@ -5,7 +5,9 @@ import {
   buildSocraticPrompt,
   DIFFICULTY_INSTRUCTIONS,
   inferSocraticSupportLevel,
+  normalizeQuizMarkdown,
   parseQuizDisplayContent,
+  parseQuizQuestionMeta,
   parseSocraticMeta,
   shouldEnableQuizExternalTools,
 } from '@/core/learning';
@@ -195,5 +197,203 @@ describe('quiz difficulty instructions', () => {
 
   it('keeps web search as the way a 상 question reaches outside the notes', () => {
     expect(DIFFICULTY_INSTRUCTIONS['상']).toMatch(/web search/i);
+  });
+});
+
+describe('quiz header boundaries a block-buffered provider destroyed', () => {
+  const GLUED = '[Solo] 노트를 읽고 작성합니다.## 1/5번 문제\n\n#### 질문\n\nA. 첫째\nB. 둘째';
+
+  it('parses a question whose header was glued to the sentence before it', () => {
+    // Straight from the vault: codex emitted the preamble and the question as two
+    // blocks and they arrived concatenated, so the `^##` anchor missed the header.
+    expect(parseQuizQuestionMeta(GLUED)).toBeUndefined();
+
+    const meta = parseQuizQuestionMeta(normalizeQuizMarkdown(GLUED));
+    expect(meta?.current).toBe(1);
+    expect(meta?.total).toBe(5);
+    expect(meta?.options.map((option) => option.label)).toEqual(['A', 'B']);
+  });
+
+  it('leaves a header quoted inside a code fence alone', () => {
+    // A quiz that teaches the markup would otherwise open a live answer panel over
+    // its own example.
+    const fenced = ['설명합니다:', '```markdown', '앞 문장.## 2/5번 문제', '```'].join('\n');
+    expect(normalizeQuizMarkdown(fenced)).toBe(fenced);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(fenced))).toBeUndefined();
+  });
+
+  it('leaves a 정답 확인 retrospective inside a fence alone', () => {
+    const retro = [
+      '### 정답 확인',
+      '~~~',
+      '지난 문제였습니다.## 3/5번 문제',
+      'A. 보기',
+      '~~~',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(retro)).toBe(retro);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(retro))).toBeUndefined();
+  });
+
+  it('leaves an unfenced recap that merely mentions a question number alone', () => {
+    // ai-review (codex M1): the fence guard alone still let ordinary prose become a live
+    // question. A real glued header ends its line, because the block it came from opened
+    // with `## N/T번 문제\n`. A sentence that carries on past the number is a reference,
+    // not a question, and must not grow a clickable panel over a graded answer.
+    const recap = [
+      '### 정답 확인',
+      '아쉽게 틀렸습니다.## 1/5번 문제 를 다시 보면 힌트가 있었습니다.',
+      'A. 첫째 가 정답이었습니다.',
+      'B. 둘째 는 오답입니다.',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(recap)).toBe(recap);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(recap))).toBeUndefined();
+  });
+
+  it('does not let a ``` literal close a longer fence and expose the code inside', () => {
+    // ai-review round 2 (codex M1): a boolean toggle ended the fence on the quoted
+    // delimiter, so everything after it read as prose and a code example could grow a
+    // clickable panel. A ````-fence closes only on four or more of the same character.
+    const nested = [
+      '마크다운 자체를 설명합니다:',
+      '````markdown',
+      '```',
+      '앞 문장.## 4/5번 문제',
+      'A. 첫째',
+      'B. 둘째',
+      '```',
+      '````',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(nested)).toBe(nested);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(nested))).toBeUndefined();
+  });
+
+  it('leaves a fenced example quoted inside a block quote or list alone', () => {
+    // ai-review round 3 (codex M1): the fence recognizer allowed only whitespace before
+    // the delimiter, so `> ```markdown` never opened a fence and the quoted code after it
+    // was rewritten. Free-text detection would then have mounted a panel over a code
+    // sample. Both the fence and the line itself are now container-aware.
+    const quoted = [
+      '> 이렇게 씁니다:',
+      '> ```markdown',
+      '> 앞 문장.## 1/5번 문제',
+      '> 답안 형식: 자유 서술',
+      '> ```',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(quoted)).toBe(quoted);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(quoted))).toBeUndefined();
+
+    const listed = [
+      '- 예시는 다음과 같습니다:',
+      '- ```markdown',
+      '  앞 문장.## 2/5번 문제',
+      '  A. 첫째',
+      '- ```',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(listed)).toBe(listed);
+  });
+
+  it('does not let an info-string line close an open fence', () => {
+    // ai-review round 4 (codex M1): only an OPENING fence may carry an info string, so a
+    // ```-prefixed word inside an open block is content. Closing on it released the rest
+    // of the code sample and a quiz-shaped line in it would have grown a panel.
+    const nested = [
+      '펜스 안에서 다시 펜스를 보여줍니다:',
+      '```markdown',
+      '```not-a-closing-fence',
+      '앞 문장.## 5/5번 문제',
+      'A. 첫째',
+      'B. 둘째',
+      '```',
+    ].join('\n');
+    expect(normalizeQuizMarkdown(nested)).toBe(nested);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(nested))).toBeUndefined();
+  });
+
+  it('does not build a question out of options quoted in a code fence', () => {
+    // ai-review round 5 (codex M1): the header could be genuine prose while every option
+    // lived inside a fenced example. The parser counted them and mounted a panel whose
+    // clicks would have been sent as the student's answer.
+    const sample = [
+      '보기 표기법을 설명합니다.## 1/5번 문제',
+      '',
+      '```markdown',
+      'A. 예시 보기',
+      'B. 또 다른 예시',
+      '```',
+    ].join('\n');
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(sample))).toBeUndefined();
+  });
+
+  it('still reads a real question that merely includes a code sample', () => {
+    // The guard must not cost a genuine question its options.
+    const real = [
+      '## 2/5번 문제',
+      '',
+      '#### 다음 출력의 원인은?',
+      '',
+      '```python',
+      'print(mean)',
+      '```',
+      '',
+      'A. 평균',
+      'B. 중앙값',
+    ].join('\n');
+    const meta = parseQuizQuestionMeta(normalizeQuizMarkdown(real));
+    expect(meta?.current).toBe(2);
+    expect(meta?.options.map((option) => option.label)).toEqual(['A', 'B']);
+  });
+
+  it('does not let a four-space-indented literal swallow a real question', () => {
+    // ai-review round 6 (codex M1): four spaces of indent is an indented code block, not a
+    // fence opener. Treating one as a fence left the block open to end of content, and since
+    // the same mask gates option scanning, the student's real answers vanished with it —
+    // recreating the exact failure this repair exists to fix.
+    const real = [
+      '## 1/1번 문제',
+      '',
+      '#### 마크다운 예시를 들여쓰기로 보여줍니다',
+      '',
+      '    ```markdown',
+      '    예시 줄',
+      '',
+      'A. 첫째',
+      'B. 둘째',
+    ].join('\n');
+    const meta = parseQuizQuestionMeta(normalizeQuizMarkdown(real));
+    expect(meta?.current).toBe(1);
+    expect(meta?.options.map((option) => option.label)).toEqual(['A', 'B']);
+  });
+
+  it('leaves a message whose only header is quoted in a fence completely untouched', () => {
+    // advisor-fable: the header search was the one call site still not fence-aware. It
+    // picked the quoted header, promoted the next line of the code sample to `#### ...`,
+    // and the student saw their own example corrupted — while a real header further down
+    // was never normalized at all.
+    const quoted = ['```markdown', '## 1/3번 문제', '', '보기 예시', '```'].join('\n');
+    expect(normalizeQuizMarkdown(quoted)).toBe(quoted);
+    expect(parseQuizQuestionMeta(normalizeQuizMarkdown(quoted))).toBeUndefined();
+  });
+
+  it('normalizes the real header even when a quoted one comes first', () => {
+    const both = [
+      '```markdown',
+      '## 1/3번 문제',
+      '```',
+      '',
+      '## 2/3번 문제',
+      '실제 질문입니다',
+      '',
+      'A. 첫째',
+      'B. 둘째',
+    ].join('\n');
+    const out = normalizeQuizMarkdown(both);
+    expect(out).toContain('#### 실제 질문입니다');
+    expect(parseQuizQuestionMeta(out)?.current).toBe(2);
+  });
+
+  it('is idempotent, so a re-render cannot keep adding blank lines', () => {
+    const once = normalizeQuizMarkdown(GLUED);
+    expect(normalizeQuizMarkdown(once)).toBe(once);
+    expect(normalizeQuizMarkdown(normalizeQuizMarkdown(once))).toBe(once);
   });
 });
