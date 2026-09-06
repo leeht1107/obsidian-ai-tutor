@@ -23,13 +23,16 @@ describe('provider model + effort capability', () => {
   describe('effort reaches the selected CLI in its own dialect', () => {
     it('passes claude effort with the documented --effort flag', () => {
       expect(buildNativeProviderCommand('claude', 'hello', 'opus', 'high').args).toEqual([
-        '-p', '--model', 'opus', '--effort', 'high', '--output-format', 'stream-json', '--verbose', 'hello',
+        '-p', '--model', 'opus', '--effort', 'high',
+        '--permission-mode', 'bypassPermissions',
+        '--output-format', 'stream-json', '--verbose', 'hello',
       ]);
     });
 
     it('passes codex effort as a quoted model_reasoning_effort config override', () => {
       expect(buildNativeProviderCommand('codex', 'hello', 'gpt-5.6-terra', 'xhigh').args).toEqual([
-        'exec', '--skip-git-repo-check', '--model', 'gpt-5.6-terra', '-c', 'model_reasoning_effort="xhigh"', '--json', 'hello',
+        'exec', '--skip-git-repo-check', '--model', 'gpt-5.6-terra', '-c', 'model_reasoning_effort="xhigh"',
+        '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hello',
       ]);
     });
 
@@ -43,7 +46,10 @@ describe('provider model + effort capability', () => {
 
     it('omits effort entirely when none is selected', () => {
       expect(buildNativeProviderCommand('claude', 'hello', 'opus').args).not.toContain('--effort');
-      expect(buildNativeProviderCommand('codex', 'hello', 'gpt-5.5').args).not.toContain('-c');
+      // codex always carries `-c approval_policy="never"`, so the flag alone proves nothing
+      // here; what must be absent is the reasoning override it would otherwise carry too.
+      expect(buildNativeProviderCommand('codex', 'hello', 'gpt-5.5').args)
+        .not.toContain('model_reasoning_effort="high"');
       expect(buildNativeProviderCommand('agy', 'hello', 'x').args).not.toContain('--effort');
     });
 
@@ -51,7 +57,8 @@ describe('provider model + effort capability', () => {
       // agy's CLI enumerates only low|medium|high; xhigh must not reach it.
       expect(buildNativeProviderCommand('agy', 'hello', '', 'xhigh').args).not.toContain('--effort');
       expect(buildNativeProviderCommand('claude', 'hello', 'opus', 'bogus').args).not.toContain('--effort');
-      expect(buildNativeProviderCommand('copilot', 'hello', '', 'high').args).toEqual(['-p', 'hello']);
+      expect(buildNativeProviderCommand('copilot', 'hello', '', 'high').args)
+        .toEqual(['--allow-all-tools', '-p', 'hello']);
     });
   });
 

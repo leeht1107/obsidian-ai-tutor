@@ -229,28 +229,34 @@ export function resolveNativeSelection(
 }
 
 /**
- * Whether asking this CLI for read-only actually holds it to read-only.
+ * Whether asking this CLI for read-only actually holds it to read-only. All four do,
+ * measured 2026-09-06 by asking each installed CLI in `-p` mode to create a file:
+ * claude refuses under `--disallowedTools`; agy and copilot are fail-closed and write
+ * nothing with no flag at all; codex is Blocked under `-s read-only` AND
+ * `approval_policy="never"` together (DEC-21).
  *
- * Measured 2026-09-05 by asking each CLI in `-p` mode to create a file:
- * claude refuses under `--disallowedTools`, agy cannot write headless at all,
- * copilot has `--deny-tool`. codex wrote the file under `-s read-only` — that
- * flag governs only model-generated shell commands, not its own edit tool, and
- * no `tools.*` config key exists to switch that tool off.
+ * The previous answer here excluded codex, but that measurement passed only the sandbox
+ * flag — which codex escalates straight out of through its approval path — so it read a
+ * missing second lock as a missing capability. copilot was already listed as supported
+ * while the argv builder passed it nothing either way (DEC-22): true by luck, not by lever.
  */
-export function supportsReadOnlyMode(id: ProviderId): boolean {
-  return id !== 'codex';
+export function supportsReadOnlyMode(_id: ProviderId): boolean {
+  return true;
+}
+
+/** Whether this CLI's Agent mode can reach files outside the vault. Measured, not assumed. */
+export function writesOutsideVault(id: ProviderId): boolean {
+  return id === 'claude' || id === 'agy';
 }
 
 /**
- * Whether letting this CLI write means auto-approving every tool it has.
+ * Whether letting this CLI write is a decision a student should make once, in writing.
  *
- * agy cannot ask for a permission headless, so `--dangerously-skip-permissions`
- * is the only thing that lets it write at all — there is no per-tool middle
- * setting to fall back on. A student should confirm that once, in writing.
+ * Since Agent mode now auto-approves every tool on all four, "does it ask?" no longer
+ * separates them — reach does. The two CLIs with no workspace boundary are the two worth
+ * a dialog, so this is `writesOutsideVault` under the name the consent path already uses.
  */
-export function writesWithoutAsking(id: ProviderId): boolean {
-  return id === 'agy';
-}
+export function writesWithoutAsking(id: ProviderId): boolean { return writesOutsideVault(id); }
 
 /** What the chat toolbar's Ask / Agent choice means to a CLI. */
 export type NativePermissionMode = 'ask' | 'agent';
@@ -272,6 +278,11 @@ export function buildNativeProviderCommand(
   const modelArgs = selectedModel ? ['--model', selectedModel] : [];
   const readOnly = permissionMode === 'ask';
   switch (id) {
+    // Two families, not one: claude and codex are permissive headless and need a LOCK for
+    // ask; agy and copilot are fail-closed and need a KEY for agent. Only codex and copilot
+    // gain a workspace boundary from their key — claude and agy reach outside the vault, and
+    // `writesOutsideVault` names exactly those two everywhere the student is told so.
+    //
     // A positive `--allowedTools` list did NOT stop claude writing; only the
     // disallow list did. `--disallowedTools` is variadic and comma-joining its value
     // does NOT terminate it: measured at claude 2.1.236,
@@ -280,15 +291,34 @@ export function buildNativeProviderCommand(
     // mode failed every request. Only a recognised option ends the list, which is why
     // the prompt goes LAST, behind `--output-format`/`--verbose`. Order is load-bearing
     // here; `nativePermissionMode.test.ts` is what keeps it from drifting back.
-    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : []), '--output-format', 'stream-json', '--verbose', prompt] };
+    // `--permission-mode` takes a single value, but it sits in the same slot so the
+    // invariant holds whichever branch is taken. `bypassPermissions` is claude's only
+    // open-ended lever — an accepted residual risk of the locked decision, not an oversight.
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : ['--permission-mode', 'bypassPermissions']), '--output-format', 'stream-json', '--verbose', prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
-    case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '--json', prompt] };
+    // Read-only needs BOTH doors: under `-s read-only` alone codex still created the file
+    // by escalating through its approval path, and only `approval_policy="never"` beside it
+    // made codex answer "Blocked". `workspace-write` is a real boundary — it refused
+    // `$HOME` as "outside the permitted workspace" — but note `/tmp` is a documented
+    // writable root, so a `/tmp` target does not test it.
+    case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '-s', readOnly ? 'read-only' : 'workspace-write', '-c', 'approval_policy="never"', '--json', prompt] };
     // agy cannot use a writing tool headless — it has no way to ask permission — so
     // read-only is its default and this flag is the only thing that lifts it.
     case 'agy': return { command: 'agy', args: [...(readOnly ? [] : ['--dangerously-skip-permissions']), ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '-p', prompt] };
-    case 'copilot': return { command: 'copilot', args: ['-p', prompt] };
+    // copilot is fail-closed too: with no flag it answered "Permission denied and could not
+    // request permission from user", so Agent mode does nothing the label promised. It wrote
+    // in the working directory on `--allow-all-tools` alone, so `--allow-all-paths` is left
+    // off deliberately — as are `--allow-all` and `--yolo`, which grant more than this toggle.
+    //
+    // Reachability: `query()` short-circuits copilot into its own older dispatch path before
+    // this builder is consulted, so nothing in production reads this row today — the live
+    // copilot argv is assembled there and already pushes `--allow-all-tools` in agent mode
+    // (`shouldUseCopilotAllowAllTools`). This row is kept so the four providers state one
+    // policy in one place and a future unification inherits the measured answer rather than
+    // re-deriving it. Do not read a passing test on this row as proof of a live copilot run.
+    case 'copilot': return { command: 'copilot', args: [...(readOnly ? [] : ['--allow-all-tools']), '-p', prompt] };
   }
 }
 

@@ -1,17 +1,23 @@
 import {
   buildNativeProviderCommand,
   supportsReadOnlyMode,
+  writesOutsideVault,
   writesWithoutAsking,
 } from '../../../../src/core/providers/providerRegistry';
 
 /**
- * Measured 2026-09-05 against each CLI in `-p` mode; see
- * `.claude/artifacts/provider-settings-20260905-2100/cli-permission-evidence.md`.
- * Every expectation here is a lever that was watched to hold or fail.
+ * Measured 2026-09-06 against each installed CLI in `-p` mode; see
+ * `.claude/artifacts/ask-agent-toggle-20260906-1020/measured-flag-table.md`.
+ * Every expectation here is a lever that was watched to hold or fail — the toggle
+ * used to be a label over four different meanings.
  */
 describe('read-only support per CLI', () => {
-  it('knows codex cannot be held to read-only', () => {
-    expect(supportsReadOnlyMode('codex')).toBe(false);
+  it('holds all four to read-only, codex included', () => {
+    // DEC-21: `-s read-only` alone let codex create the file by escalating through its
+    // approval path; with `approval_policy="never"` beside it, codex answered "Blocked".
+    // DEC-22: copilot was already claimed here while the builder passed it nothing — true
+    // only because copilot is fail-closed, which is luck rather than a lever.
+    expect(supportsReadOnlyMode('codex')).toBe(true);
     expect(supportsReadOnlyMode('claude')).toBe(true);
     expect(supportsReadOnlyMode('agy')).toBe(true);
     expect(supportsReadOnlyMode('copilot')).toBe(true);
@@ -33,9 +39,14 @@ describe('ask mode', () => {
     expect(buildNativeProviderCommand('agy', 'hi', '', '', 'ask').args).toEqual(['-p', 'hi']);
   });
 
-  it('adds nothing for codex, which has no read-only to ask for', () => {
+  it('adds nothing for copilot, which is fail-closed with no flag at all', () => {
+    expect(buildNativeProviderCommand('copilot', 'hi', '', '', 'ask').args).toEqual(['-p', 'hi']);
+  });
+
+  it('locks both of codex\'s doors, because either one alone still writes', () => {
     expect(buildNativeProviderCommand('codex', 'hi', '', '', 'ask').args)
-      .toEqual(['exec', '--skip-git-repo-check', '--json', 'hi']);
+      .toEqual(['exec', '--skip-git-repo-check',
+        '-s', 'read-only', '-c', 'approval_policy="never"', '--json', 'hi']);
   });
 });
 
@@ -45,11 +56,27 @@ describe('agent mode', () => {
       .toEqual(['--dangerously-skip-permissions', '-p', 'hi']);
   });
 
-  it('leaves claude and codex on their defaults, which already write', () => {
+  it('needs --allow-all-tools for copilot, which otherwise could not edit a note', () => {
+    // Without it copilot reported "Permission denied and could not request permission
+    // from user", so Agent mode promised a write the CLI never performed. `--allow-all-paths`
+    // is deliberately absent: copilot wrote in the working directory without it.
+    // This pins the policy table, NOT a live dispatch: `query()` routes copilot through its
+    // own older argv path, which already pushes the same flag in agent mode. Read this row
+    // as the shared answer, not as coverage of what copilot is actually spawned with.
+    expect(buildNativeProviderCommand('copilot', 'hi', '', '', 'agent').args)
+      .toEqual(['--allow-all-tools', '-p', 'hi']);
+  });
+
+  it('gives claude and codex a lever each, rather than leaning on their defaults', () => {
+    // Both write headless with no flags, so the old build worked by accident. codex now
+    // gains a real boundary — `workspace-write` refused `$HOME` as "outside the permitted
+    // workspace" — while claude's only open-ended lever stays open-ended.
     expect(buildNativeProviderCommand('claude', 'hi', '', '', 'agent').args)
-      .not.toContain('--disallowedTools');
+      .toEqual(['-p', '--permission-mode', 'bypassPermissions',
+        '--output-format', 'stream-json', '--verbose', 'hi']);
     expect(buildNativeProviderCommand('codex', 'hi', '', '', 'agent').args)
-      .toEqual(['exec', '--skip-git-repo-check', '--json', 'hi']);
+      .toEqual(['exec', '--skip-git-repo-check',
+        '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hi']);
   });
 });
 
@@ -86,20 +113,48 @@ describe('the prompt survives every flag combination', () => {
     const between = args.slice(disallowIndex + 1, promptIndex);
     expect(between.some((arg) => arg.startsWith('--'))).toBe(true);
   });
+
+  it.each([
+    ['claude', 'agent'],
+    ['codex', 'ask'],
+    ['codex', 'agent'],
+    ['copilot', 'agent'],
+  ] as const)('keeps the prompt last behind a recognised option for %s in %s mode', (provider, mode) => {
+    // The four rows this change introduced. A permission flag added before the prompt
+    // instead of before an option is exactly how claude's Ask mode broke once already.
+    const { args } = buildNativeProviderCommand(provider, 'PROMPT', '', '', mode);
+    expect(args[args.length - 1]).toBe('PROMPT');
+    expect(args.indexOf('PROMPT')).toBe(args.length - 1);
+    expect(args[args.length - 2]?.startsWith('-')).toBe(true);
+  });
 });
 
-describe('providers whose write permission is all or nothing', () => {
-  it('names agy, whose only headless write lever auto-approves every tool', () => {
-    expect(writesWithoutAsking('agy')).toBe(true);
-    expect(writesWithoutAsking('claude')).toBe(false);
-    expect(writesWithoutAsking('codex')).toBe(false);
-    expect(writesWithoutAsking('copilot')).toBe(false);
+describe('providers that can write outside the vault', () => {
+  it('names claude and agy, and only those two', () => {
+    // codex is held by `workspace-write` and copilot by the absence of --allow-all-paths.
+    // Agent means something different for those two, and the UI must say so.
+    expect(writesOutsideVault('claude')).toBe(true);
+    expect(writesOutsideVault('agy')).toBe(true);
+    expect(writesOutsideVault('codex')).toBe(false);
+    expect(writesOutsideVault('copilot')).toBe(false);
   });
 
-  it('is exactly the set that receives --dangerously-skip-permissions', () => {
+  it('is the same set the write-consent dialog gates on', () => {
+    // Every provider auto-approves its tools in Agent mode now, so "does it ask?" no
+    // longer discriminates. Reach does, and that is what the student is consenting to.
     for (const provider of ['claude', 'codex', 'agy', 'copilot'] as const) {
-      const args = buildNativeProviderCommand(provider, 'hi', '', '', 'agent').args;
-      expect(args.includes('--dangerously-skip-permissions')).toBe(writesWithoutAsking(provider));
+      expect(writesWithoutAsking(provider)).toBe(writesOutsideVault(provider));
+    }
+  });
+
+  it('does not imply one shared flag: agy alone takes --dangerously-skip-permissions', () => {
+    // claude is in the consent set but receives --permission-mode, so asserting the two
+    // sets are equal would now be asserting something false.
+    expect(buildNativeProviderCommand('agy', 'hi', '', '', 'agent').args)
+      .toContain('--dangerously-skip-permissions');
+    for (const provider of ['claude', 'codex', 'copilot'] as const) {
+      expect(buildNativeProviderCommand(provider, 'hi', '', '', 'agent').args)
+        .not.toContain('--dangerously-skip-permissions');
     }
   });
 });

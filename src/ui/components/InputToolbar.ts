@@ -10,6 +10,7 @@ import {
   type ProviderModelOption,
   supportsEffortSelection,
   supportsReadOnlyMode,
+  writesOutsideVault,
   writesWithoutAsking,
 } from '../../core/providers/providerRegistry';
 import type {
@@ -540,13 +541,6 @@ export class PermissionToggle {
     this.container.removeAttribute('aria-disabled');
     const provider = this.callbacks.getSettings().selectedProvider as ProviderId;
     const blocked = this.needsBlanketWriteConsent(provider);
-    // agy has no middle setting: headless, it either cannot use a tool at all or
-    // auto-approves every one. A student turning on Agent should know which.
-    if (provider === 'agy') {
-      this.container.setAttribute('title', 'Agent로 두면 Antigravity가 금고 안에서 모든 도구를 확인 없이 사용합니다. Ask면 아무것도 고치지 않습니다.');
-    } else {
-      this.container.removeAttribute('title');
-    }
 
     // Plan was a third label for the same read-only restriction and is no longer
     // offered. A setting saved as 'plan' reads and behaves as Ask, so it can never
@@ -563,6 +557,15 @@ export class PermissionToggle {
       this.toggleEl.removeClass('active');
       this.labelEl.setText('Ask');
     }
+
+    // Agent does not mean one thing across the four CLIs: codex and copilot are held to
+    // the working folder, claude and agy are not. The toggle would otherwise be remembered
+    // as "Agent stays in the vault", which is false for half of them.
+    this.container.setAttribute('title', mode === 'agent'
+      ? (writesOutsideVault(provider)
+        ? 'Agent: 금고 밖 파일까지 고칠 수 있습니다.'
+        : 'Agent: 금고 폴더 안의 파일만 고칩니다.')
+      : 'Ask: 이 CLI는 파일을 고치지 않습니다.');
   }
 
   private async toggle() {
