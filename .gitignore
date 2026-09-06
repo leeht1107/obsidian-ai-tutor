@@ -108,10 +108,31 @@ docs/
 # Lock files (uncomment based on package manager)
 # yarn.lock
 # package-lock.json
+
+# Agent scaffolding: how this plugin gets built, not part of the plugin. These
+# carry absolute home paths, verbatim working conversation, and per-machine tool
+# state, and this repository is public. Kept on disk, out of the history.
 .claude/
 .serena/
+.codex/
+.gemini/
+.cursor/
+.windsurf/
+.aider*
+.agents/
+.mcp.json
+.claude.json
+CLAUDE.local.md
+GEMINI.md
+LOOP.md
+scratchpad.md
 HANDOFF.md
+
 # Session handoffs and their registry: our own continuity notes, not part of the
 # plugin. They carry absolute home paths and verbatim working conversation, and
 # this repository is public. Kept on disk, out of the history from here on.
 .handoff/
+
+# Editor workspace files name sibling folders that exist on one machine only,
+# so they are noise in a clone rather than setup anyone else can use.
+*.code-workspace
