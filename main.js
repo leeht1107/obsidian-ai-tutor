@@ -761,11 +761,14 @@ function resolveNativeSelection(settings, requestedModel) {
     effort: ((_d = (_c = settings.providerEfforts) == null ? void 0 : _c[provider]) == null ? void 0 : _d.trim()) || ""
   };
 }
-function supportsReadOnlyMode(id) {
-  return id !== "codex";
+function supportsReadOnlyMode(_id) {
+  return true;
+}
+function writesOutsideVault(id) {
+  return id === "claude" || id === "agy";
 }
 function writesWithoutAsking(id) {
-  return id === "agy";
+  return writesOutsideVault(id);
 }
 function buildNativeProviderCommand(id, prompt, model = "", effort = "", permissionMode = "agent") {
   const selectedModel = model.trim();
@@ -774,6 +777,11 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
   const modelArgs = selectedModel ? ["--model", selectedModel] : [];
   const readOnly = permissionMode === "ask";
   switch (id) {
+    // Two families, not one: claude and codex are permissive headless and need a LOCK for
+    // ask; agy and copilot are fail-closed and need a KEY for agent. Only codex and copilot
+    // gain a workspace boundary from their key — claude and agy reach outside the vault, and
+    // `writesOutsideVault` names exactly those two everywhere the student is told so.
+    //
     // A positive `--allowedTools` list did NOT stop claude writing; only the
     // disallow list did. `--disallowedTools` is variadic and comma-joining its value
     // does NOT terminate it: measured at claude 2.1.236,
@@ -782,19 +790,38 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
     // mode failed every request. Only a recognised option ends the list, which is why
     // the prompt goes LAST, behind `--output-format`/`--verbose`. Order is load-bearing
     // here; `nativePermissionMode.test.ts` is what keeps it from drifting back.
+    // `--permission-mode` takes a single value, but it sits in the same slot so the
+    // invariant holds whichever branch is taken. `bypassPermissions` is claude's only
+    // open-ended lever — an accepted residual risk of the locked decision, not an oversight.
     case "claude":
-      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", "Write,Edit,Bash"] : [], "--output-format", "stream-json", "--verbose", prompt] };
+      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", "Write,Edit,Bash"] : ["--permission-mode", "bypassPermissions"], "--output-format", "stream-json", "--verbose", prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
+    // Read-only needs BOTH doors: under `-s read-only` alone codex still created the file
+    // by escalating through its approval path, and only `approval_policy="never"` beside it
+    // made codex answer "Blocked". `workspace-write` is a real boundary — it refused
+    // `$HOME` as "outside the permitted workspace" — but note `/tmp` is a documented
+    // writable root, so a `/tmp` target does not test it.
     case "codex":
-      return { command: "codex", args: ["exec", "--skip-git-repo-check", ...modelArgs, ...selectedEffort ? ["-c", `model_reasoning_effort="${selectedEffort}"`] : [], "--json", prompt] };
+      return { command: "codex", args: ["exec", "--skip-git-repo-check", ...modelArgs, ...selectedEffort ? ["-c", `model_reasoning_effort="${selectedEffort}"`] : [], "-s", readOnly ? "read-only" : "workspace-write", "-c", 'approval_policy="never"', "--json", prompt] };
     // agy cannot use a writing tool headless — it has no way to ask permission — so
     // read-only is its default and this flag is the only thing that lifts it.
     case "agy":
       return { command: "agy", args: [...readOnly ? [] : ["--dangerously-skip-permissions"], ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], "-p", prompt] };
+    // copilot is fail-closed too: with no flag it answered "Permission denied and could not
+    // request permission from user", so Agent mode does nothing the label promised. It wrote
+    // in the working directory on `--allow-all-tools` alone, so `--allow-all-paths` is left
+    // off deliberately — as are `--allow-all` and `--yolo`, which grant more than this toggle.
+    //
+    // Reachability: `query()` short-circuits copilot into its own older dispatch path before
+    // this builder is consulted, so nothing in production reads this row today — the live
+    // copilot argv is assembled there and already pushes `--allow-all-tools` in agent mode
+    // (`shouldUseCopilotAllowAllTools`). This row is kept so the four providers state one
+    // policy in one place and a future unification inherits the measured answer rather than
+    // re-deriving it. Do not read a passing test on this row as proof of a live copilot run.
     case "copilot":
-      return { command: "copilot", args: ["-p", prompt] };
+      return { command: "copilot", args: [...readOnly ? [] : ["--allow-all-tools"], "-p", prompt] };
   }
 }
 function findProviderCliPath(id, customPath = "") {
@@ -3561,6 +3588,15 @@ function detectCopilotCliCapabilities(helpText) {
     reasoningEffort: helpText.includes("--reasoning-effort")
   };
 }
+function explainEmptyNativeAnswer(provider, stderr) {
+  const detail = stderr.trim();
+  if (provider === "agy" && /no output produced/i.test(detail) && /permission/i.test(detail)) {
+    return "Antigravity\uAC00 \uC774\uBC88\uC5D0\uB294 \uAD8C\uD55C\uC774 \uD544\uC694\uD55C \uB3C4\uAD6C\uB97C \uACE8\uB77C\uC11C \uC544\uBB34 \uB2F5\uB3C4 \uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uAC19\uC740 \uC9C8\uBB38\uC744 \uB2E4\uC2DC \uBCF4\uB0B4\uC2DC\uAC70\uB098 \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694.";
+  }
+  return `${provider} CLI\uAC00 \uC544\uBB34 \uB2F5\uB3C4 \uB0B4\uC9C0 \uC54A\uACE0 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uBB3C\uC5B4\uBCF4\uC2DC\uAC70\uB098 \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694.${detail ? `
+
+${detail}` : ""}`;
+}
 var CopilotBridgeService = class {
   constructor(plugin) {
     this.currentProcess = null;
@@ -3867,7 +3903,7 @@ User: ${injectedPrompt}` : historyContext;
   }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g;
     const provider = this.plugin.settings.selectedProvider;
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
@@ -3916,6 +3952,7 @@ User: ${injectedPrompt}` : historyContext;
     const pending = [];
     let lineBuffer = "";
     let errorOutput = "";
+    let sawText = false;
     let exitCode = null;
     let closeSignal = null;
     let closed = false;
@@ -3934,7 +3971,9 @@ User: ${injectedPrompt}` : historyContext;
         const trimmed = line.trim();
         if (!trimmed) continue;
         const chunk = this.parseNativeProviderLine(provider, trimmed);
-        if (chunk) pending.push(chunk);
+        if (!chunk) continue;
+        if (chunk.type === "text" && chunk.content.trim()) sawText = true;
+        pending.push(chunk);
       }
       signal();
     });
@@ -3969,13 +4008,20 @@ User: ${injectedPrompt}` : historyContext;
       const tail = lineBuffer.trim();
       if (tail) {
         const chunk = this.parseNativeProviderLine(provider, tail);
-        if (chunk) yield chunk;
+        if (chunk) {
+          if (chunk.type === "text" && chunk.content.trim()) sawText = true;
+          yield chunk;
+        }
       }
-      if (!this.wasInterrupted && exitCode === 0) {
+      if (!this.wasInterrupted && exitCode === 0 && sawText) {
         (_e = this.onOutcome) == null ? void 0 : _e.call(this, provider, "ok");
       }
-      if (!this.wasInterrupted && exitCode !== 0) {
+      if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         (_f = this.onOutcome) == null ? void 0 : _f.call(this, provider, "failed");
+        yield { type: "error", content: explainEmptyNativeAnswer(provider, errorOutput) };
+      }
+      if (!this.wasInterrupted && exitCode !== 0) {
+        (_g = this.onOutcome) == null ? void 0 : _g.call(this, provider, "failed");
         yield {
           type: "error",
           content: errorOutput.trim() || (closeSignal ? `${provider} CLI was terminated (${closeSignal}).` : `${provider} CLI exited with code ${exitCode}.`)
@@ -8444,11 +8490,6 @@ var PermissionToggle = class {
     this.container.removeAttribute("aria-disabled");
     const provider = this.callbacks.getSettings().selectedProvider;
     const blocked = this.needsBlanketWriteConsent(provider);
-    if (provider === "agy") {
-      this.container.setAttribute("title", "Agent\uB85C \uB450\uBA74 Antigravity\uAC00 \uAE08\uACE0 \uC548\uC5D0\uC11C \uBAA8\uB4E0 \uB3C4\uAD6C\uB97C \uD655\uC778 \uC5C6\uC774 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. Ask\uBA74 \uC544\uBB34\uAC83\uB3C4 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    } else {
-      this.container.removeAttribute("title");
-    }
     const mode = blocked ? "ask" : this.callbacks.getSettings().permissionMode;
     if (mode === "agent") {
       this.toggleEl.addClass("active");
@@ -8457,6 +8498,7 @@ var PermissionToggle = class {
       this.toggleEl.removeClass("active");
       this.labelEl.setText("Ask");
     }
+    this.container.setAttribute("title", mode === "agent" ? writesOutsideVault(provider) ? "Agent: \uAE08\uACE0 \uBC16 \uD30C\uC77C\uAE4C\uC9C0 \uACE0\uCE60 \uC218 \uC788\uC2B5\uB2C8\uB2E4." : "Agent: \uAE08\uACE0 \uD3F4\uB354 \uC548\uC758 \uD30C\uC77C\uB9CC \uACE0\uCE69\uB2C8\uB2E4." : "Ask: \uC774 CLI\uB294 \uD30C\uC77C\uC744 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
   }
   async toggle() {
     var _a, _b;
@@ -10496,7 +10538,11 @@ var BlanketWriteConsentModal = class extends import_obsidian9.Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: `${this.providerLabel}\uC5D0 \uC4F0\uAE30\uB97C \uD5C8\uC6A9\uD560\uAE4C\uC694?` });
     contentEl.createEl("p", {
-      text: `${this.providerLabel}\uB294 \uB3C4\uAD6C\uB97C \uD558\uB098\uC529 \uD5C8\uC6A9\uD558\uB294 \uBC29\uBC95\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. Agent\uB85C \uB450\uBA74 \uC774 \uAE08\uACE0 \uC548\uC5D0\uC11C \uD30C\uC77C\uC744 \uB9CC\uB4E4\uACE0 \uACE0\uCE58\uACE0 \uC9C0\uC6B0\uB294 \uAC83, \uBA85\uB839\uC744 \uC2E4\uD589\uD558\uB294 \uAC83\uAE4C\uC9C0 \uD655\uC778 \uC5C6\uC774 \uD569\uB2C8\uB2E4.`
+      // "이 금고 안에서" was true when only agy reached this dialog and its own sandbox held
+      // it there. It is false for the set this now gates: claude under `bypassPermissions`
+      // and agy under `--dangerously-skip-permissions` are the two with no workspace
+      // boundary, which is exactly why they are the two that ask.
+      text: `${this.providerLabel}\uB294 \uB3C4\uAD6C\uB97C \uD558\uB098\uC529 \uD5C8\uC6A9\uD558\uB294 \uBC29\uBC95\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. Agent\uB85C \uB450\uBA74 \uD30C\uC77C\uC744 \uB9CC\uB4E4\uACE0 \uACE0\uCE58\uACE0 \uC9C0\uC6B0\uB294 \uAC83, \uBA85\uB839\uC744 \uC2E4\uD589\uD558\uB294 \uAC83\uAE4C\uC9C0 \uD655\uC778 \uC5C6\uC774 \uD558\uACE0, \uADF8 \uBC94\uC704\uAC00 \uC774 \uAE08\uACE0 \uC548\uC73C\uB85C \uC81C\uD55C\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 \u2014 \uC774 \uCEF4\uD4E8\uD130\uC758 \uB2E4\uB978 \uD30C\uC77C\uC5D0\uB3C4 \uB2FF\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
     });
     contentEl.createEl("p", {
       text: "Ask\uB85C \uB450\uBA74 \uC77D\uAE30\uB9CC \uD558\uACE0 \uC544\uBB34\uAC83\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD5C8\uC6A9\uD55C \uB4A4\uC5D0\uB3C4 \uD1A0\uAE00\uC744 Ask\uB85C \uB418\uB3CC\uB9AC\uBA74 \uB2E4\uC2DC \uC77D\uAE30 \uC804\uC6A9\uC774 \uB429\uB2C8\uB2E4.",
