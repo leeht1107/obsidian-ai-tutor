@@ -273,10 +273,14 @@ export function buildNativeProviderCommand(
   const readOnly = permissionMode === 'ask';
   switch (id) {
     // A positive `--allowedTools` list did NOT stop claude writing; only the
-    // disallow list did. The three names go in ONE comma-separated argument: the
-    // flag is variadic, so `--disallowedTools Write Edit Bash <prompt>` eats the
-    // prompt and the run dies with "Input must be provided ... as a prompt argument".
-    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : []), prompt, '--output-format', 'stream-json', '--verbose'] };
+    // disallow list did. `--disallowedTools` is variadic and comma-joining its value
+    // does NOT terminate it: measured at claude 2.1.236,
+    // `--disallowedTools Write,Edit,Bash <prompt> --output-format ...` still ate the
+    // prompt and died with "Input must be provided ... as a prompt argument", so ask
+    // mode failed every request. Only a recognised option ends the list, which is why
+    // the prompt goes LAST, behind `--output-format`/`--verbose`. Order is load-bearing
+    // here; `nativePermissionMode.test.ts` is what keeps it from drifting back.
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : []), '--output-format', 'stream-json', '--verbose', prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.

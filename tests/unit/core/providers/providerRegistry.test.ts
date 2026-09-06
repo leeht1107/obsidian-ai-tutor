@@ -6,7 +6,7 @@ describe('provider registry', () => {
   });
 
   it.each([
-    ['claude', 'claude', ['-p', 'hello', '--output-format', 'stream-json', '--verbose']],
+    ['claude', 'claude', ['-p', '--output-format', 'stream-json', '--verbose', 'hello']],
     ['codex', 'codex', ['exec', '--skip-git-repo-check', '--json', 'hello']],
     ['agy', 'agy', ['--dangerously-skip-permissions', '-p', 'hello']],
   ] as const)('builds the native %s command', (id, command, args) => {
@@ -19,7 +19,7 @@ describe('provider registry', () => {
   });
 
   it('passes only explicit native model overrides with each CLI contract', () => {
-    expect(buildNativeProviderCommand('claude', 'hello', 'opus').args).toEqual(['-p', '--model', 'opus', 'hello', '--output-format', 'stream-json', '--verbose']);
+    expect(buildNativeProviderCommand('claude', 'hello', 'opus').args).toEqual(['-p', '--model', 'opus', '--output-format', 'stream-json', '--verbose', 'hello']);
     expect(buildNativeProviderCommand('codex', 'hello', 'o3').args).toEqual(['exec', '--skip-git-repo-check', '--model', 'o3', '--json', 'hello']);
     expect(buildNativeProviderCommand('agy', 'hello', 'gemini-pro').args).toEqual(['--dangerously-skip-permissions', '--model', 'gemini-pro', '-p', 'hello']);
     expect(buildNativeProviderCommand('agy', 'hello', '   ').args).toEqual(['--dangerously-skip-permissions', '-p', 'hello']);

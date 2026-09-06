@@ -29,7 +29,7 @@ describe('chat toolbar picks reaching the CLI', () => {
     const selection = resolveNativeSelection(settings);
     expect(selection).toEqual({ provider: 'claude', model: '', effort: 'high' });
     expect(buildNativeProviderCommand('claude', 'hi', '', 'high').args)
-      .toEqual(['-p', '--effort', 'high', 'hi', '--output-format', 'stream-json', '--verbose']);
+      .toEqual(['-p', '--effort', 'high', '--output-format', 'stream-json', '--verbose', 'hi']);
   });
 
   it('lets a per-request model override the stored one', () => {

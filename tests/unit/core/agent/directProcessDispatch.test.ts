@@ -97,9 +97,10 @@ describe('direct native-provider dispatch (non-Copilot providers)', () => {
     // queue, RPC hop, or stream relay process in between.
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     expect(spawnSpy.mock.calls[0][0]).toBe(fixturePath);
-    expect((spawnSpy.mock.calls[0][1] as string[]).slice(-3)).toEqual([
-      '--output-format', 'stream-json', '--verbose',
-    ]);
+    const nativeArgs = spawnSpy.mock.calls[0][1] as string[];
+    expect(nativeArgs.slice(-4, -1)).toEqual(['--output-format', 'stream-json', '--verbose']);
+    // The prompt goes last, behind every flag, or a variadic one swallows it.
+    expect(nativeArgs[nativeArgs.length - 1]).toContain('proof prompt');
     expect(execFileSpy).not.toHaveBeenCalled();
     expect(execSpy).not.toHaveBeenCalled();
     expect(forkSpy).not.toHaveBeenCalled();

@@ -20,11 +20,13 @@ describe('read-only support per CLI', () => {
 
 describe('ask mode', () => {
   it('turns off the writing tools for claude — an allow-list did not restrict it', () => {
-    // One comma-separated argument, not three. The flag is variadic, so separate
-    // words swallow the prompt that follows and the run fails outright.
+    // Comma-joining the value does NOT terminate the flag. Measured at claude 2.1.236:
+    // `--disallowedTools Write,Edit,Bash hi --output-format ...` still died with
+    // "Input must be provided ... as a prompt argument", so ask mode failed every
+    // request, quiz or not. The prompt goes last, out of the variadic flag's reach.
     expect(buildNativeProviderCommand('claude', 'hi', '', '', 'ask').args)
       .toEqual(['-p', '--disallowedTools', 'Write,Edit,Bash',
-        'hi', '--output-format', 'stream-json', '--verbose']);
+        '--output-format', 'stream-json', '--verbose', 'hi']);
   });
 
   it('adds nothing for agy, which cannot write headless in the first place', () => {
@@ -69,6 +71,20 @@ describe('the prompt survives every flag combination', () => {
       // Whatever precedes the prompt must be a value that its flag fully consumed.
       expect(args[promptIndex - 1]).not.toBe('--disallowedTools');
     }
+  });
+
+  it('puts a recognised option between --disallowedTools and the prompt', () => {
+    // "the prompt comes after every flag" is too weak on its own: it also passes for
+    // `--disallowedTools VALUE PROMPT`, which is the broken form. Only another option
+    // ends a variadic list, so assert one actually sits in between.
+    const { args } = buildNativeProviderCommand('claude', 'PROMPT', '', '', 'ask');
+    const disallowIndex = args.indexOf('--disallowedTools');
+    const promptIndex = args.indexOf('PROMPT');
+    expect(disallowIndex).toBeGreaterThan(-1);
+    expect(promptIndex).toBeGreaterThan(disallowIndex);
+
+    const between = args.slice(disallowIndex + 1, promptIndex);
+    expect(between.some((arg) => arg.startsWith('--'))).toBe(true);
   });
 });
 

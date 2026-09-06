@@ -23,7 +23,7 @@ describe('provider model + effort capability', () => {
   describe('effort reaches the selected CLI in its own dialect', () => {
     it('passes claude effort with the documented --effort flag', () => {
       expect(buildNativeProviderCommand('claude', 'hello', 'opus', 'high').args).toEqual([
-        '-p', '--model', 'opus', '--effort', 'high', 'hello', '--output-format', 'stream-json', '--verbose',
+        '-p', '--model', 'opus', '--effort', 'high', '--output-format', 'stream-json', '--verbose', 'hello',
       ]);
     });
 
