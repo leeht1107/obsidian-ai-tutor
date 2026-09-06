@@ -359,6 +359,24 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
   };
 }
 
+/**
+ * What to tell the student when a native CLI exits successfully having said nothing.
+ *
+ * agy does this routinely: headless it cannot prompt for a permission, so a tool it chose
+ * is auto-denied and it exits 0 with the explanation on stderr only — measured 2026-09-06,
+ * 3 of 4 agy Ask runs. Its tool choice is non-deterministic, and the same question answered
+ * correctly on the fourth, so the honest answer is "ask again", not a silent retry behind
+ * the student's back and not a claim that agy cannot read. The generic branch covers any
+ * other CLI that dies quietly the same way.
+ */
+export function explainEmptyNativeAnswer(provider: ProviderId, stderr: string): string {
+  const detail = stderr.trim();
+  if (provider === 'agy' && /no output produced/i.test(detail) && /permission/i.test(detail)) {
+    return 'Antigravity가 이번에는 권한이 필요한 도구를 골라서 아무 답도 내지 못했습니다. 같은 질문을 다시 보내시거나 다른 provider를 골라 주세요.';
+  }
+  return `${provider} CLI가 아무 답도 내지 않고 끝났습니다. 다시 물어보시거나 다른 provider를 골라 주세요.${detail ? `\n\n${detail}` : ''}`;
+}
+
 export class CopilotBridgeService {
   /**
    * Told what each real request did, so a CLI that cannot be asked about login
@@ -809,6 +827,8 @@ export class CopilotBridgeService {
     const pending: StreamChunk[] = [];
     let lineBuffer = '';
     let errorOutput = '';
+    // A CLI can exit 0 having answered nothing at all, and only the chunks tell us.
+    let sawText = false;
     let exitCode: number | null = null;
     let closeSignal: NodeJS.Signals | null = null;
     let closed = false;
@@ -824,7 +844,9 @@ export class CopilotBridgeService {
         const trimmed = line.trim();
         if (!trimmed) continue;
         const chunk = this.parseNativeProviderLine(provider, trimmed);
-        if (chunk) pending.push(chunk);
+        if (!chunk) continue;
+        if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
+        pending.push(chunk);
       }
       signal();
     });
@@ -847,14 +869,25 @@ export class CopilotBridgeService {
       const tail = lineBuffer.trim();
       if (tail) {
         const chunk = this.parseNativeProviderLine(provider, tail);
-        if (chunk) yield chunk;
+        if (chunk) {
+          if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
+          yield chunk;
+        }
       }
       // Only a failed run's stderr is an error. All three CLIs write ordinary notices there
       // on success (codex prints "Reading additional input from stdin..." on every run),
       // and surfacing those as an error bubble made healthy runs look broken. A user-
       // requested stop is not a failure either, even though SIGTERM reports code === null.
-      if (!this.wasInterrupted && exitCode === 0) {
+      if (!this.wasInterrupted && exitCode === 0 && sawText) {
         this.onOutcome?.(provider, 'ok');
+      }
+      // A clean exit with no answer is a failure the student can act on, not a success.
+      // agy reaches here whenever headless mode auto-denies a tool it picked: exit 0, the
+      // reason on stderr only. Guarding on a non-zero exit alone showed an empty bubble
+      // and counted the run as ok.
+      if (!this.wasInterrupted && exitCode === 0 && !sawText) {
+        this.onOutcome?.(provider, 'failed');
+        yield { type: 'error', content: explainEmptyNativeAnswer(provider, errorOutput) };
       }
       if (!this.wasInterrupted && exitCode !== 0) {
         // Only 'failed'. These CLIs have no auth string we have verified, and

@@ -158,4 +158,23 @@ sleep 5`);
     for await (const chunk of service.query('p')) chunks.push(chunk);
     expect(chunks.some((c) => c.type === 'error' && c.content.includes('boom: not logged in'))).toBe(true);
   }, 20000);
+
+  it('reports an exit-0 run that answered nothing as a failure, not an empty bubble', async () => {
+    // agy exits 0 after auto-denying a tool it needed, writing only to stderr. A guard keyed
+    // on a non-zero exit never sees it: measured 2026-09-06, 3 of 4 agy Ask runs ended this
+    // way, and the student got a blank bubble while the provider badge counted the run ok.
+    const cli = write(dir, 'silent-zero.sh',
+      `printf '%s\\n' 'jetski: no output produced - a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.' >&2
+exit 0`);
+    const service = makeService(cli, dir, 'agy');
+    const outcomes: string[] = [];
+    service.onOutcome = (_provider, outcome) => { outcomes.push(outcome); };
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of service.query('p')) chunks.push(chunk);
+
+    const err = chunks.find((c) => c.type === 'error');
+    expect(err).toBeDefined();
+    expect(err && err.content).toContain('다시');
+    expect(outcomes).toEqual(['failed']);
+  }, 20000);
 });

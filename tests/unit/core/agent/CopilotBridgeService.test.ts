@@ -1,5 +1,6 @@
 import {
   detectCopilotCliCapabilities,
+  explainEmptyNativeAnswer,
   resolveCopilotAllowedTools,
   sessionArgs,
   shouldUseCopilotAllowAllTools,
@@ -267,5 +268,39 @@ describe('copilot session flag selection', () => {
   it('resumes a confirmed id on an older CLI', () => {
     const capabilities = detectCopilotCliCapabilities('--resume[=value]');
     expect(sessionArgs(capabilities, 'abc-123', true)).toEqual(['--resume', 'abc-123']);
+  });
+});
+
+describe('explainEmptyNativeAnswer', () => {
+  // The measured signature, verbatim from agy on 2026-09-06.
+  const agyStderr = 'jetski: no output produced - a tool required the "command" permission '
+    + 'that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under '
+    + 'permissions.allow in settings.json (e.g. command(<target>)).';
+
+  it('explains agy\'s auto-denied tool in words a student can act on', () => {
+    const message = explainEmptyNativeAnswer('agy', agyStderr);
+    expect(message).toContain('권한');
+    expect(message).toContain('다시');
+    // The raw jetski string names a settings.json belonging to another tool. A student
+    // reading it would be told to edit a file this plugin has no business touching.
+    expect(message).not.toContain('settings.json');
+  });
+
+  it('falls back to a generic message and keeps the stderr for any other CLI', () => {
+    const message = explainEmptyNativeAnswer('codex', 'stream disconnected before completion');
+    expect(message).toContain('codex');
+    expect(message).toContain('stream disconnected before completion');
+  });
+
+  it('does not claim a permission problem when agy failed some other way', () => {
+    // Same provider, different cause: the specific wording must not be pattern-matched
+    // onto every silent agy exit, or it would send the student after the wrong fix.
+    const message = explainEmptyNativeAnswer('agy', 'network error: could not reach the model');
+    expect(message).toContain('network error');
+    expect(message).not.toContain('권한이 필요한 도구');
+  });
+
+  it('says something even when the CLI wrote nothing at all', () => {
+    expect(explainEmptyNativeAnswer('claude', '   ').trim().length).toBeGreaterThan(0);
   });
 });
