@@ -9,8 +9,9 @@ import type { App, Component } from 'obsidian';
 import { MarkdownRenderer, setIcon } from 'obsidian';
 
 import { getImageAttachmentDataUri } from '../../../core/images/imageLoader';
+import { normalizeQuizMarkdown, parseQuizQuestionMeta } from '../../../core/learning';
 import { isWriteEditTool, TOOL_ASK_USER_QUESTION, TOOL_TODO_WRITE } from '../../../core/tools/toolNames';
-import type { ChatMessage, ImageAttachment, ToolCallInfo } from '../../../core/types';
+import type { ChatMessage, ImageAttachment, QuizQuestionMeta, ToolCallInfo } from '../../../core/types';
 import {
   renderStoredAskUserQuestion,
   renderStoredAsyncSubagent,
@@ -261,6 +262,19 @@ export class MessageRenderer {
    * Renders assistant message content (content blocks or fallback).
    */
   private renderAssistantContent(msg: ChatMessage, contentEl: HTMLElement): void {
+    // Conversations saved while codex glued its blocks together carry the run-on text
+    // AND `quizQuestion: undefined` — the metadata is only ever parsed once, at stream
+    // end. Normalising here fixes what the student sees; re-parsing re-opens the answer
+    // panel. Neither result is written back: the stored session file stays as recorded.
+    let recoveredQuizQuestion: QuizQuestionMeta | undefined;
+    const displayText = (raw: string): string => {
+      const normalized = normalizeQuizMarkdown(raw);
+      if (!msg.quizQuestion && !recoveredQuizQuestion) {
+        recoveredQuizQuestion = parseQuizQuestionMeta(normalized);
+      }
+      return normalized;
+    };
+
     if (msg.contentBlocks && msg.contentBlocks.length > 0) {
       for (const block of msg.contentBlocks) {
         if (block.type === 'thinking') {
@@ -272,7 +286,7 @@ export class MessageRenderer {
           );
         } else if (block.type === 'text') {
           const textEl = contentEl.createDiv({ cls: 'ocop-text-block' });
-          void this.renderContent(textEl, block.content);
+          void this.renderContent(textEl, displayText(block.content));
         } else if (block.type === 'tool_use') {
           const toolCall = msg.toolCalls?.find(tc => tc.id === block.toolId);
           if (toolCall) {
@@ -294,7 +308,7 @@ export class MessageRenderer {
       // Fallback for old conversations without contentBlocks
       if (msg.content) {
         const textEl = contentEl.createDiv({ cls: 'ocop-text-block' });
-        void this.renderContent(textEl, msg.content);
+        void this.renderContent(textEl, displayText(msg.content));
       }
       if (msg.toolCalls) {
         for (const toolCall of msg.toolCalls) {
@@ -303,12 +317,37 @@ export class MessageRenderer {
       }
     }
 
-    if (msg.quizQuestion) {
-      this.renderQuizAnswerActions(contentEl, msg.quizQuestion);
+    const quizQuestion = msg.quizQuestion ?? recoveredQuizQuestion;
+    if (quizQuestion) {
+      this.renderQuizAnswerActions(contentEl, quizQuestion);
     }
   }
 
   private renderQuizAnswerActions(contentEl: HTMLElement, quizQuestion: NonNullable<ChatMessage['quizQuestion']>): void {
+    this.renderQuizAnswerControls(contentEl, quizQuestion);
+    this.renderQuizQuickActions(contentEl);
+  }
+
+  /**
+   * The 힌트 / 모르겠어요 row, mirroring the live panel's (QuizAnswerPanel §8.2).
+   * These are inert DOM: the click is caught by the container delegation in
+   * ObsidianCopilotView, which is where the two classes below are read.
+   */
+  private renderQuizQuickActions(contentEl: HTMLElement): void {
+    const rowEl = contentEl.createDiv({ cls: 'ocop-quiz-quick-actions' });
+    const hintBtn = rowEl.createEl('button', {
+      cls: 'ocop-quiz-quick-action-btn ocop-quiz-hint-btn',
+      text: '💡 힌트',
+    });
+    hintBtn.type = 'button';
+    const stuckBtn = rowEl.createEl('button', {
+      cls: 'ocop-quiz-quick-action-btn ocop-quiz-stuck-btn',
+      text: '😵 모르겠어요',
+    });
+    stuckBtn.type = 'button';
+  }
+
+  private renderQuizAnswerControls(contentEl: HTMLElement, quizQuestion: NonNullable<ChatMessage['quizQuestion']>): void {
     // Progress bar
     const progressWrapper = contentEl.createDiv({ cls: 'ocop-quiz-progress-wrapper' });
     const progressEl = progressWrapper.createDiv({ cls: 'ocop-quiz-progress' });

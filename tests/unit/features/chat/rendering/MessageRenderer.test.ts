@@ -142,3 +142,62 @@ describe('MessageRenderer', () => {
     expect(renderStoredSubagent).toHaveBeenCalled();
   });
 });
+
+describe('stored quiz messages recovered on replay', () => {
+  // Straight out of the vault: while codex glued its blocks together the header ended up
+  // mid-line, so `parseQuizQuestionMeta` returned undefined at stream end and the saved
+  // message carries `quizQuestion: undefined` forever. Reopening must recover both the
+  // text the student reads and the panel they answer with.
+  const GLUED = '[Solo] 노트를 읽고 작성합니다.## 1/5번 문제\n\n#### 질문\n\nA. 첫째\nB. 둘째';
+
+  const storedMessage = (): ChatMessage => ({
+    id: 'm-quiz',
+    role: 'assistant',
+    content: '',
+    timestamp: Date.now(),
+    toolCalls: [],
+    contentBlocks: [{ type: 'text', content: GLUED } as any],
+  });
+
+  const flatten = (el: any): any[] => [el, ...el.children.flatMap((child: any) => flatten(child))];
+
+  it('mounts the answer panel for a message saved without quizQuestion', () => {
+    const messagesEl = createMockElement();
+    const renderer = new MessageRenderer({} as any, createMockComponent() as any, messagesEl);
+    const renderContentSpy = jest.spyOn(renderer, 'renderContent').mockResolvedValue(undefined);
+
+    const msg = storedMessage();
+    expect(msg.quizQuestion).toBeUndefined();
+    renderer.renderStoredMessage(msg);
+
+    // The student stops seeing a run-on line...
+    const rendered = renderContentSpy.mock.calls[0][1];
+    expect(rendered).not.toContain('작성합니다.##');
+    expect(/^##\s*1\s*\/\s*5번 문제/m.test(rendered)).toBe(true);
+
+    // ...and gets the clickable options plus the progress bar back.
+    const all = flatten(messagesEl);
+    expect(all.some((el) => el.hasClass('ocop-quiz-progress-fill'))).toBe(true);
+    expect(all.filter((el) => el.hasClass('ocop-quiz-answer-btn')).length).toBe(2);
+
+    // The recovered metadata is for this render only — the stored message is untouched,
+    // so nothing rewrites the student's session file.
+    expect(msg.quizQuestion).toBeUndefined();
+  });
+
+  it('draws the 힌트 and 모르겠어요 controls the live panel has', () => {
+    const messagesEl = createMockElement();
+    const renderer = new MessageRenderer({} as any, createMockComponent() as any, messagesEl);
+    jest.spyOn(renderer, 'renderContent').mockResolvedValue(undefined);
+
+    renderer.renderStoredMessage(storedMessage());
+
+    const all = flatten(messagesEl);
+    expect(all.some((el) => el.hasClass('ocop-quiz-quick-actions'))).toBe(true);
+    // These exact classes are what ObsidianCopilotView's delegation listens for.
+    expect(all.some((el) => el.hasClass('ocop-quiz-quick-action-btn ocop-quiz-hint-btn'))).toBe(true);
+    expect(all.some((el) => el.hasClass('ocop-quiz-quick-action-btn ocop-quiz-stuck-btn'))).toBe(true);
+    expect(all.some((el) => el.textContent === '💡 힌트')).toBe(true);
+    expect(all.some((el) => el.textContent === '😵 모르겠어요')).toBe(true);
+  });
+});

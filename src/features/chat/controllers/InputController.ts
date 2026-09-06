@@ -145,7 +145,8 @@ export class InputController {
   }
 
   /** Quiz 힌트 shortcut (PRD §8.2): asks for one hint without grading or advancing. */
-  private requestQuizHint(): void {
+  /** Public: the stored-message quiz row reaches this through the view's delegation. */
+  requestQuizHint(): void {
     const { state } = this.deps;
     if (state.isStreaming || !state.quizSession) return;
     void this.sendMessage({ content: '힌트 주세요', quizHintRequest: true });

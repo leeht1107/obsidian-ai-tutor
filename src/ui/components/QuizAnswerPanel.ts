@@ -13,7 +13,9 @@ type QuizAnswerPanelElement = HTMLElement & {
   [QUIZ_PANEL_DISMISS_KEY]?: () => void;
 };
 
-const QUIZ_STUCK_ANSWER = '모르겠어요. 정답과 핵심 개념을 알려주세요.';
+/** The 모르겠어요 shortcut's text. Exported so the stored-message renderer's own
+ * button sends the identical thing and the two paths cannot drift apart. */
+export const QUIZ_STUCK_ANSWER = '모르겠어요. 정답과 핵심 개념을 알려주세요.';
 
 /** Options for creating the quiz answer panel. */
 export interface QuizAnswerPanelOptions {

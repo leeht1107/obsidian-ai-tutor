@@ -23,6 +23,7 @@ import {
   type ModelSelector,
   type PermissionToggle,
   PlanBanner,
+  QUIZ_STUCK_ANSWER,
   SlashCommandDropdown,
   SocraticBanner,
   type SocraticLauncherButton,
@@ -602,6 +603,16 @@ export class ObsidianCopilotView extends ItemView {
         if (answerValue) {
           void this.inputController.sendMessage({ content: answerValue });
         }
+        return;
+      }
+
+      const storedQuizControl = resolveStoredQuizControl(target);
+      if (storedQuizControl && this.inputController) {
+        if (storedQuizControl.kind === 'hint') {
+          this.inputController.requestQuizHint();
+        } else {
+          void this.inputController.sendMessage({ content: storedQuizControl.content });
+        }
       }
     });
 
@@ -731,6 +742,25 @@ async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: 
   } catch (err) {
     console.warn('[ObsidianCopilot] Setup wizard failed to open:', err);
   }
+}
+
+/** What a stored quiz message's 힌트 / 모르겠어요 button fires. */
+export type StoredQuizControlAction =
+  | { kind: 'hint' }
+  | { kind: 'answer'; content: string };
+
+/**
+ * The stored-message quiz row draws those two buttons as plain DOM with no handlers of
+ * their own, so this container delegation is the only thing behind them — draw them
+ * without registering here and a stuck student gets two buttons that do nothing.
+ * Both take the live panel's route: the same hint request, and the very same
+ * QUIZ_STUCK_ANSWER text, so a replayed question behaves like a live one.
+ * Exported to be tested without a DOM.
+ */
+export function resolveStoredQuizControl(target: Element | null): StoredQuizControlAction | null {
+  if (target?.closest('.ocop-quiz-hint-btn')) return { kind: 'hint' };
+  if (target?.closest('.ocop-quiz-stuck-btn')) return { kind: 'answer', content: QUIZ_STUCK_ANSWER };
+  return null;
 }
 
 export function createProviderSelector(

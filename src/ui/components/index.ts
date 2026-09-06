@@ -43,6 +43,7 @@ export {
 } from './PlanBanner';
 export {
   dismissQuizAnswerPanel,
+  QUIZ_STUCK_ANSWER,
   QuizAnswerPanel,
   type QuizAnswerPanelOptions,
   showQuizAnswerPanel,
