@@ -894,7 +894,20 @@ export class CopilotBridgeService {
       }
       if (provider === 'codex') {
         const item = event.item as Record<string, unknown> | undefined;
-        if (item && typeof item.text === 'string') return { type: 'text', content: item.text };
+        if (item && typeof item.text === 'string') {
+          // codex is block-buffered, not token-streamed: a completed `agent_message` is a
+          // whole block, so two of them must not be concatenated. Measured at codex-cli
+          // 0.153.4, one turn that uses a tool emits a preamble message, a
+          // `command_execution` that carries no text, then the answer — nothing else
+          // creates a boundary, and the two glued into `...작성합니다.## 1/5번 문제`,
+          // which stops the quiz header being at the start of a line.
+          // Narrow on purpose: only this event is known to be a block. The top-level
+          // `event.text` path below has never been observed, and claude's `delta.text`
+          // above is a real token delta, so neither gets a newline.
+          const isCompletedBlock = event.type === 'item.completed' && item.type === 'agent_message';
+          const needsBoundary = isCompletedBlock && item.text !== '' && !item.text.endsWith('\n');
+          return { type: 'text', content: needsBoundary ? item.text + '\n' : item.text };
+        }
         if (typeof event.text === 'string') return { type: 'text', content: event.text };
       }
     } catch {

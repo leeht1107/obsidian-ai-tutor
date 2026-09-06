@@ -74,6 +74,29 @@ maybe('native provider streaming', () => {
     expect(chunks.some((c) => c.type === 'text' && c.content.includes('fine'))).toBe(true);
   }, 20000);
 
+  it('keeps two codex agent_message blocks on separate lines', async () => {
+    // codex is block-buffered: measured at codex-cli 0.153.4, a turn that uses a tool
+    // emits a preamble message, a text-less command_execution, then the answer. Nothing
+    // else marks a boundary, so without one here the two glue into
+    // `...작성합니다.## 1/5번 문제` and the quiz header stops starting a line.
+    const cli = write(dir, 'codex-blocks.sh',
+      `printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"[Solo] 노트를 읽고 작성합니다."}}'
+printf '%s\\n' '{"type":"item.started","item":{"type":"command_execution"}}'
+printf '%s\\n' '{"type":"item.completed","item":{"type":"command_execution"}}'
+printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"## 1/5번 문제"}}'`);
+    const service = makeService(cli, dir, 'codex');
+
+    let text = '';
+    for await (const chunk of service.query('p')) {
+      if (chunk.type === 'text') text += chunk.content;
+    }
+
+    expect(text).toBe('[Solo] 노트를 읽고 작성합니다.\n## 1/5번 문제\n');
+    // Exactly one boundary — not zero (glued) and not two (a blank line each time).
+    expect(text.split('작성합니다.')[1].indexOf('##')).toBe(1);
+    expect(/^##\s*1\s*\/\s*5번 문제/m.test(text)).toBe(true);
+  }, 20000);
+
   it('kills the child when the consumer walks away mid-stream', async () => {
     // ai-review consensus (codex M1 / gemini B1): abandoning the iterator previously left a
     // real CLI running on the user's machine, burning CPU and API quota with no owner.
