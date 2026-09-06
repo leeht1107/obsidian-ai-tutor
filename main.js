@@ -775,11 +775,15 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
   const readOnly = permissionMode === "ask";
   switch (id) {
     // A positive `--allowedTools` list did NOT stop claude writing; only the
-    // disallow list did. The three names go in ONE comma-separated argument: the
-    // flag is variadic, so `--disallowedTools Write Edit Bash <prompt>` eats the
-    // prompt and the run dies with "Input must be provided ... as a prompt argument".
+    // disallow list did. `--disallowedTools` is variadic and comma-joining its value
+    // does NOT terminate it: measured at claude 2.1.236,
+    // `--disallowedTools Write,Edit,Bash <prompt> --output-format ...` still ate the
+    // prompt and died with "Input must be provided ... as a prompt argument", so ask
+    // mode failed every request. Only a recognised option ends the list, which is why
+    // the prompt goes LAST, behind `--output-format`/`--verbose`. Order is load-bearing
+    // here; `nativePermissionMode.test.ts` is what keeps it from drifting back.
     case "claude":
-      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", "Write,Edit,Bash"] : [], prompt, "--output-format", "stream-json", "--verbose"] };
+      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", "Write,Edit,Bash"] : [], "--output-format", "stream-json", "--verbose", prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
@@ -3999,7 +4003,11 @@ User: ${injectedPrompt}` : historyContext;
       }
       if (provider === "codex") {
         const item = event.item;
-        if (item && typeof item.text === "string") return { type: "text", content: item.text };
+        if (item && typeof item.text === "string") {
+          const isCompletedBlock = event.type === "item.completed" && item.type === "agent_message";
+          const needsBoundary = isCompletedBlock && item.text !== "" && !item.text.endsWith("\n");
+          return { type: "text", content: needsBoundary ? item.text + "\n" : item.text };
+        }
         if (typeof event.text === "string") return { type: "text", content: event.text };
       }
     } catch (e) {
@@ -11668,20 +11676,44 @@ function parseSocraticMeta(content) {
   if (!/^\s*##SOCRATIC_SUMMARY##/m.test(content)) return void 0;
   return { isSummary: true };
 }
+var CONTAINER_PREFIX = /^\s*(?:(?:>\s*)+|(?:[-*+]|\d+[.)])\s+)/;
+var CODE_FENCE = /^(?:\s*(?:(?:>\s*)+|(?:[-*+]|\d+[.)])\s+)\s*| {0,3})(`{3,}|~{3,})(.*)$/;
+function fencedLineMask(lines) {
+  let openFence = null;
+  return lines.map((line) => {
+    const fence = CODE_FENCE.exec(line);
+    if (!fence) {
+      return openFence !== null;
+    }
+    const [, run, rest] = fence;
+    if (openFence === null) {
+      openFence = run;
+    } else if (run[0] === openFence[0] && run.length >= openFence.length && rest.trim() === "") {
+      openFence = null;
+    }
+    return true;
+  });
+}
+function withoutFencedCode(content) {
+  const lines = content.split("\n");
+  const fenced = fencedLineMask(lines);
+  return lines.map((line, index) => fenced[index] ? "" : line).join("\n");
+}
 function parseQuizQuestionMeta(content) {
-  const headerMatch = content.match(/^##\s*(\d+)\s*\/\s*(\d+)번 문제/im);
+  const prose = withoutFencedCode(content);
+  const headerMatch = prose.match(/^##\s*(\d+)\s*\/\s*(\d+)번 문제/im);
   if (!headerMatch) {
     return void 0;
   }
-  const options = Array.from(content.matchAll(/^([A-Z])\.\s+(.+)$/gm)).map((match) => ({
+  const options = Array.from(prose.matchAll(/^([A-Z])\.\s+(.+)$/gm)).map((match) => ({
     label: match[1],
     text: match[2].trim()
   }));
-  const freeText = options.length === 0 && /\(자유 서술\)|답안 형식:\s*(?:자유 서술|단답|서술|직접 입력)/i.test(content);
+  const freeText = options.length === 0 && /\(자유 서술\)|답안 형식:\s*(?:자유 서술|단답|서술|직접 입력)/i.test(prose);
   if (options.length === 0 && !freeText) {
     return void 0;
   }
-  const multiSelect = /\(복수 선택 가능\)|복수 선택 가능|답안 형식:\s*[A-Z](?:\s*,\s*[A-Z])+/i.test(content);
+  const multiSelect = /\(복수 선택 가능\)|복수 선택 가능|답안 형식:\s*[A-Z](?:\s*,\s*[A-Z])+/i.test(prose);
   return {
     current: Number(headerMatch[1]),
     total: Number(headerMatch[2]),
@@ -11690,11 +11722,22 @@ function parseQuizQuestionMeta(content) {
     options
   };
 }
+var GLUED_QUIZ_HEADER = /(\S)[ \t]*(##\s*\d+\s*\/\s*\d+번 문제)[ \t]*$/;
+function restoreQuizHeaderBoundaries(content) {
+  const lines = content.split("\n");
+  const fenced = fencedLineMask(lines);
+  return lines.map((line, index) => fenced[index] || CONTAINER_PREFIX.test(line) ? line : line.replace(GLUED_QUIZ_HEADER, "$1\n\n$2")).join("\n");
+}
 function normalizeQuizMarkdown(content) {
   var _a;
-  const normalized = content.replace(/\r\n/g, "\n").replace(/\n+\(정답을 입력해 주세요[^\n]*\)/g, "");
+  const normalized = restoreQuizHeaderBoundaries(
+    content.replace(/\r\n/g, "\n").replace(/\n+\(정답을 입력해 주세요[^\n]*\)/g, "")
+  );
   const lines = normalized.split("\n");
-  const headerIndex = lines.findIndex((line) => /^##\s*\d+\s*\/\s*\d+번 문제$/i.test(line.trim()));
+  const fenced = fencedLineMask(lines);
+  const headerIndex = lines.findIndex(
+    (line, index) => !fenced[index] && /^##\s*\d+\s*\/\s*\d+번 문제$/i.test(line.trim())
+  );
   if (headerIndex === -1) {
     return normalized;
   }
@@ -11710,7 +11753,9 @@ function normalizeQuizMarkdown(content) {
   }
   const questionLine = (_a = lines[cursor]) != null ? _a : "";
   let questionHeading;
-  if (questionLine.startsWith("#")) {
+  if (fenced[cursor]) {
+    questionHeading = "";
+  } else if (questionLine.startsWith("#")) {
     questionHeading = questionLine;
     cursor += 1;
   } else if (questionLine.trim()) {
@@ -14792,6 +14837,7 @@ var InputController = class {
     (_b = (_a = this.deps).hideSocraticBanner) == null ? void 0 : _b.call(_a);
   }
   /** Quiz 힌트 shortcut (PRD §8.2): asks for one hint without grading or advancing. */
+  /** Public: the stored-message quiz row reaches this through the view's delegation. */
   requestQuizHint() {
     const { state } = this.deps;
     if (state.isStreaming || !state.quizSession) return;
@@ -17111,7 +17157,15 @@ var MessageRenderer = class {
    * Renders assistant message content (content blocks or fallback).
    */
   renderAssistantContent(msg, contentEl) {
-    var _a, _b;
+    var _a, _b, _c;
+    let recoveredQuizQuestion;
+    const displayText = (raw) => {
+      const normalized = normalizeQuizMarkdown(raw);
+      if (!msg.quizQuestion && !recoveredQuizQuestion) {
+        recoveredQuizQuestion = parseQuizQuestionMeta(normalized);
+      }
+      return normalized;
+    };
     if (msg.contentBlocks && msg.contentBlocks.length > 0) {
       for (const block of msg.contentBlocks) {
         if (block.type === "thinking") {
@@ -17123,7 +17177,7 @@ var MessageRenderer = class {
           );
         } else if (block.type === "text") {
           const textEl = contentEl.createDiv({ cls: "ocop-text-block" });
-          void this.renderContent(textEl, block.content);
+          void this.renderContent(textEl, displayText(block.content));
         } else if (block.type === "tool_use") {
           const toolCall = (_a = msg.toolCalls) == null ? void 0 : _a.find((tc) => tc.id === block.toolId);
           if (toolCall) {
@@ -17144,7 +17198,7 @@ var MessageRenderer = class {
     } else {
       if (msg.content) {
         const textEl = contentEl.createDiv({ cls: "ocop-text-block" });
-        void this.renderContent(textEl, msg.content);
+        void this.renderContent(textEl, displayText(msg.content));
       }
       if (msg.toolCalls) {
         for (const toolCall of msg.toolCalls) {
@@ -17152,11 +17206,34 @@ var MessageRenderer = class {
         }
       }
     }
-    if (msg.quizQuestion) {
-      this.renderQuizAnswerActions(contentEl, msg.quizQuestion);
+    const quizQuestion = (_c = msg.quizQuestion) != null ? _c : recoveredQuizQuestion;
+    if (quizQuestion) {
+      this.renderQuizAnswerActions(contentEl, quizQuestion);
     }
   }
   renderQuizAnswerActions(contentEl, quizQuestion) {
+    this.renderQuizAnswerControls(contentEl, quizQuestion);
+    this.renderQuizQuickActions(contentEl);
+  }
+  /**
+   * The 힌트 / 모르겠어요 row, mirroring the live panel's (QuizAnswerPanel §8.2).
+   * These are inert DOM: the click is caught by the container delegation in
+   * ObsidianCopilotView, which is where the two classes below are read.
+   */
+  renderQuizQuickActions(contentEl) {
+    const rowEl = contentEl.createDiv({ cls: "ocop-quiz-quick-actions" });
+    const hintBtn = rowEl.createEl("button", {
+      cls: "ocop-quiz-quick-action-btn ocop-quiz-hint-btn",
+      text: "\u{1F4A1} \uD78C\uD2B8"
+    });
+    hintBtn.type = "button";
+    const stuckBtn = rowEl.createEl("button", {
+      cls: "ocop-quiz-quick-action-btn ocop-quiz-stuck-btn",
+      text: "\u{1F635} \uBAA8\uB974\uACA0\uC5B4\uC694"
+    });
+    stuckBtn.type = "button";
+  }
+  renderQuizAnswerControls(contentEl, quizQuestion) {
     const progressWrapper = contentEl.createDiv({ cls: "ocop-quiz-progress-wrapper" });
     const progressEl = progressWrapper.createDiv({ cls: "ocop-quiz-progress" });
     const fillPct = Math.round(quizQuestion.current / quizQuestion.total * 100);
@@ -18775,6 +18852,15 @@ var ObsidianCopilotView = class extends import_obsidian25.ItemView {
         if (answerValue) {
           void this.inputController.sendMessage({ content: answerValue });
         }
+        return;
+      }
+      const storedQuizControl = resolveStoredQuizControl(target);
+      if (storedQuizControl && this.inputController) {
+        if (storedQuizControl.kind === "hint") {
+          this.inputController.requestQuizHint();
+        } else {
+          void this.inputController.sendMessage({ content: storedQuizControl.content });
+        }
       }
     });
     this.registerDomEvent(document, "keydown", (e) => {
@@ -18904,6 +18990,11 @@ async function openProviderSetupWizard(plugin, target) {
   } catch (err) {
     console.warn("[ObsidianCopilot] Setup wizard failed to open:", err);
   }
+}
+function resolveStoredQuizControl(target) {
+  if (target == null ? void 0 : target.closest(".ocop-quiz-hint-btn")) return { kind: "hint" };
+  if (target == null ? void 0 : target.closest(".ocop-quiz-stuck-btn")) return { kind: "answer", content: QUIZ_STUCK_ANSWER };
+  return null;
 }
 function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick) {
   const container = toolbar.createDiv({ cls: "ocop-provider-selector" });
