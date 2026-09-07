@@ -339,8 +339,8 @@ export default class ObsidianCopilotPlugin extends Plugin {
     const { slashCommands: _, ...settingsToSave } = this.settings;
     // Credentials go to device-local storage, never to the vault file.
     // SettingsStorage.save strips them again as a backstop.
-    const { writeSecrets } = await import('./core/storage/SecretStorage');
-    writeSecrets(this.app, {
+    const { writeSecretsOrNotify } = await import('./core/storage/SecretStorage');
+    writeSecretsOrNotify(this.app, {
       githubToken: this.settings.githubToken ?? '',
       environmentVariables: this.settings.environmentVariables ?? '',
     });

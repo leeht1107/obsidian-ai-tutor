@@ -8,12 +8,25 @@
  * it. Obsidian's device-local storage lives outside the vault folder, which is
  * the only place here that a sync client never sees.
  */
+// The Notice the student actually sees is the point of writeSecretsOrNotify, so
+// the mock has to record it rather than swallow it.
+const noticeMessages: string[] = [];
+jest.mock('obsidian', () => ({
+  ...jest.requireActual('obsidian'),
+  Notice: class {
+    constructor(message: string) {
+      noticeMessages.push(message);
+    }
+  },
+}));
+
 import type { App } from 'obsidian';
 
 import {
   adoptSecretsFromSettings,
   readSecrets,
   writeSecrets,
+  writeSecretsOrNotify,
 } from '@/core/storage/SecretStorage';
 import { SettingsStorage } from '@/core/storage/SettingsStorage';
 import type { VaultFileAdapter } from '@/core/storage/VaultFileAdapter';
@@ -31,6 +44,10 @@ function fakeApp(): App {
 }
 
 describe('SecretStorage', () => {
+  beforeEach(() => {
+    noticeMessages.length = 0;
+  });
+
   it('round-trips secrets through device-local storage', () => {
     const app = fakeApp();
     writeSecrets(app, { githubToken: 'github_pat_x', environmentVariables: 'A=1' });
@@ -140,5 +157,24 @@ describe('SecretStorage migration cannot lose or clobber a credential', () => {
   it('reports the write result so a caller can tell stored from lost', () => {
     expect(writeSecrets(fakeApp(), { githubToken: 'a', environmentVariables: '' })).toBe(true);
     expect(writeSecrets(brokenApp(), { githubToken: 'a', environmentVariables: '' })).toBe(false);
+  });
+
+  describe('writeSecretsOrNotify', () => {
+    // The return value of writeSecrets was being discarded at its only call site.
+    // A failed device-local write then looked exactly like a successful one: the
+    // field still shows the token because it is in memory, and the loss only
+    // appears at the next launch. The vault file no longer carries the value, so
+    // there is nothing left to fall back to. Telling the student at the moment it
+    // fails is what turns silent loss into one retry.
+    it('says nothing when the write lands', () => {
+      expect(writeSecretsOrNotify(fakeApp(), { githubToken: 'a', environmentVariables: '' })).toBe(true);
+      expect(noticeMessages).toHaveLength(0);
+    });
+
+    it('tells the student in Korean when the write did not land', () => {
+      expect(writeSecretsOrNotify(brokenApp(), { githubToken: 'a', environmentVariables: '' })).toBe(false);
+      expect(noticeMessages).toHaveLength(1);
+      expect(noticeMessages[0]).toContain('저장하지 못했습니다');
+    });
   });
 });

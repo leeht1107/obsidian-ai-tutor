@@ -15,6 +15,7 @@
  * finds no token there. SecretMoveNoticeModal says so in as many words.
  */
 import type { App } from 'obsidian';
+import { Notice } from 'obsidian';
 
 const STORAGE_KEY = 'obsidian-ai-tutor:secrets';
 
@@ -53,6 +54,28 @@ export function writeSecrets(app: App, secrets: StoredSecrets): boolean {
     console.warn('[ObsidianCopilot] Failed to store secrets locally:', error);
     return false;
   }
+}
+
+/**
+ * Write, and tell the student when the credential did not actually land.
+ *
+ * `writeSecrets` returns whether the write happened, and its only caller was
+ * discarding that answer. A failed device-local write then looked identical to a
+ * success: the settings field still shows the token because it is held in
+ * memory, and the vault file no longer carries a copy to fall back on, so the
+ * loss surfaces only at the next launch — as a token the student is sure they
+ * entered. Aborting the whole settings save would be worse; it would throw away
+ * unrelated changes to a file that never holds the secret anyway. Saying so at
+ * the moment it fails costs one retry instead of one mystery.
+ */
+export function writeSecretsOrNotify(app: App, secrets: StoredSecrets): boolean {
+  if (writeSecrets(app, secrets)) return true;
+  new Notice(
+    '인증 정보를 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 값이 비어 있을 수 있으니, '
+    + '설정 화면에서 다시 입력해 주세요.',
+    10000
+  );
+  return false;
 }
 
 /**
