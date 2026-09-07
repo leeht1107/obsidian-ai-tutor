@@ -4,10 +4,17 @@ import { Modal, Setting } from 'obsidian';
 /**
  * Shown once, on the launch that actually moved credentials out of the vault.
  *
- * Two of the three paragraphs explain what happened; the third is the one that
- * matters most. Moving the token off the synced file means a second machine
- * opening the same vault finds no token there, and a student who is not told
- * that will read it as the plugin having broken.
+ * The first two paragraphs explain what happened. The third is the one students
+ * act on: moving the token off the synced file means a second machine opening
+ * the same vault finds no token there, and a student who is not told that will
+ * read it as the plugin having broken.
+ *
+ * The fourth exists because this modal is shown to exactly one population — the
+ * students who already had a credential sitting in the synced settings file. If
+ * that vault ever reached OneDrive, Dropbox or a Git remote, the token is in a
+ * version history that today's move does not reach. Rotation is the only remedy
+ * for what already left, so the notice has to name it rather than let
+ * "인증 정보는 따라가지 않습니다" be read as covering the past too.
  */
 export class SecretMoveNoticeModal extends Modal {
   onOpen(): void {
@@ -30,6 +37,14 @@ export class SecretMoveNoticeModal extends Modal {
     contentEl.createEl('p', {
       text: '대신 다른 컴퓨터에서 같은 금고를 열면 토큰이 비어 있습니다. '
         + '그때는 설정 화면에서 한 번 더 입력해 주세요.',
+      cls: 'setting-item-description',
+    });
+
+    contentEl.createEl('p', {
+      text: '한 가지 더 확인해 주세요. 지금까지 이 금고를 OneDrive·Dropbox·GitHub 같은 곳에 '
+        + '올린 적이 있다면, 예전 사본이나 버전 기록 안에는 인증 정보가 그대로 남아 있습니다. '
+        + '방금의 이동은 지금 파일만 정리하므로, 그런 적이 있다면 해당 토큰·API 키를 '
+        + '발급처에서 폐기하고 새로 재발급받으시길 권합니다.',
       cls: 'setting-item-description',
     });
 
