@@ -18,6 +18,13 @@ import type { StreamChunk } from '@/core/types';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import type ObsidianCopilotPlugin from '@/main';
 
+/** A CLI path the resolver accepts on the running platform.
+ *  On Windows a POSIX path resolves to nothing — correctly — so these tests
+ *  would exercise the refusal branch instead of the one they are about. */
+const FAKE_CLI = process.platform === 'win32'
+  ? 'C:\\Users\\s\\AppData\\Roaming\\npm\\claude.exe'
+  : '/usr/local/bin/claude';
+
 const TOKEN = 'github_pat_11ABCDEFG_supersecretvalue';
 const API_KEY = 'sk-proj-averysecretapikeyvalue';
 
@@ -38,7 +45,7 @@ function makeService(overrides: Record<string, unknown> = {}): CopilotBridgeServ
     settings: {
       ...DEFAULT_SETTINGS,
       selectedProvider: 'claude',
-      providerCliPaths: { claude: '/usr/local/bin/claude' },
+      providerCliPaths: { claude: FAKE_CLI },
       blanketWriteAcknowledged: ['claude'],
       githubToken: TOKEN,
       ...overrides,

@@ -77,7 +77,16 @@ describe('resolveCheckedState', () => {
 });
 
 describe('checkCopilotCredential', () => {
-  afterEach(() => { jest.restoreAllMocks(); });
+  // These describe the macOS keychain path specifically. On Windows the function
+  // returns 'unknown' before it ever runs a probe — deliberately, because nobody
+  // has established where copilot keeps credentials there. Asserting the macOS
+  // answer on a Windows runner tests the wrong platform, not a defect.
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  beforeEach(() => { Object.defineProperty(process, 'platform', { value: 'darwin' }); });
+  afterEach(() => {
+    if (platform) Object.defineProperty(process, 'platform', platform);
+    jest.restoreAllMocks();
+  });
 
   it('reads existence only, never the secret', async () => {
     const run = jest.spyOn(readiness, 'runProbeProcess')
@@ -126,6 +135,9 @@ describe('checkCopilotCredential', () => {
  * The mapping the settings rows are drawn from. A reviewer noted it was the one
  * piece of this module with no test of its own.
  */
+const afterEachRestore: Array<() => void> = [];
+afterEach(() => { while (afterEachRestore.length) afterEachRestore.pop()!(); });
+
 describe('checkProviderConnection', () => {
   afterEach(() => { jest.restoreAllMocks(); });
 
@@ -148,6 +160,11 @@ describe('checkProviderConnection', () => {
   });
 
   it('never asks a login probe about copilot, which cannot answer one', async () => {
+    // macOS: the keychain is the only place this has been established. Windows
+    // returns 'unknown' by design, which is a different assertion.
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    if (platform) afterEachRestore.push(() => Object.defineProperty(process, 'platform', platform));
     const probe = jest.spyOn(readiness, 'checkProviderReadiness');
     jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/usr/local/bin/copilot');
     const run = jest.spyOn(readiness, 'runProbeProcess')

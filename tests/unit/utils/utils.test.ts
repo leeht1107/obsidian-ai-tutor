@@ -287,7 +287,10 @@ describe('utils.ts', () => {
       process.env[envKey] = '/tmp/ocop-test';
 
       try {
-        expect(normalizePathForFilesystem(`$${envKey}/notes/file.md`)).toBe('/tmp/ocop-test/notes/file.md');
+        // The product normalizes for the running platform; a POSIX literal here
+        // asserts macOS on every OS.
+        expect(normalizePathForFilesystem(`$${envKey}/notes/file.md`))
+          .toBe(path.normalize('/tmp/ocop-test/notes/file.md'));
       } finally {
         if (originalValue === undefined) {
           delete process.env[envKey];
@@ -314,8 +317,8 @@ describe('utils.ts', () => {
 
     it('handles non-existent environment variables', () => {
       // Non-existent env vars should be left as-is
-      expect(normalizePathForFilesystem('$NONEXISTENT/path')).toBe('$NONEXISTENT/path');
-      expect(normalizePathForFilesystem('%NONEXISTENT%/path')).toBe('%NONEXISTENT%/path');
+      expect(normalizePathForFilesystem('$NONEXISTENT/path')).toBe(path.normalize('$NONEXISTENT/path'));
+      expect(normalizePathForFilesystem('%NONEXISTENT%/path')).toBe(path.normalize('%NONEXISTENT%/path'));
     });
 
     it('handles mixed path separators', () => {

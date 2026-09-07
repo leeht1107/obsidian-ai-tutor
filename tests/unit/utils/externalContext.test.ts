@@ -144,9 +144,13 @@ describe('externalContext utilities', () => {
       });
 
       it('should return first conflict when multiple exist', () => {
-        const result = findConflictingPath('/a/b', ['/a', '/a/b/c']);
-        // Should return /a as it appears first and is a parent
-        expect(result).toEqual({ path: '/a', type: 'parent' });
+        // Multi-letter segments on purpose: on Windows a single-letter root like
+        // `/a` is MSYS drive notation for `A:\`, which the product translates
+        // deliberately — so `/a` and `/a/b` stop being parent and child there.
+        // That is the fixture being ambiguous, not the conflict check being wrong.
+        const result = findConflictingPath('/root/mid', ['/root', '/root/mid/leaf']);
+        // Should return /root as it appears first and is a parent
+        expect(result).toEqual({ path: '/root', type: 'parent' });
       });
     });
   });

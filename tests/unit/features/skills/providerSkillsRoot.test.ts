@@ -24,9 +24,11 @@ import { providerSkillsRoot } from '@/features/skills/ObsidianSkillsInstaller';
 
 describe('providerSkillsRoot', () => {
   it('points each vault-local CLI at the folder it actually reads', () => {
-    expect(providerSkillsRoot('/vault', 'copilot')).toBe('/vault/.copilot/skills');
-    expect(providerSkillsRoot('/vault', 'claude')).toBe('/vault/.claude/skills');
-    expect(providerSkillsRoot('/vault', 'agy')).toBe('/vault/.agents/skills');
+    // path.join here, not a POSIX literal: the product joins for the running
+    // platform, so a hardcoded '/' asserts macOS everywhere.
+    expect(providerSkillsRoot('/vault', 'copilot')).toBe(path.join('/vault', '.copilot', 'skills'));
+    expect(providerSkillsRoot('/vault', 'claude')).toBe(path.join('/vault', '.claude', 'skills'));
+    expect(providerSkillsRoot('/vault', 'agy')).toBe(path.join('/vault', '.agents', 'skills'));
   });
 
   it('sends codex to its home directory, which is where codex actually looks', () => {
@@ -40,7 +42,7 @@ describe('providerSkillsRoot', () => {
   it('honours CODEX_HOME, which codex itself honours', () => {
     const previous = process.env.CODEX_HOME;
     process.env.CODEX_HOME = '/somewhere/codex';
-    expect(providerSkillsRoot('/vault', 'codex')).toBe('/somewhere/codex/skills');
+    expect(providerSkillsRoot('/vault', 'codex')).toBe(path.join('/somewhere/codex', 'skills'));
     if (previous === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previous;
   });

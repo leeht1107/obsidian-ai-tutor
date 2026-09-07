@@ -19,6 +19,13 @@ import type { StreamChunk } from '@/core/types';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import type ObsidianCopilotPlugin from '@/main';
 
+/** A CLI path the resolver accepts on the running platform.
+ *  On Windows a POSIX path resolves to nothing — correctly — so these tests
+ *  would exercise the refusal branch instead of the one they are about. */
+const FAKE_CLI = process.platform === 'win32'
+  ? 'C:\\Users\\s\\AppData\\Roaming\\npm\\claude.exe'
+  : '/usr/local/bin/claude';
+
 const OVER_CAP = 3 * 1024 * 1024;
 
 /** A child whose streams are driven by `emit`, then closed with `exitCode`. */
@@ -39,7 +46,7 @@ function makeService(): CopilotBridgeService {
     settings: {
       ...DEFAULT_SETTINGS,
       selectedProvider: 'claude',
-      providerCliPaths: { claude: '/usr/local/bin/claude' },
+      providerCliPaths: { claude: FAKE_CLI },
       blanketWriteAcknowledged: ['claude'],
     },
     app: { vault: { adapter: { basePath: '/vault' } } },

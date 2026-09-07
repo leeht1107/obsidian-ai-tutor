@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 import {
   collectFolderFiles,
   parseGitHubFolderUrl,
@@ -135,8 +137,10 @@ describe('collectFolderFiles — refusing what would escape the skill folder', (
 
 describe('resolveSkillFilePath', () => {
   it('keeps a normal nested path inside the skill folder', () => {
+    // path.resolve, because that is what the product does — and on Windows it
+    // anchors a rootless path to the current drive.
     expect(resolveSkillFilePath('/vault/.claude/skills/docx', 'scripts/office/validate.py'))
-      .toBe('/vault/.claude/skills/docx/scripts/office/validate.py');
+      .toBe(path.resolve('/vault/.claude/skills/docx', 'scripts/office/validate.py'));
   });
 
   it('returns null for anything that resolves outside the skill folder', () => {
