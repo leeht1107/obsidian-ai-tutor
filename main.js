@@ -3104,7 +3104,7 @@ User's question or request here
 </query>
 \`\`\`
 
-- \`<current_note>\`: The note the user is currently viewing/focused on. Read this to understand context. Only appears when the focused note changes.
+- \`<current_note>\`: The note the user is currently viewing/focused on, sent with every message. Read this to understand context. If it names a different note than earlier in the conversation, the user has moved on \u2014 the latest one is what they are looking at now.
 - \`<query>\`: The user's actual question or request.
 - \`@filename.md\`: Files mentioned with @ in the query. Read these files when referenced.
 
@@ -3911,7 +3911,8 @@ ${prompt}`;
 
 User: ${injectedPrompt}` : injectedPrompt;
     }
-    if (!this.sessionId && conversationHistory && conversationHistory.length > 0) {
+    const holdsItsOwnSession = this.plugin.settings.selectedProvider === "copilot" && Boolean(this.sessionId);
+    if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
       const lastUserMessage = getLastUserMessage(conversationHistory);
       const actualPrompt = stripCurrentNotePrefix(prompt);
@@ -7403,7 +7404,6 @@ var FileContextState = class {
     /** Files that are explicitly attached (via command or @-mention) and won't be replaced. */
     this.pinnedFiles = /* @__PURE__ */ new Set();
     this.sessionStarted = false;
-    this.currentNoteSent = false;
     /** Maps display name (e.g., "@folder/file.ts") to absolute path for context files. */
     this.contextFileMap = /* @__PURE__ */ new Map();
   }
@@ -7417,12 +7417,6 @@ var FileContextState = class {
   hasPinnedFiles() {
     return this.pinnedFiles.size > 0;
   }
-  hasSentCurrentNote() {
-    return this.currentNoteSent;
-  }
-  markCurrentNoteSent() {
-    this.currentNoteSent = true;
-  }
   isSessionStarted() {
     return this.sessionStarted;
   }
@@ -7431,13 +7425,11 @@ var FileContextState = class {
   }
   resetForNewConversation() {
     this.sessionStarted = false;
-    this.currentNoteSent = false;
     this.attachedFiles.clear();
     this.pinnedFiles.clear();
     this.contextFileMap.clear();
   }
   resetForLoadedConversation(hasMessages) {
-    this.currentNoteSent = hasMessages;
     this.attachedFiles.clear();
     this.pinnedFiles.clear();
     this.contextFileMap.clear();
@@ -7742,14 +7734,20 @@ var FileContextManager = class {
   getCurrentNotePath() {
     return this.currentNotePath;
   }
-  /** Checks whether current note should be sent for this session. */
+  /**
+   * Whether this message carries the current note. It does, whenever there is one.
+   *
+   * This used to fire once per conversation, on the theory that the CLI keeps the
+   * note in its session. Three of the four CLIs have no session — each turn is a
+   * fresh process fed a replayed transcript — so "already sent" meant "sent to a
+   * process that has since exited". Switching provider mid-conversation, or just
+   * opening a different note, left the model with no idea what the student was
+   * looking at while the chip above the input still said CURRENT.
+   *
+   * The cost of sending it every turn is one line of text.
+   */
   shouldSendCurrentNote(notePath) {
-    const resolvedPath = notePath != null ? notePath : this.currentNotePath;
-    return !!resolvedPath && !this.state.hasSentCurrentNote();
-  }
-  /** Marks current note as sent (call after sending a message). */
-  markCurrentNoteSent() {
-    this.state.markCurrentNoteSent();
+    return !!(notePath != null ? notePath : this.currentNotePath);
   }
   isSessionStarted() {
     return this.state.isSessionStarted();
@@ -15570,7 +15568,6 @@ ${promptToSend}`;
     if (containsMentions && fileContextManager) {
       promptToSend = fileContextManager.transformContextMentions(promptToSend);
     }
-    fileContextManager == null ? void 0 : fileContextManager.markCurrentNoteSent();
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = externalContextSelector == null ? void 0 : externalContextSelector.getExternalContexts();
     if (externalContextPaths && externalContextPaths.length > 0) {
@@ -15822,7 +15819,6 @@ ${content}
       promptToSend = prependCurrentNote(promptToSend, currentNote);
       currentNoteForMessage = currentNote;
     }
-    fileContextManager == null ? void 0 : fileContextManager.markCurrentNoteSent();
     if (!skipUserMessage) {
       const displayContent = (_i = options == null ? void 0 : options.displayContent) != null ? _i : content;
       const userMsg = {
