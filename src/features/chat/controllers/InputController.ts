@@ -18,7 +18,6 @@ import {
   type QuizQuestionContext,
 } from '../../../core/learning';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
-import { TOOL_BASH } from '../../../core/tools/toolNames';
 import type { AskUserQuestionInput, ChatMessage, ExitPlanModeDecision, ImageAttachment } from '../../../core/types';
 import { getBashToolBlockedCommands } from '../../../core/types';
 import type ObsidianCopilotPlugin from '../../../main';
@@ -462,17 +461,16 @@ export class InputController {
         if (cmd) {
           const result = await slashCommandManager.expandCommand(cmd, detected.args, {
             bash: {
-              enabled: plugin.settings.enableInlineBash,
+              // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+              // for approval there, it is replaced with the same placeholder used when
+              // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+              enabled: plugin.settings.enableInlineBash && plugin.settings.permissionMode === 'agent',
               shouldBlockCommand: (bashCommand) =>
                 isCommandBlocked(
                   bashCommand,
                   getBashToolBlockedCommands(plugin.settings.blockedCommands),
                   plugin.settings.enableBlocklist
                 ),
-              requestApproval:
-                plugin.settings.permissionMode !== 'agent'
-                  ? (bashCommand) => this.requestInlineBashApproval(bashCommand)
-                  : undefined,
             },
           });
           content = result.expandedPrompt;
@@ -749,7 +747,7 @@ ${promptToSend}`;
 
   private async exitPlanPermissionMode(): Promise<void> {
     const { plugin, state } = this.deps;
-    const restored = plugin.settings.lastNonPlanPermissionMode ?? 'agent';
+    const restored = plugin.settings.lastNonPlanPermissionMode ?? 'ask';
     if (plugin.settings.permissionMode === 'plan') {
       plugin.settings.permissionMode = restored;
       plugin.settings.lastNonPlanPermissionMode = restored;
@@ -1267,23 +1265,6 @@ ${content}
     const { plugin } = this.deps;
     return new Promise((resolve) => {
       const modal = new ApprovalModal(plugin.app, toolName, input, description, resolve);
-      modal.open();
-    });
-  }
-
-  /** Requests approval for inline bash commands. */
-  async requestInlineBashApproval(command: string): Promise<boolean> {
-    const { plugin } = this.deps;
-    const description = `Execute inline bash command:\n${command}`;
-    return new Promise((resolve) => {
-      const modal = new ApprovalModal(
-        plugin.app,
-        TOOL_BASH,
-        { command },
-        description,
-        (decision) => resolve(decision === 'allow' || decision === 'allow-always'),
-        { showAlwaysAllow: false, title: 'Inline bash execution' }
-      );
       modal.open();
     });
   }

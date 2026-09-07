@@ -744,7 +744,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(advancedContentEl)
       .setName('Allowed export paths')
-      .setDesc('Paths outside the vault where files can be exported (one per line). Supports ~ for home directory.')
+      .setDesc('Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin — the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.')
       .addTextArea((text) => {
         const placeholder = process.platform === 'win32' ? '~/Desktop\n~/Downloads\n%TEMP%' : '~/Desktop\n~/Downloads\n/tmp';
         text

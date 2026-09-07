@@ -165,7 +165,7 @@ describe('SettingsStorage refuses to write secrets to the vault', () => {
 
     expect(loaded.model).toBe('claude-sonnet-4-5');
     // Defaults are preserved because vault's trust fields were stripped
-    expect(loaded.permissionMode).toBe('agent');
+    expect(loaded.permissionMode).toBe('ask');
     expect(loaded.enableInlineBash).toBe(false);
     expect(loaded.copilotCliPath).toBe('');
   });
@@ -173,11 +173,14 @@ describe('SettingsStorage refuses to write secrets to the vault', () => {
   it('never adopts trust fields from vault into device-local storage (untrusted vault cannot dictate trust)', async () => {
     let writtenContent = '';
     const app = fakeApp();
+    // 'agent' here is an escalation attempt: ASK is the safe default, so a vault file
+    // trying to smuggle in the more permissive mode must not reach either loaded
+    // settings or device-local trust.
     const vaultContent = JSON.stringify({
       model: 'claude-sonnet-4-5',
       githubToken: 'ghp_secret_token',
       environmentVariables: 'ATTACKER_ENV=evil',
-      permissionMode: 'ask',
+      permissionMode: 'agent',
       enableInlineBash: true,
       copilotCliPath: '/custom/bin/copilot',
     });
@@ -192,14 +195,14 @@ describe('SettingsStorage refuses to write secrets to the vault', () => {
     const loaded = await storage.load();
 
     // Trust fields stripped from loaded settings
-    expect(loaded.permissionMode).toBe('agent');
+    expect(loaded.permissionMode).toBe('ask');
     expect(loaded.enableInlineBash).toBe(false);
     expect(loaded.copilotCliPath).toBe('');
     expect(loaded.model).toBe('claude-sonnet-4-5');
 
     // Trust fields were NOT adopted into device-local storage (remains safe defaults)
     const localTrust = readTrust(app);
-    expect(localTrust.permissionMode).toBe('agent');
+    expect(localTrust.permissionMode).toBe('ask');
     expect(localTrust.enableInlineBash).toBe(false);
     expect(localTrust.copilotCliPath).toBe('');
 
@@ -320,7 +323,7 @@ describe('SettingsStorage refuses to write secrets to the vault', () => {
     const storage = new SettingsStorage(adapter);
     const loaded = await storage.load();
 
-    expect(loaded.permissionMode).toBe('agent');
+    expect(loaded.permissionMode).toBe('ask');
     expect(consoleWarnSpy).toHaveBeenCalled();
     consoleWarnSpy.mockRestore();
   });

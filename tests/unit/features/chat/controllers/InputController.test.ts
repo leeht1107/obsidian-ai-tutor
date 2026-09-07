@@ -774,6 +774,17 @@ describe('InputController - Message Queue', () => {
       expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
       expect(imageContextManager.clearImages).not.toHaveBeenCalled();
     });
+
+    it('restores ask, not agent, when exiting plan mode with no prior mode recorded', async () => {
+      // lastNonPlanPermissionMode unset is the fallback path — it must never silently
+      // escalate to agent (full write access, no blanket-write consent gate).
+      deps.plugin.settings.permissionMode = 'plan';
+      deps.plugin.settings.lastNonPlanPermissionMode = undefined;
+
+      await (controller as any).exitPlanPermissionMode();
+
+      expect(deps.plugin.settings.permissionMode).toBe('ask');
+    });
   });
 
   describe('Title generation', () => {

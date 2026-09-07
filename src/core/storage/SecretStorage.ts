@@ -161,7 +161,7 @@ function isPermissionMode(v: unknown): v is PermissionMode {
 
 export function getDefaultTrust(): StoredTrust {
   return {
-    permissionMode: 'agent',
+    permissionMode: 'ask',
     blanketWriteAcknowledged: [],
     permissions: [],
     enableInlineBash: false,

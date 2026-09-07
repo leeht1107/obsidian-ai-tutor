@@ -164,6 +164,31 @@ describe('SlashCommandManager', () => {
       expect(bashRunner).not.toHaveBeenCalled();
     });
 
+    it('never executes or requests approval when disabled (ASK/PLAN mode: enabled=false)', async () => {
+      // ASK/PLAN callers (InputController, InlineEditModal) compute `enabled` from
+      // `permissionMode === 'agent'` and no longer pass `requestApproval` at all — this
+      // pins the resulting contract at the SlashCommandManager level: disabled always
+      // wins, so a stray approval callback is never reachable.
+      const app = createMockApp({});
+      const bashRunner = jest.fn(async () => 'OUT');
+      const requestApproval = jest.fn(async () => true);
+      const manager = new SlashCommandManager(app, '/vault', { bashRunner });
+
+      const command: SlashCommand = {
+        id: '1',
+        name: 'ask-mode',
+        content: '!`echo hi`',
+      };
+
+      const result = await manager.expandCommand(command, '', {
+        bash: { enabled: false, requestApproval },
+      });
+
+      expect(result.expandedPrompt).toBe('[Inline bash disabled]');
+      expect(requestApproval).not.toHaveBeenCalled();
+      expect(bashRunner).not.toHaveBeenCalled();
+    });
+
     it('should require approval for inline bash when configured', async () => {
       const app = createMockApp({});
       const bashRunner = jest.fn(async () => 'OUT');

@@ -12,7 +12,6 @@ import * as path from 'path';
 
 import { SlashCommandManager } from '../../core/commands';
 import { isCommandBlocked } from '../../core/security/BlocklistChecker';
-import { TOOL_BASH } from '../../core/tools/toolNames';
 import { getBashToolBlockedCommands } from '../../core/types';
 import { type InlineEditMode, InlineEditService } from '../../features/inline-edit/InlineEditService';
 import type ObsidianCopilotPlugin from '../../main';
@@ -23,7 +22,6 @@ import { formatSlashCommandWarnings } from '../../utils/slashCommand';
 import { MentionDropdownController } from '../components/file-context/mention/MentionDropdownController';
 import { hideSelectionHighlight, showSelectionHighlight } from '../components/SelectionHighlight';
 import { SlashCommandDropdown } from '../components/SlashCommandDropdown';
-import { ApprovalModal } from './ApprovalModal';
 
 export type InlineEditContext =
   | { mode: 'selection'; selectedText: string }
@@ -490,17 +488,16 @@ class InlineEditController {
         if (cmd) {
           const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
             bash: {
-              enabled: this.plugin.settings.enableInlineBash,
+              // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+              // for approval there, it is replaced with the same placeholder used when
+              // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+              enabled: this.plugin.settings.enableInlineBash && this.plugin.settings.permissionMode === 'agent',
               shouldBlockCommand: (bashCommand) =>
                 isCommandBlocked(
                   bashCommand,
                   getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
                   this.plugin.settings.enableBlocklist
                 ),
-              requestApproval:
-                this.plugin.settings.permissionMode !== 'agent'
-                  ? (bashCommand) => this.requestInlineBashApproval(bashCommand)
-                  : undefined,
             },
           });
           userMessage = expansion.expandedPrompt;
@@ -772,18 +769,4 @@ class InlineEditController {
     }
   }
 
-  private async requestInlineBashApproval(command: string): Promise<boolean> {
-    const description = `Execute inline bash command:\n${command}`;
-    return new Promise((resolve) => {
-      const modal = new ApprovalModal(
-        this.app,
-        TOOL_BASH,
-        { command },
-        description,
-        (decision) => resolve(decision === 'allow' || decision === 'allow-always'),
-        { showAlwaysAllow: false, title: 'Inline bash execution' }
-      );
-      modal.open();
-    });
-  }
 }

@@ -10,7 +10,9 @@ describe('provider registry', () => {
     ['codex', 'codex', ['exec', '--skip-git-repo-check', '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hello']],
     ['agy', 'agy', ['--dangerously-skip-permissions', '-p', 'hello']],
   ] as const)('builds the native %s command', (id, command, args) => {
-    expect(buildNativeProviderCommand(id, 'hello')).toEqual({ command, args });
+    // Explicit 'agent' mode: this table documents the full-capability command shape,
+    // independent of buildNativeProviderCommand's now-read-only default parameter.
+    expect(buildNativeProviderCommand(id, 'hello', '', '', 'agent')).toEqual({ command, args });
   });
 
   it('keeps agy guided because no package-manager recipe is verified', () => {
@@ -19,9 +21,9 @@ describe('provider registry', () => {
   });
 
   it('passes only explicit native model overrides with each CLI contract', () => {
-    expect(buildNativeProviderCommand('claude', 'hello', 'opus').args).toEqual(['-p', '--model', 'opus', '--permission-mode', 'bypassPermissions', '--output-format', 'stream-json', '--verbose', 'hello']);
-    expect(buildNativeProviderCommand('codex', 'hello', 'o3').args).toEqual(['exec', '--skip-git-repo-check', '--model', 'o3', '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hello']);
-    expect(buildNativeProviderCommand('agy', 'hello', 'gemini-pro').args).toEqual(['--dangerously-skip-permissions', '--model', 'gemini-pro', '-p', 'hello']);
-    expect(buildNativeProviderCommand('agy', 'hello', '   ').args).toEqual(['--dangerously-skip-permissions', '-p', 'hello']);
+    expect(buildNativeProviderCommand('claude', 'hello', 'opus', '', 'agent').args).toEqual(['-p', '--model', 'opus', '--permission-mode', 'bypassPermissions', '--output-format', 'stream-json', '--verbose', 'hello']);
+    expect(buildNativeProviderCommand('codex', 'hello', 'o3', '', 'agent').args).toEqual(['exec', '--skip-git-repo-check', '--model', 'o3', '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hello']);
+    expect(buildNativeProviderCommand('agy', 'hello', 'gemini-pro', '', 'agent').args).toEqual(['--dangerously-skip-permissions', '--model', 'gemini-pro', '-p', 'hello']);
+    expect(buildNativeProviderCommand('agy', 'hello', '   ', '', 'agent').args).toEqual(['--dangerously-skip-permissions', '-p', 'hello']);
   });
 });

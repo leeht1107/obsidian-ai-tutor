@@ -16,7 +16,7 @@ describe('chat toolbar picks reaching the CLI', () => {
     };
     const selection = resolveNativeSelection(settings);
     expect(selection).toEqual({ provider: 'agy', model: 'gemini-3.8-flash-low', effort: '' });
-    expect(buildNativeProviderCommand(selection.provider, 'hello', selection.model, selection.effort).args)
+    expect(buildNativeProviderCommand(selection.provider, 'hello', selection.model, selection.effort, 'agent').args)
       .toEqual(['--dangerously-skip-permissions', '--model', 'gemini-3.8-flash-low', '-p', 'hello']);
   });
 
@@ -28,7 +28,7 @@ describe('chat toolbar picks reaching the CLI', () => {
     };
     const selection = resolveNativeSelection(settings);
     expect(selection).toEqual({ provider: 'claude', model: '', effort: 'high' });
-    expect(buildNativeProviderCommand('claude', 'hi', '', 'high').args)
+    expect(buildNativeProviderCommand('claude', 'hi', '', 'high', 'agent').args)
       .toEqual(['-p', '--effort', 'high', '--permission-mode', 'bypassPermissions',
         '--output-format', 'stream-json', '--verbose', 'hi']);
   });
@@ -48,7 +48,7 @@ describe('chat toolbar picks reaching the CLI', () => {
       providerEfforts: { claude: 'high' },
     });
     expect(selection).toEqual({ provider: 'codex', model: '', effort: '' });
-    expect(buildNativeProviderCommand('codex', 'hi', '', '').args)
+    expect(buildNativeProviderCommand('codex', 'hi', '', '', 'agent').args)
       .toEqual(['exec', '--skip-git-repo-check', '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hi']);
   });
 });

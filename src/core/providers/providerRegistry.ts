@@ -269,7 +269,7 @@ export function buildNativeProviderCommand(
   prompt: string,
   model = '',
   effort = '',
-  permissionMode: NativePermissionMode = 'agent'
+  permissionMode: NativePermissionMode = 'ask'
 ): { command: string; args: string[] } {
   const selectedModel = model.trim();
   // A level this CLI never validated is dropped rather than passed through: agy aborts the

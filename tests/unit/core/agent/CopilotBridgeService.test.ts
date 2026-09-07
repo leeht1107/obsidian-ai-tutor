@@ -66,17 +66,13 @@ describe('CopilotBridgeService helpers', () => {
         'view',
         'grep',
         'glob',
-        'ls',
-        'task',
-        'agent_output',
-        'report_intent',
-        'webfetch',
-        'websearch',
+        'web_fetch',
+        'web_search',
       ]);
     });
 
     it('filters requested tools through normal mode guardrails', () => {
-      expect(resolveCopilotAllowedTools('normal', ['view', 'bash', 'task'])).toEqual(['view', 'task']);
+      expect(resolveCopilotAllowedTools('normal', ['view', 'bash', 'task'])).toEqual(['view']);
     });
 
     it('falls back to plan guardrails when a plan-mode request asks for unsupported tools only', () => {
@@ -84,12 +80,8 @@ describe('CopilotBridgeService helpers', () => {
         'view',
         'grep',
         'glob',
-        'ls',
-        'task',
-        'agent_output',
-        'report_intent',
-        'webfetch',
-        'websearch',
+        'web_fetch',
+        'web_search',
       ]);
     });
 
@@ -98,13 +90,19 @@ describe('CopilotBridgeService helpers', () => {
         'view',
         'grep',
         'glob',
-        'ls',
-        'task',
-        'agent_output',
-        'report_intent',
-        'webfetch',
-        'websearch',
+        'web_fetch',
+        'web_search',
       ]);
+    });
+
+    it('excludes the removed delegation tools from the ASK allowlist', () => {
+      expect(resolveCopilotAllowedTools('ask')).not.toContain('task');
+      expect(resolveCopilotAllowedTools('ask')).not.toContain('agent_output');
+    });
+
+    it('drops web tools from the ASK allowlist when web search is disabled, after the rename', () => {
+      expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_search');
+      expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_fetch');
     });
   });
 

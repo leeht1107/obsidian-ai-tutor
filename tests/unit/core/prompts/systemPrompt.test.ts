@@ -76,6 +76,23 @@ describe('systemPrompt', () => {
     });
   });
 
+  describe('subagent instructions (AGENT mode only — spawning a subagent is a mutation-capable action)', () => {
+    it('includes the Task (Subagents) section in agent mode', () => {
+      const prompt = buildSystemPrompt({ permissionMode: 'agent' });
+      expect(prompt).toContain('### Task (Subagents)');
+    });
+
+    it('omits the Task (Subagents) section in plan mode', () => {
+      const prompt = buildSystemPrompt({ permissionMode: 'plan' });
+      expect(prompt).not.toContain('### Task (Subagents)');
+    });
+
+    it('omits the Task (Subagents) section in ask mode', () => {
+      const prompt = buildSystemPrompt({ permissionMode: 'ask' });
+      expect(prompt).not.toContain('### Task (Subagents)');
+    });
+  });
+
   describe('media folder instructions', () => {
     it('should use vault root path when mediaFolder is empty', () => {
       const prompt = buildSystemPrompt({ mediaFolder: '' });

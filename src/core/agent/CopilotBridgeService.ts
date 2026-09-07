@@ -60,12 +60,8 @@ const ALLOWED_TOOLS = [
   'view',
   'grep',
   'glob',
-  'ls',
-  'task',
-  'agent_output',
-  'report_intent',
-  'webfetch',
-  'websearch',
+  'web_fetch',
+  'web_search',
 ] as const;
 
 const MAX_DIFF_SIZE = 100 * 1024;
@@ -108,7 +104,7 @@ export function resolveCopilotAllowedTools(
     : guardrailTools ?? [];
 
   if (!enableWebSearch) {
-    const webTools = new Set(['websearch', 'webfetch']);
+    const webTools = new Set(['web_search', 'web_fetch']);
     effectiveTools = effectiveTools.filter((tool) => !webTools.has(tool));
   }
 
@@ -475,6 +471,7 @@ export class CopilotBridgeService {
       hasEditorContext,
       planMode: queryOptions?.planMode,
       appendedPlan: this.approvedPlanContent ?? undefined,
+      permissionMode: this.plugin.settings.permissionMode,
     });
   }
 

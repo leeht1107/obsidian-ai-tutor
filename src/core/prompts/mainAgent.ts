@@ -6,6 +6,7 @@
  */
 
 import { getTodayDate } from '../../utils/date';
+import type { PermissionMode } from '../types/settings';
 
 export interface SystemPromptSettings {
   mediaFolder?: string;
@@ -18,11 +19,52 @@ export interface SystemPromptSettings {
   planMode?: boolean;
   /** Approved plan content to append (from plan mode approval). */
   appendedPlan?: string;
+  /** Current permission mode. Subagent instructions are AGENT-only (they spawn CLI processes). */
+  permissionMode?: PermissionMode;
+}
+
+/** Task (Subagents) instructions — AGENT mode only, since spawning a subagent is a mutation-capable action. */
+function getSubagentInstructions(): string {
+  return `
+### Task (Subagents)
+
+Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`description\`, \`subagent_type\`, \`run_in_background\`.
+
+**CRITICAL - Subagent Path Rules:**
+- Subagents inherit the vault as their working directory.
+- Reference files using **RELATIVE** paths.
+- NEVER use absolute paths in subagent prompts.
+
+**When to use:**
+- Parallelizable work (main + subagent or multiple subagents)
+- Preserve main context budget for sub-tasks
+- Offload contained tasks while continuing other work
+
+**Sync Mode (Default - \`run_in_background=false\`)**:
+- Runs inline, result returned directly.
+- **DEFAULT** to this unless explicitly asked or the task is very long-running.
+
+**Async Mode (\`run_in_background=true\`)**:
+- Use ONLY when explicitly requested or task is clearly long-running.
+- Returns \`agent_id\` immediately.
+- **Must retrieve result** with \`AgentOutputTool\` (poll with block=false, then block=true).
+- Never end response without retrieving async results.
+
+**Async workflow:**
+1. Launch: \`Task prompt="..." run_in_background=true\` → get \`agent_id\`
+2. Check immediately: \`AgentOutputTool agentId="..." block=false\`
+3. Poll while working: \`AgentOutputTool agentId="..." block=false\`
+4. When idle: \`AgentOutputTool agentId="..." block=true\` (wait for completion)
+5. Report result to user
+
+**Critical:** Never end response without retrieving async task results.
+`;
 }
 
 /** Returns the base system prompt with core instructions. */
-function getBaseSystemPrompt(vaultPath?: string): string {
+function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode): string {
   const vaultInfo = vaultPath ? `\n\nVault absolute path: ${vaultPath}` : '';
+  const subagentInstructions = permissionMode === 'agent' ? getSubagentInstructions() : '';
 
   return `## Time Context
 
@@ -135,40 +177,7 @@ Use WebSearch strictly according to the following logic:
     - Volatile data (prices, weather).
 3.  **Date Awareness**: If user says "yesterday", calculate the date relative to **Current Date**.
 4.  **Ambiguity**: If unsure if knowledge is outdated, SEARCH.
-
-### Task (Subagents)
-
-Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`description\`, \`subagent_type\`, \`run_in_background\`.
-
-**CRITICAL - Subagent Path Rules:**
-- Subagents inherit the vault as their working directory.
-- Reference files using **RELATIVE** paths.
-- NEVER use absolute paths in subagent prompts.
-
-**When to use:**
-- Parallelizable work (main + subagent or multiple subagents)
-- Preserve main context budget for sub-tasks
-- Offload contained tasks while continuing other work
-
-**Sync Mode (Default - \`run_in_background=false\`)**:
-- Runs inline, result returned directly.
-- **DEFAULT** to this unless explicitly asked or the task is very long-running.
-
-**Async Mode (\`run_in_background=true\`)**:
-- Use ONLY when explicitly requested or task is clearly long-running.
-- Returns \`agent_id\` immediately.
-- **Must retrieve result** with \`AgentOutputTool\` (poll with block=false, then block=true).
-- Never end response without retrieving async results.
-
-**Async workflow:**
-1. Launch: \`Task prompt="..." run_in_background=true\` → get \`agent_id\`
-2. Check immediately: \`AgentOutputTool agentId="..." block=false\`
-3. Poll while working: \`AgentOutputTool agentId="..." block=false\`
-4. When idle: \`AgentOutputTool agentId="..." block=true\` (wait for completion)
-5. Report result to user
-
-**Critical:** Never end response without retrieving async task results.
-
+${subagentInstructions}
 ### TodoWrite
 
 Track task progress. Parameter: \`todos\` (array of {content, status, activeForm}).
@@ -248,7 +257,7 @@ function getExportInstructions(allowedExportPaths: string[]): string {
 
 ## Allowed Export Paths
 
-Write-only destinations outside the vault:
+Guidance only — the plugin does not enforce this list; the CLI process can write anywhere the OS permits. Export outside the vault only to these destinations:
 
 ${formattedPaths}
 
@@ -344,7 +353,7 @@ You are in **plan mode** - a read-only exploration phase before implementation.
 
 /** Builds the complete system prompt with optional custom settings. */
 export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
-  let prompt = getBaseSystemPrompt(settings.vaultPath);
+  let prompt = getBaseSystemPrompt(settings.vaultPath, settings.permissionMode);
 
   // Stable content (ordered for context cache optimization)
   prompt += getImageInstructions(settings.mediaFolder || '');
