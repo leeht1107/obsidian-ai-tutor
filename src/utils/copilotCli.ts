@@ -270,24 +270,146 @@ export function resolveCmdShim(cmdPath: string): [string, string] | null {
 
     // npm shims end with a line like:
     //   "%_prog%"  "%dp0%\node_modules\pkg\bin.js"  %*
-    // Find the first .js file reference followed by %*
+    // Other cmd-shim generators (pnpm, older yarn) write `%~dp0` in that slot
+    // instead, and a package may ship .cjs or .mjs rather than .js. Recognising
+    // only npm's exact spelling refused installs that were perfectly runnable.
     for (const line of content.split(/\r?\n/)) {
-      const m = line.match(/"([^"]+\.js)"\s+%\*/i);
+      const m = line.match(/"([^"]+\.(?:js|cjs|mjs))"\s+%\*/i);
       if (!m) continue;
 
-      let scriptPath = m[1];
-      // Replace %dp0%\ with the directory containing the .cmd file
-      scriptPath = scriptPath.replace(/%dp0%\\/gi, cmdDir + pp.sep);
+      // Both spellings name the directory holding the .cmd file.
+      const scriptPath = pp.normalize(
+        m[1].replace(/%~?dp0%?\\?/gi, cmdDir + pp.sep)
+      );
 
       if (!isExistingFile(scriptPath)) continue;
 
-      // Prefer a node.exe bundled alongside the .cmd (e.g. nvm-windows)
-      const localNode = pp.join(cmdDir, 'node.exe');
-      const nodeExe = isExistingFile(localNode) ? localNode : 'node';
-
-      return [nodeExe, scriptPath];
+      return [preferredNode(cmdDir), scriptPath];
     }
   } catch { /* fall through */ }
+
+  return null;
+}
+
+/**
+ * Pick the `bin` entry that belongs to the command the student's path names.
+ *
+ * Windows paths are case-insensitive, so the key match has to be too. When no
+ * key matches and the package exposes several binaries, this returns nothing
+ * rather than the first one: guessing there would run a package's setup or
+ * doctor script in place of its CLI, with the student's prompt attached.
+ */
+function selectBinEntry(bin: unknown, commandName: string): string | undefined {
+  if (!bin || typeof bin !== 'object') return undefined;
+  const entries = Object.entries(bin as Record<string, string>)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0);
+  if (entries.length === 0) return undefined;
+
+  const wanted = commandName.toLowerCase();
+  const matched = entries.find(([key]) => key.toLowerCase() === wanted);
+  if (matched) return matched[1];
+
+  return entries.length === 1 ? entries[0][1] : undefined;
+}
+
+/** Prefer a node.exe bundled beside the shim (nvm-windows) over whatever PATH holds. */
+function preferredNode(dir: string): string {
+  const local = platformPath().join(dir, 'node.exe');
+  return isExistingFile(local) ? local : 'node';
+}
+
+/**
+ * Follow npm's published layout to a package's real entry point.
+ *
+ * resolveCmdShim reads the .cmd file's own text, which only works for npm's shim
+ * format — pnpm, yarn and bun each write a different body. The package layout is
+ * the same for all of them, so this covers the shims we cannot parse without
+ * having to learn each generator's output.
+ */
+function resolveNpmPackageEntry(cliPath: string, npmPackage?: string): [string, string[]] | null {
+  if (!npmPackage) return null;
+
+  const pp = platformPath();
+  const binDir = pp.dirname(cliPath);
+  const segments = npmPackage.split('/');
+
+  const roots = [
+    // Windows global installs put node_modules beside the shims.
+    pp.join(binDir, 'node_modules', ...segments),
+    // Unix-style layout, in case a prefix was configured that way.
+    pp.join(pp.dirname(binDir), 'lib', 'node_modules', ...segments),
+  ];
+  const prefix = getNpmGlobalPrefix();
+  if (prefix) {
+    roots.push(pp.join(prefix, 'node_modules', ...segments));
+    roots.push(pp.join(prefix, 'lib', 'node_modules', ...segments));
+  }
+
+  // A package may expose several bins; match the one the student's path names.
+  const commandName = pp.basename(cliPath).replace(/\.(cmd|bat|ps1|exe)$/i, '');
+
+  for (const root of roots) {
+    const manifestPath = pp.join(root, 'package.json');
+    if (!isExistingFile(manifestPath)) continue;
+
+    let bin: unknown;
+    try {
+      bin = (JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { bin?: unknown }).bin;
+    } catch { continue; }
+
+    const relative = typeof bin === 'string' ? bin : selectBinEntry(bin, commandName);
+    if (typeof relative !== 'string' || relative.length === 0) continue;
+
+    const entry = pp.normalize(pp.join(root, relative));
+    if (!isExistingFile(entry)) continue;
+
+    // A package may ship a prebuilt binary rather than a script, and `node
+    // claude.exe` fails on the first byte.
+    if (/\.exe$/i.test(entry)) return [entry, []];
+
+    return [preferredNode(binDir), [entry]];
+  }
+
+  return null;
+}
+
+/** volta and scoop write a .cmd next to a real .exe, which needs no shell at all. */
+function siblingExecutable(cliPath: string): string | null {
+  const pp = platformPath();
+  const base = pp.basename(cliPath).replace(/\.(cmd|bat|ps1)$/i, '');
+  const exe = pp.join(pp.dirname(cliPath), `${base}.exe`);
+  return isExistingFile(exe) ? exe : null;
+}
+
+/**
+ * Resolve a CLI path into something spawnable WITHOUT a shell, or nothing.
+ *
+ * `shell: true` hands cmd.exe a single command string and escapes nothing, so a
+ * prompt built from note content puts `&`, `|` and `%` on a command line. This
+ * plugin used it as a Windows fallback whenever a .cmd shim could not be parsed
+ * — and, because the check was `!cmdShim`, for plain .exe paths as well.
+ *
+ * Four rungs, all deterministic lookups:
+ *   0. an .exe is already spawnable
+ *   1. the .cmd shim's own text names its .js target (npm's format)
+ *   2. the npm package layout names it (every other shim generator)
+ *   3. a sibling .exe beside an unusable shim (volta, scoop)
+ *
+ * Returning null is a real answer: the caller must show the student a way out
+ * rather than reach for a shell.
+ */
+export function resolveProviderEntry(cliPath: string, npmPackage?: string): [string, string[]] | null {
+  if (process.platform !== 'win32') return [cliPath, []];
+  if (/\.exe$/i.test(cliPath)) return [cliPath, []];
+
+  const shim = resolveCmdShim(cliPath);
+  if (shim) return [shim[0], [shim[1]]];
+
+  const packaged = resolveNpmPackageEntry(cliPath, npmPackage);
+  if (packaged) return packaged;
+
+  const sibling = siblingExecutable(cliPath);
+  if (sibling) return [sibling, []];
 
   return null;
 }

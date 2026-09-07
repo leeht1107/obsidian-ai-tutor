@@ -5,7 +5,7 @@ import * as path from 'path';
 
 import type ObsidianCopilotPlugin from '../../main';
 import { stripCurrentNotePrefix } from '../../utils/context';
-import { findCopilotCLIPath, resolveCmdShim } from '../../utils/copilotCli';
+import { findCopilotCLIPath, resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath, parseEnvironmentVariables } from '../../utils/env';
 import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory, getLastUserMessage } from '../../utils/session';
@@ -13,6 +13,7 @@ import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
   findProviderCliPath,
+  getProviderDescriptor,
   getStaticProviderModels,
   parseAgyModels,
   parseCodexModels,
@@ -67,6 +68,17 @@ const ALLOWED_TOOLS = [
 
 const MAX_DIFF_SIZE = 100 * 1024;
 const CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
+
+/**
+ * Ceilings for what one child process may hold in memory.
+ *
+ * There is no request timeout on purpose — the stop button already sends
+ * SIGTERM, and a research question can legitimately run for minutes — but a CLI
+ * that loops or streams without newlines must not be able to grow these strings
+ * until Obsidian dies. 1 MiB is far past any real answer or error message.
+ */
+const MAX_STDERR_CHARS = 1024 * 1024;
+const MAX_LINE_BUFFER_CHARS = 1024 * 1024;
 
 interface DiffContentEntry {
   filePath: string;
@@ -550,16 +562,16 @@ export class CopilotBridgeService {
     }
 
     const probePromise = new Promise<CopilotCliCapabilities>((resolve) => {
-      const probeShim = resolveCmdShim(copilotPath);
-      const [probeCmd, probeArgs] = probeShim
-        ? [probeShim[0], [probeShim[1], '--help', 'all']]
+      const probeEntry = resolveProviderEntry(copilotPath, getProviderDescriptor('copilot').npmPackage);
+      // No entry means no shell either. The probe simply fails, and
+      // detectCopilotCliCapabilities('') already returns the conservative set.
+      const [probeCmd, probeArgs] = probeEntry
+        ? [probeEntry[0], [...probeEntry[1], '--help', 'all']]
         : [copilotPath, ['--help', 'all']];
       execFile(probeCmd, probeArgs, {
         encoding: 'utf8',
         env: this.getCustomEnv(copilotPath),
         timeout: CLI_CAPABILITY_PROBE_TIMEOUT_MS,
-        // shell:true only needed as fallback when .cmd shim resolution fails
-        shell: !probeShim && process.platform === 'win32',
         windowsHide: true,
       }, (error, stdout, stderr) => {
         const helpText = typeof stdout === 'string' && stdout.trim().length > 0
@@ -624,8 +636,13 @@ export class CopilotBridgeService {
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) throw new Error(`${provider} CLI not found`);
+    // Discovery has to resolve the CLI exactly as dispatch does. Windows cannot
+    // launch a .cmd shim through execFile at all, and there is no shell here to
+    // do it for us — this path failed with EINVAL long before the shell removal.
+    const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
+    if (!entry) throw new Error(`${provider} CLI could not be run`);
     return new Promise((resolve, reject) => {
-      execFile(cliPath, args, { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      execFile(entry[0], [...entry[1], ...args], { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
         if (error) { reject(error); return; }
         resolve(provider === 'codex' ? parseCodexModels(stdout) : parseAgyModels(stdout));
       });
@@ -751,6 +768,59 @@ export class CopilotBridgeService {
     }
   }
 
+  /**
+   * Strip configured credentials out of anything shown to the student.
+   *
+   * A failing CLI's stderr goes into the chat, and the chat is written to
+   * `.copilot/sessions/` inside the vault — the same synced folder the token
+   * was just moved out of. One stack trace that echoes GH_TOKEN would put it
+   * straight back.
+   *
+   * Only values long enough to be credentials are matched. `LANG=ko_KR.UTF-8`
+   * sits in the same settings field as an API key, and scrubbing every
+   * configured value would blank ordinary words out of error messages.
+   */
+  private redactSecrets(text: string): string {
+    if (!text) return text;
+    const candidates = [
+      this.plugin.settings.githubToken,
+      ...Object.values(parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables())),
+    ];
+    let out = text;
+    for (const value of candidates) {
+      if (typeof value !== 'string' || value.trim().length < 16) continue;
+      out = out.split(value).join('[비밀 값 가림]');
+    }
+    return out;
+  }
+
+  /**
+   * What a student sees when the CLI is installed but nothing runnable can be
+   * named. Korean, and pointed at the fix rather than at the cause: a shim
+   * format we cannot parse is not something a student can act on, and the
+   * wizard below reinstalls the CLI in a layout we can.
+   */
+  private unrunnableCliMessage(provider: ProviderId): string {
+    const descriptor = getProviderDescriptor(provider);
+    // agy has no install command, so the wizard opens on its manual page. Telling
+    // that student to press an auto-install button they will not find is worse
+    // than saying nothing.
+    const remedy = descriptor.installCommand
+      ? '자동 설정 창에서 다시 설치하면 해결됩니다.'
+      : `${descriptor.label}는 자동 설치를 지원하지 않습니다. 방금 열린 창의 안내대로 다시 설치해 주세요.`;
+    return `${descriptor.label}를 실행할 수 없습니다. 설치가 손상되었을 수 있습니다.\n${remedy}`;
+  }
+
+  /** Open the setup wizard so the message above has somewhere to go. */
+  private async openSetupWizard(provider: ProviderId): Promise<void> {
+    try {
+      const { SetupWizardModal } = await import('../../ui/modals/SetupWizardModal');
+      new SetupWizardModal(this.plugin.app, this.plugin, provider).open();
+    } catch (err) {
+      console.warn('[ObsidianCopilot] Setup wizard failed to open:', err);
+    }
+  }
+
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   private async *querySelectedProvider(
     prompt: string,
@@ -797,8 +867,15 @@ export class CopilotBridgeService {
       this.onPermissionNotice?.(notice);
     }
     const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode);
-    const cmdShim = resolveCmdShim(cliPath);
-    const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
+    // The prompt carries note content, so it must stay one argv element. A shell
+    // would flatten it into a command string where `&` and `|` are operators.
+    const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
+    if (!entry) {
+      yield { type: 'error', content: this.unrunnableCliMessage(provider) };
+      void this.openSetupWizard(provider);
+      return;
+    }
+    const [command, args] = [entry[0], [...entry[1], ...native.args]];
     let child: ChildProcess;
     try {
       child = spawn(command, args, {
@@ -813,7 +890,6 @@ export class CopilotBridgeService {
         };
       })(),
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: !cmdShim && process.platform === 'win32',
       // No console window should flash on a student's screen per request.
       windowsHide: true,
       });
@@ -835,6 +911,12 @@ export class CopilotBridgeService {
     let wake: (() => void) | null = null;
     const signal = () => { const resume = wake; wake = null; resume?.(); };
 
+    const push = (line: string) => {
+      const chunk = this.parseNativeProviderLine(provider, line);
+      if (!chunk) return;
+      if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
+      pending.push(chunk);
+    };
     child.stdout?.on('data', (data: Buffer) => {
       lineBuffer += data.toString();
       const lines = lineBuffer.split(/\r?\n/);
@@ -843,14 +925,24 @@ export class CopilotBridgeService {
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        const chunk = this.parseNativeProviderLine(provider, trimmed);
-        if (!chunk) continue;
-        if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
-        pending.push(chunk);
+        push(trimmed);
+      }
+      // A CLI that streams without newlines would grow this buffer for the whole
+      // request. Flush rather than truncate: this is the student's answer, so the
+      // cap costs a line break, not content.
+      if (lineBuffer.length > MAX_LINE_BUFFER_CHARS) {
+        const forced = lineBuffer;
+        lineBuffer = '';
+        push(forced);
       }
       signal();
     });
-    child.stderr?.on('data', (data: Buffer) => { errorOutput += data.toString(); });
+    child.stderr?.on('data', (data: Buffer) => {
+      // stderr is diagnostic and only its head is ever read, so this one is
+      // capped rather than flushed — a crash loop must not fill memory.
+      if (errorOutput.length >= MAX_STDERR_CHARS) return;
+      errorOutput = (errorOutput + data.toString()).slice(0, MAX_STDERR_CHARS);
+    });
     child.on('close', (code, receivedSignal) => { exitCode = code; closeSignal = receivedSignal; closed = true; signal(); });
     child.on('error', (error) => { errorOutput = error.message; exitCode = 1; closed = true; signal(); });
     child.stdin?.end();
@@ -887,7 +979,7 @@ export class CopilotBridgeService {
       // and counted the run as ok.
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         this.onOutcome?.(provider, 'failed');
-        yield { type: 'error', content: explainEmptyNativeAnswer(provider, errorOutput) };
+        yield { type: 'error', content: this.redactSecrets(explainEmptyNativeAnswer(provider, errorOutput)) };
       }
       if (!this.wasInterrupted && exitCode !== 0) {
         // Only 'failed'. These CLIs have no auth string we have verified, and
@@ -897,7 +989,7 @@ export class CopilotBridgeService {
         // as an empty but successful answer.
         yield {
           type: 'error',
-          content: errorOutput.trim()
+          content: this.redactSecrets(errorOutput.trim())
             || (closeSignal
               ? `${provider} CLI was terminated (${closeSignal}).`
               : `${provider} CLI exited with code ${exitCode}.`),
@@ -955,21 +1047,23 @@ export class CopilotBridgeService {
     env: NodeJS.ProcessEnv
   ): AsyncGenerator<StreamChunk> {
     const cwd = this.getWorkingDirectory();
-    // On Windows, resolve .cmd shims to [node, script.js] and spawn node directly.
+    // On Windows, resolve the CLI to a real executable and spawn it directly.
     // This bypasses cmd.exe entirely, avoiding shell metacharacter/encoding issues
     // when long prompts (containing Korean text, quotes, %, ^, etc.) are passed
-    // as arguments. shell:true is only used as fallback if shim resolution fails.
-    const cmdShim = resolveCmdShim(command);
-    const [spawnCmd, spawnArgs] = cmdShim
-      ? [cmdShim[0], [cmdShim[1], ...args]]
-      : [command, args];
+    // as arguments — and, more importantly, keeping note content off a command line.
+    const entry = resolveProviderEntry(command, getProviderDescriptor('copilot').npmPackage);
+    if (!entry) {
+      yield { type: 'error', content: this.unrunnableCliMessage('copilot') };
+      void this.openSetupWizard('copilot');
+      return;
+    }
+    const [spawnCmd, spawnArgs] = [entry[0], [...entry[1], ...args]];
     let child: ChildProcess;
     try {
       child = spawn(spawnCmd, spawnArgs, {
         cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: !cmdShim && process.platform === 'win32',
         // No console window should flash on a student's screen per request.
         windowsHide: true,
       });
@@ -993,30 +1087,36 @@ export class CopilotBridgeService {
     let resolveWait: (() => void) | null = null;
     let done = false;
 
+    const pushLine = (line: string) => {
+      const parsed = this.parseCopilotEvent(line.trim());
+      if (!parsed) {
+        chunks.push({ type: 'text', content: line + '\n' });
+        return;
+      }
+      for (const chunk of this.translateCopilotEvent(parsed)) chunks.push(chunk);
+    };
     child.stdout?.on('data', (data: Buffer) => {
       stdoutBuffer += data.toString();
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = lines.pop() ?? '';
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const parsed = this.parseCopilotEvent(trimmed);
-        if (!parsed) {
-          chunks.push({ type: 'text', content: line + '\n' });
-          continue;
-        }
-
-        for (const chunk of this.translateCopilotEvent(parsed)) {
-          chunks.push(chunk);
-        }
+        if (!line.trim()) continue;
+        pushLine(line);
+      }
+      // See the native path: flush an over-long unterminated line rather than
+      // hold the whole answer in memory waiting for a newline.
+      if (stdoutBuffer.length > MAX_LINE_BUFFER_CHARS) {
+        const forced = stdoutBuffer;
+        stdoutBuffer = '';
+        pushLine(forced);
       }
       resolveWait?.();
     });
 
     child.stderr?.on('data', (data: Buffer) => {
-      stderrBuffer += data.toString();
+      if (stderrBuffer.length >= MAX_STDERR_CHARS) return;
+      stderrBuffer = (stderrBuffer + data.toString()).slice(0, MAX_STDERR_CHARS);
     });
 
     child.on('close', (code) => {
@@ -1039,7 +1139,7 @@ export class CopilotBridgeService {
       if (code !== 0 && stderrBuffer.trim()) {
         chunks.push({
           type: 'error',
-          content: classifyCopilotFailure(stderrBuffer.trim()).message,
+          content: this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message),
         });
       }
       resolveWait?.();

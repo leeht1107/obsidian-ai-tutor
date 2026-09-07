@@ -41,14 +41,38 @@ const FIXTURE_LINE: Record<FixtureProvider, string> = {
 function writeFixtureCli(dir: string, provider: FixtureProvider = 'claude'): string {
   const line = FIXTURE_LINE[provider];
   if (isWindows) {
+    // A real npm-style shim in front of a real .js, not a bare `echo` batch file.
+    // Dispatch no longer uses a shell, so nothing can launch a plain .cmd — and
+    // the old fixture never exercised the shim parsing that every Windows
+    // student's install depends on. This one does.
+    const jsPath = path.join(dir, `fake-${provider}-cli.js`);
+    fs.writeFileSync(jsPath, `process.stdout.write(${JSON.stringify(line + '\n')});\n`);
     const scriptPath = path.join(dir, `fake-${provider}-cli.cmd`);
-    fs.writeFileSync(scriptPath, `@echo off\r\necho ${line}\r\n`);
+    fs.writeFileSync(
+      scriptPath,
+      `@ECHO off\r\nSET dp0=%~dp0\r\n"%_prog%"  "%dp0%\\fake-${provider}-cli.js" %*\r\n`
+    );
     return scriptPath;
   }
   const scriptPath = path.join(dir, `fake-${provider}-cli.sh`);
   fs.writeFileSync(scriptPath, `#!/bin/sh\nprintf '%s\\n' '${line}'\n`);
   fs.chmodSync(scriptPath, 0o755);
   return scriptPath;
+}
+
+/**
+ * On Windows the shim is resolved to [node, script.js] before spawning, so the
+ * command is the interpreter and the fixture appears as its first argument.
+ * Everywhere else the fixture is spawned directly.
+ */
+function expectSpawnedFixture(call: Parameters<typeof childProcess.spawn>, fixturePath: string): void {
+  const [command, args] = call as unknown as [string, string[]];
+  if (isWindows) {
+    expect(command).toMatch(/node(\.exe)?$/i);
+    expect(args[0]).toBe(fixturePath.replace(/\.cmd$/i, '.js'));
+  } else {
+    expect(command).toBe(fixturePath);
+  }
 }
 
 function makeService(fixturePath: string, vaultPath: string, provider: FixtureProvider = 'claude'): CopilotBridgeService {
@@ -96,7 +120,7 @@ describe('direct native-provider dispatch (non-Copilot providers)', () => {
     // Exactly one native child for the whole request — no shared runtime, proxy,
     // queue, RPC hop, or stream relay process in between.
     expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSpy.mock.calls[0][0]).toBe(fixturePath);
+    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
     const nativeArgs = spawnSpy.mock.calls[0][1] as string[];
     expect(nativeArgs.slice(-4, -1)).toEqual(['--output-format', 'stream-json', '--verbose']);
     // The prompt goes last, behind every flag, or a variadic one swallows it.
@@ -177,7 +201,7 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
     }
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSpy.mock.calls[0][0]).toBe(fixturePath);
+    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
 
     // The fixture's raw stdout line is '{"item":{"text":"codex-fixture-ok"}}'.
     // Asserting the emitted text chunk is the extracted string alone (no
@@ -201,7 +225,7 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
     }
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSpy.mock.calls[0][0]).toBe(fixturePath);
+    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
 
     // The fixture's raw stdout line is the JSON-shaped '{"raw":"agy-fixture-ok"}'.
     // parseNativeProviderLine's agy branch returns early with `line + '\n'`
