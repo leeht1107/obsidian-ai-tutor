@@ -224,17 +224,81 @@ function resolveCmdShim(cmdPath) {
     const content = fs.readFileSync(cmdPath, "utf8");
     const cmdDir = pp.dirname(cmdPath);
     for (const line of content.split(/\r?\n/)) {
-      const m = line.match(/"([^"]+\.js)"\s+%\*/i);
+      const m = line.match(/"([^"]+\.(?:js|cjs|mjs))"\s+%\*/i);
       if (!m) continue;
-      let scriptPath = m[1];
-      scriptPath = scriptPath.replace(/%dp0%\\/gi, cmdDir + pp.sep);
+      const scriptPath = pp.normalize(
+        m[1].replace(/%~?dp0%?\\?/gi, cmdDir + pp.sep)
+      );
       if (!isExistingFile(scriptPath)) continue;
-      const localNode = pp.join(cmdDir, "node.exe");
-      const nodeExe = isExistingFile(localNode) ? localNode : "node";
-      return [nodeExe, scriptPath];
+      return [preferredNode(cmdDir), scriptPath];
     }
   } catch (e) {
   }
+  return null;
+}
+function selectBinEntry(bin, commandName) {
+  if (!bin || typeof bin !== "object") return void 0;
+  const entries = Object.entries(bin).filter(([, value]) => typeof value === "string" && value.length > 0);
+  if (entries.length === 0) return void 0;
+  const wanted = commandName.toLowerCase();
+  const matched = entries.find(([key]) => key.toLowerCase() === wanted);
+  if (matched) return matched[1];
+  return entries.length === 1 ? entries[0][1] : void 0;
+}
+function preferredNode(dir) {
+  const local = platformPath().join(dir, "node.exe");
+  return isExistingFile(local) ? local : "node";
+}
+function resolveNpmPackageEntry(cliPath, npmPackage) {
+  if (!npmPackage) return null;
+  const pp = platformPath();
+  const binDir = pp.dirname(cliPath);
+  const segments = npmPackage.split("/");
+  const roots = [
+    // Windows global installs put node_modules beside the shims.
+    pp.join(binDir, "node_modules", ...segments),
+    // Unix-style layout, in case a prefix was configured that way.
+    pp.join(pp.dirname(binDir), "lib", "node_modules", ...segments)
+  ];
+  const prefix = getNpmGlobalPrefix();
+  if (prefix) {
+    roots.push(pp.join(prefix, "node_modules", ...segments));
+    roots.push(pp.join(prefix, "lib", "node_modules", ...segments));
+  }
+  const commandName = pp.basename(cliPath).replace(/\.(cmd|bat|ps1|exe)$/i, "");
+  for (const root of roots) {
+    const manifestPath = pp.join(root, "package.json");
+    if (!isExistingFile(manifestPath)) continue;
+    let bin;
+    try {
+      bin = JSON.parse(fs.readFileSync(manifestPath, "utf8")).bin;
+    } catch (e) {
+      continue;
+    }
+    const relative5 = typeof bin === "string" ? bin : selectBinEntry(bin, commandName);
+    if (typeof relative5 !== "string" || relative5.length === 0) continue;
+    const entry = pp.normalize(pp.join(root, relative5));
+    if (!isExistingFile(entry)) continue;
+    if (/\.exe$/i.test(entry)) return [entry, []];
+    return [preferredNode(binDir), [entry]];
+  }
+  return null;
+}
+function siblingExecutable(cliPath) {
+  const pp = platformPath();
+  const base = pp.basename(cliPath).replace(/\.(cmd|bat|ps1)$/i, "");
+  const exe = pp.join(pp.dirname(cliPath), `${base}.exe`);
+  return isExistingFile(exe) ? exe : null;
+}
+function resolveProviderEntry(cliPath, npmPackage) {
+  if (process.platform !== "win32") return [cliPath, []];
+  if (/\.exe$/i.test(cliPath)) return [cliPath, []];
+  const shim = resolveCmdShim(cliPath);
+  if (shim) return [shim[0], [shim[1]]];
+  const packaged = resolveNpmPackageEntry(cliPath, npmPackage);
+  if (packaged) return packaged;
+  const sibling = siblingExecutable(cliPath);
+  if (sibling) return [sibling, []];
   return null;
 }
 var fs, os, path;
@@ -856,9 +920,9 @@ var init_providerRegistry = __esm({
     init_env();
     init_path();
     PROVIDERS = [
-      { id: "copilot", label: "GitHub Copilot", command: "copilot", loginCommand: "copilot login", installCommand: "npm install -g @github/copilot", windowsInstallCommand: "npm install -g @github/copilot", status: "ready" },
-      { id: "claude", label: "Claude Code", command: "claude", loginCommand: "claude", installCommand: "npm install -g @anthropic-ai/claude-code", windowsInstallCommand: "npm install -g @anthropic-ai/claude-code", status: "ready" },
-      { id: "codex", label: "OpenAI Codex", command: "codex", loginCommand: "codex login", installCommand: "npm install -g @openai/codex", windowsInstallCommand: "npm install -g @openai/codex", status: "ready" },
+      { id: "copilot", label: "GitHub Copilot", command: "copilot", loginCommand: "copilot login", installCommand: "npm install -g @github/copilot", windowsInstallCommand: "npm install -g @github/copilot", npmPackage: "@github/copilot", status: "ready" },
+      { id: "claude", label: "Claude Code", command: "claude", loginCommand: "claude", installCommand: "npm install -g @anthropic-ai/claude-code", windowsInstallCommand: "npm install -g @anthropic-ai/claude-code", npmPackage: "@anthropic-ai/claude-code", status: "ready" },
+      { id: "codex", label: "OpenAI Codex", command: "codex", loginCommand: "codex login", installCommand: "npm install -g @openai/codex", windowsInstallCommand: "npm install -g @openai/codex", npmPackage: "@openai/codex", status: "ready" },
       { id: "agy", label: "Antigravity (agy)", command: "agy", loginCommand: "agy", status: "manual-setup" }
     ];
     PROVIDER_EFFORT_LEVELS = {
@@ -901,7 +965,7 @@ function killTree(child, signal = "SIGKILL") {
   };
   if (isWindows2) {
     try {
-      (0, import_child_process2.spawn)("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", killDirect);
+      (0, import_child_process.spawn)("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", killDirect);
       return;
     } catch (e) {
       killDirect();
@@ -916,11 +980,275 @@ function killTree(child, signal = "SIGKILL") {
   }
   killDirect();
 }
-var import_child_process2, isWindows2;
+var import_child_process, isWindows2;
 var init_processTree = __esm({
   "src/core/setup/processTree.ts"() {
-    import_child_process2 = require("child_process");
+    import_child_process = require("child_process");
     isWindows2 = process.platform === "win32";
+  }
+});
+
+// src/core/setup/AutoSetupService.ts
+var AutoSetupService_exports = {};
+__export(AutoSetupService_exports, {
+  checkProviderSetupStatus: () => checkProviderSetupStatus,
+  checkSetupStatus: () => checkSetupStatus,
+  findNpmPath: () => findNpmPath,
+  hasShownThisSession: () => hasShownThisSession,
+  installCopilotCLI: () => installCopilotCLI,
+  installProviderCLI: () => installProviderCLI,
+  markShownThisSession: () => markShownThisSession,
+  startProviderInstall: () => startProviderInstall
+});
+function markShownThisSession() {
+  shownThisSession = true;
+}
+function hasShownThisSession() {
+  return shownThisSession;
+}
+function findNpmPath() {
+  const npmNames = isWindows3 ? ["npm.cmd"] : ["npm"];
+  const dirs = getEnhancedPath().split(isWindows3 ? ";" : ":");
+  for (const dir of dirs) {
+    if (!dir) continue;
+    for (const name of npmNames) {
+      try {
+        const p = path5.join(dir, name);
+        if (fs5.existsSync(p) && fs5.statSync(p).isFile()) return p;
+      } catch (e) {
+      }
+    }
+  }
+  return null;
+}
+function checkSetupStatus() {
+  return {
+    cliFound: findCopilotCLIPath() !== null,
+    npmFound: findNpmPath() !== null
+  };
+}
+function checkProviderSetupStatus(providerId) {
+  const descriptor = getProviderDescriptor(providerId);
+  return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
+}
+async function installCopilotCLI(onProgress) {
+  const npmPath = findNpmPath();
+  if (!npmPath) {
+    return { success: false, error: "npm\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4" };
+  }
+  return new Promise((resolve6) => {
+    var _a, _b;
+    const proc = (0, import_child_process2.spawn)(npmPath, ["install", "-g", "@github/copilot"], {
+      env: { ...process.env, PATH: getEnhancedPath() },
+      // shell:true needed on Windows for .cmd shim execution
+      shell: isWindows3
+    });
+    (_a = proc.stdout) == null ? void 0 : _a.on("data", (data) => {
+      const line = data.toString().trim();
+      if (line) onProgress(line);
+    });
+    const stderrLines = [];
+    (_b = proc.stderr) == null ? void 0 : _b.on("data", (data) => {
+      const line = data.toString().trim();
+      if (line) stderrLines.push(line);
+    });
+    proc.on("close", (code) => {
+      var _a2;
+      if (code === 0) {
+        resolve6({ success: true, cliPath: (_a2 = findCopilotCLIPath()) != null ? _a2 : void 0 });
+      } else {
+        resolve6({
+          success: false,
+          error: stderrLines.join("\n") || `npm exited with code ${code != null ? code : "?"}`
+        });
+      }
+    });
+    proc.on("error", (err) => {
+      resolve6({ success: false, error: err.message });
+    });
+  });
+}
+function startProviderInstall(providerId, onProgress) {
+  var _a, _b, _c;
+  const descriptor = getProviderDescriptor(providerId);
+  const packageName = providerId === "copilot" ? "@github/copilot" : (_a = descriptor.installCommand) == null ? void 0 : _a.split(" ").slice(3).join(" ");
+  const npmPath = findNpmPath();
+  if (!packageName || !npmPath) {
+    const error = !packageName ? "\uC774 provider\uB294 \uACF5\uC2DD package-manager \uC124\uCE58 \uBA85\uB839\uC774 \uC5C6\uC5B4 \uC218\uB3D9 \uC124\uCE58\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." : "npm\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+    return { cancel: () => {
+    }, done: Promise.resolve({ success: false, error }) };
+  }
+  let settled = false;
+  let resolveDone;
+  const done = new Promise((resolve6) => {
+    resolveDone = resolve6;
+  });
+  const finish = (result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolveDone(result);
+  };
+  const child = (0, import_child_process2.spawn)(npmPath, ["install", "-g", packageName], {
+    env: { ...process.env, PATH: getEnhancedPath() },
+    // shell:true is needed on Windows for the .cmd shim, and rules out detaching.
+    shell: isWindows3,
+    detached: !isWindows3
+  });
+  const teardown = () => {
+    var _a2, _b2;
+    (_a2 = child.stdout) == null ? void 0 : _a2.destroy();
+    (_b2 = child.stderr) == null ? void 0 : _b2.destroy();
+    killTree(child);
+    child.unref();
+  };
+  const timer = setTimeout(() => {
+    teardown();
+    finish({ success: false, error: "\uC124\uCE58 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB410\uC2B5\uB2C8\uB2E4." });
+  }, CLI_INSTALL_TIMEOUT_MS);
+  (_b = child.stdout) == null ? void 0 : _b.on("data", (data) => {
+    const line = data.toString().trim();
+    if (line) onProgress(line);
+  });
+  const errors = [];
+  (_c = child.stderr) == null ? void 0 : _c.on("data", (data) => {
+    const line = data.toString().trim();
+    if (line) errors.push(line);
+  });
+  child.on("error", (error) => finish({ success: false, error: error.message }));
+  child.on("close", (code) => {
+    var _a2;
+    return finish(code === 0 ? { success: true, cliPath: (_a2 = findProviderCliPath(providerId)) != null ? _a2 : void 0 } : { success: false, error: errors.join("\n") || `npm exited with code ${code != null ? code : "?"}` });
+  });
+  return {
+    cancel() {
+      if (settled) return;
+      teardown();
+      finish({ success: false, error: "\uC124\uCE58\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4." });
+    },
+    done
+  };
+}
+async function installProviderCLI(providerId, onProgress) {
+  return startProviderInstall(providerId, onProgress).done;
+}
+var import_child_process2, fs5, path5, isWindows3, shownThisSession, CLI_INSTALL_TIMEOUT_MS;
+var init_AutoSetupService = __esm({
+  "src/core/setup/AutoSetupService.ts"() {
+    import_child_process2 = require("child_process");
+    fs5 = __toESM(require("fs"));
+    path5 = __toESM(require("path"));
+    init_copilotCli();
+    init_env();
+    init_providerRegistry();
+    init_processTree();
+    isWindows3 = process.platform === "win32";
+    shownThisSession = false;
+    CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1e3;
+  }
+});
+
+// src/core/setup/nodeInstall.ts
+function findOnPath(binaryName) {
+  const names = isWindows2 ? [`${binaryName}.exe`, `${binaryName}.cmd`] : [binaryName];
+  for (const dir of getEnhancedPath().split(isWindows2 ? ";" : ":")) {
+    if (!dir) continue;
+    for (const name of names) {
+      try {
+        const candidate = path6.join(dir, name);
+        if (fs6.existsSync(candidate) && fs6.statSync(candidate).isFile()) return candidate;
+      } catch (e) {
+      }
+    }
+  }
+  return null;
+}
+function detectPackageManager() {
+  for (const candidate of CANDIDATES) {
+    const binPath = findOnPath(candidate.id);
+    if (binPath) return { ...candidate, binPath };
+  }
+  return null;
+}
+function startNodeInstall(onProgress, manager = detectPackageManager()) {
+  var _a, _b;
+  if (!manager) {
+    return {
+      cancel: () => {
+      },
+      done: Promise.resolve({ success: false, error: "Homebrew\uB3C4 winget\uB3C4 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." })
+    };
+  }
+  let settled = false;
+  let resolveDone;
+  const done = new Promise((resolve6) => {
+    resolveDone = resolve6;
+  });
+  const finish = (result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    resolveDone(result);
+  };
+  const child = (0, import_child_process3.spawn)(manager.binPath, [...manager.installArgs], {
+    env: { ...process.env, PATH: getEnhancedPath() },
+    stdio: ["ignore", "pipe", "pipe"],
+    // brew drives sub-processes; own the group so cancel really stops the work.
+    detached: !isWindows2
+  });
+  const teardown = () => {
+    var _a2, _b2;
+    (_a2 = child.stdout) == null ? void 0 : _a2.destroy();
+    (_b2 = child.stderr) == null ? void 0 : _b2.destroy();
+    killTree(child);
+    child.unref();
+  };
+  const timer = setTimeout(() => {
+    teardown();
+    finish({ success: false, error: "\uC124\uCE58 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB410\uC2B5\uB2C8\uB2E4." });
+  }, NODE_INSTALL_TIMEOUT_MS);
+  const errors = [];
+  (_a = child.stdout) == null ? void 0 : _a.on("data", (chunk) => {
+    const line = chunk.toString().trim();
+    if (line) onProgress(line);
+  });
+  (_b = child.stderr) == null ? void 0 : _b.on("data", (chunk) => {
+    const line = chunk.toString().trim();
+    if (line) {
+      onProgress(line);
+      errors.push(line);
+    }
+  });
+  child.on("error", (err) => finish({ success: false, error: err.message }));
+  child.on("close", (code) => finish(code === 0 ? { success: true } : { success: false, error: errors.slice(-5).join("\n") || `\uC885\uB8CC \uCF54\uB4DC ${code != null ? code : "?"}` }));
+  return {
+    cancel() {
+      if (settled) return;
+      teardown();
+      finish({ success: false, error: "\uC124\uCE58\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4." });
+    },
+    done
+  };
+}
+var import_child_process3, fs6, path6, CANDIDATES, NODE_DOWNLOAD_URL, NODE_INSTALL_TIMEOUT_MS;
+var init_nodeInstall = __esm({
+  "src/core/setup/nodeInstall.ts"() {
+    import_child_process3 = require("child_process");
+    fs6 = __toESM(require("fs"));
+    path6 = __toESM(require("path"));
+    init_env();
+    init_processTree();
+    CANDIDATES = isWindows2 ? [{
+      id: "winget",
+      installArgs: ["install", "-e", "--id", "OpenJS.NodeJS.LTS", "--accept-source-agreements", "--accept-package-agreements"],
+      displayCommand: "winget install OpenJS.NodeJS.LTS"
+    }] : [{
+      id: "brew",
+      installArgs: ["install", "node"],
+      displayCommand: "brew install node"
+    }];
+    NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
+    NODE_INSTALL_TIMEOUT_MS = 20 * 60 * 1e3;
   }
 });
 
@@ -959,7 +1287,7 @@ async function runProbeProcess(command, args, options = {}) {
     const onAbort = () => abandon();
     let child;
     try {
-      child = (0, import_child_process3.spawn)(command, [...args], {
+      child = (0, import_child_process4.spawn)(command, [...args], {
         env: { ...process.env, PATH: getEnhancedPath() },
         // A probe runs whenever the settings tab opens; no console may flash.
         windowsHide: true,
@@ -1002,10 +1330,10 @@ async function checkProviderReadiness(providerId, options = {}) {
     output: `${run.stdout}${run.stderr}`.trim()
   };
 }
-var import_child_process3, AGY_MODELS_PROBE, PROBES;
+var import_child_process4, AGY_MODELS_PROBE, PROBES;
 var init_providerReadiness = __esm({
   "src/core/setup/providerReadiness.ts"() {
-    import_child_process3 = require("child_process");
+    import_child_process4 = require("child_process");
     init_copilotCli();
     init_env();
     init_providerRegistry();
@@ -1107,270 +1435,6 @@ var init_providerConnection = __esm({
   }
 });
 
-// src/core/setup/AutoSetupService.ts
-var AutoSetupService_exports = {};
-__export(AutoSetupService_exports, {
-  checkProviderSetupStatus: () => checkProviderSetupStatus,
-  checkSetupStatus: () => checkSetupStatus,
-  findNpmPath: () => findNpmPath,
-  hasShownThisSession: () => hasShownThisSession,
-  installCopilotCLI: () => installCopilotCLI,
-  installProviderCLI: () => installProviderCLI,
-  markShownThisSession: () => markShownThisSession,
-  startProviderInstall: () => startProviderInstall
-});
-function markShownThisSession() {
-  shownThisSession = true;
-}
-function hasShownThisSession() {
-  return shownThisSession;
-}
-function findNpmPath() {
-  const npmNames = isWindows3 ? ["npm.cmd"] : ["npm"];
-  const dirs = getEnhancedPath().split(isWindows3 ? ";" : ":");
-  for (const dir of dirs) {
-    if (!dir) continue;
-    for (const name of npmNames) {
-      try {
-        const p = path13.join(dir, name);
-        if (fs10.existsSync(p) && fs10.statSync(p).isFile()) return p;
-      } catch (e) {
-      }
-    }
-  }
-  return null;
-}
-function checkSetupStatus() {
-  return {
-    cliFound: findCopilotCLIPath() !== null,
-    npmFound: findNpmPath() !== null
-  };
-}
-function checkProviderSetupStatus(providerId) {
-  const descriptor = getProviderDescriptor(providerId);
-  return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
-}
-async function installCopilotCLI(onProgress) {
-  const npmPath = findNpmPath();
-  if (!npmPath) {
-    return { success: false, error: "npm\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4" };
-  }
-  return new Promise((resolve6) => {
-    var _a, _b;
-    const proc = (0, import_child_process5.spawn)(npmPath, ["install", "-g", "@github/copilot"], {
-      env: { ...process.env, PATH: getEnhancedPath() },
-      // shell:true needed on Windows for .cmd shim execution
-      shell: isWindows3
-    });
-    (_a = proc.stdout) == null ? void 0 : _a.on("data", (data) => {
-      const line = data.toString().trim();
-      if (line) onProgress(line);
-    });
-    const stderrLines = [];
-    (_b = proc.stderr) == null ? void 0 : _b.on("data", (data) => {
-      const line = data.toString().trim();
-      if (line) stderrLines.push(line);
-    });
-    proc.on("close", (code) => {
-      var _a2;
-      if (code === 0) {
-        resolve6({ success: true, cliPath: (_a2 = findCopilotCLIPath()) != null ? _a2 : void 0 });
-      } else {
-        resolve6({
-          success: false,
-          error: stderrLines.join("\n") || `npm exited with code ${code != null ? code : "?"}`
-        });
-      }
-    });
-    proc.on("error", (err) => {
-      resolve6({ success: false, error: err.message });
-    });
-  });
-}
-function startProviderInstall(providerId, onProgress) {
-  var _a, _b, _c;
-  const descriptor = getProviderDescriptor(providerId);
-  const packageName = providerId === "copilot" ? "@github/copilot" : (_a = descriptor.installCommand) == null ? void 0 : _a.split(" ").slice(3).join(" ");
-  const npmPath = findNpmPath();
-  if (!packageName || !npmPath) {
-    const error = !packageName ? "\uC774 provider\uB294 \uACF5\uC2DD package-manager \uC124\uCE58 \uBA85\uB839\uC774 \uC5C6\uC5B4 \uC218\uB3D9 \uC124\uCE58\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." : "npm\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
-    return { cancel: () => {
-    }, done: Promise.resolve({ success: false, error }) };
-  }
-  let settled = false;
-  let resolveDone;
-  const done = new Promise((resolve6) => {
-    resolveDone = resolve6;
-  });
-  const finish = (result) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    resolveDone(result);
-  };
-  const child = (0, import_child_process5.spawn)(npmPath, ["install", "-g", packageName], {
-    env: { ...process.env, PATH: getEnhancedPath() },
-    // shell:true is needed on Windows for the .cmd shim, and rules out detaching.
-    shell: isWindows3,
-    detached: !isWindows3
-  });
-  const teardown = () => {
-    var _a2, _b2;
-    (_a2 = child.stdout) == null ? void 0 : _a2.destroy();
-    (_b2 = child.stderr) == null ? void 0 : _b2.destroy();
-    killTree(child);
-    child.unref();
-  };
-  const timer = setTimeout(() => {
-    teardown();
-    finish({ success: false, error: "\uC124\uCE58 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB410\uC2B5\uB2C8\uB2E4." });
-  }, CLI_INSTALL_TIMEOUT_MS);
-  (_b = child.stdout) == null ? void 0 : _b.on("data", (data) => {
-    const line = data.toString().trim();
-    if (line) onProgress(line);
-  });
-  const errors = [];
-  (_c = child.stderr) == null ? void 0 : _c.on("data", (data) => {
-    const line = data.toString().trim();
-    if (line) errors.push(line);
-  });
-  child.on("error", (error) => finish({ success: false, error: error.message }));
-  child.on("close", (code) => {
-    var _a2;
-    return finish(code === 0 ? { success: true, cliPath: (_a2 = findProviderCliPath(providerId)) != null ? _a2 : void 0 } : { success: false, error: errors.join("\n") || `npm exited with code ${code != null ? code : "?"}` });
-  });
-  return {
-    cancel() {
-      if (settled) return;
-      teardown();
-      finish({ success: false, error: "\uC124\uCE58\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4." });
-    },
-    done
-  };
-}
-async function installProviderCLI(providerId, onProgress) {
-  return startProviderInstall(providerId, onProgress).done;
-}
-var import_child_process5, fs10, path13, isWindows3, shownThisSession, CLI_INSTALL_TIMEOUT_MS;
-var init_AutoSetupService = __esm({
-  "src/core/setup/AutoSetupService.ts"() {
-    import_child_process5 = require("child_process");
-    fs10 = __toESM(require("fs"));
-    path13 = __toESM(require("path"));
-    init_copilotCli();
-    init_env();
-    init_providerRegistry();
-    init_processTree();
-    isWindows3 = process.platform === "win32";
-    shownThisSession = false;
-    CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1e3;
-  }
-});
-
-// src/core/setup/nodeInstall.ts
-function findOnPath(binaryName) {
-  const names = isWindows2 ? [`${binaryName}.exe`, `${binaryName}.cmd`] : [binaryName];
-  for (const dir of getEnhancedPath().split(isWindows2 ? ";" : ":")) {
-    if (!dir) continue;
-    for (const name of names) {
-      try {
-        const candidate = path14.join(dir, name);
-        if (fs11.existsSync(candidate) && fs11.statSync(candidate).isFile()) return candidate;
-      } catch (e) {
-      }
-    }
-  }
-  return null;
-}
-function detectPackageManager() {
-  for (const candidate of CANDIDATES) {
-    const binPath = findOnPath(candidate.id);
-    if (binPath) return { ...candidate, binPath };
-  }
-  return null;
-}
-function startNodeInstall(onProgress, manager = detectPackageManager()) {
-  var _a, _b;
-  if (!manager) {
-    return {
-      cancel: () => {
-      },
-      done: Promise.resolve({ success: false, error: "Homebrew\uB3C4 winget\uB3C4 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." })
-    };
-  }
-  let settled = false;
-  let resolveDone;
-  const done = new Promise((resolve6) => {
-    resolveDone = resolve6;
-  });
-  const finish = (result) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    resolveDone(result);
-  };
-  const child = (0, import_child_process6.spawn)(manager.binPath, [...manager.installArgs], {
-    env: { ...process.env, PATH: getEnhancedPath() },
-    stdio: ["ignore", "pipe", "pipe"],
-    // brew drives sub-processes; own the group so cancel really stops the work.
-    detached: !isWindows2
-  });
-  const teardown = () => {
-    var _a2, _b2;
-    (_a2 = child.stdout) == null ? void 0 : _a2.destroy();
-    (_b2 = child.stderr) == null ? void 0 : _b2.destroy();
-    killTree(child);
-    child.unref();
-  };
-  const timer = setTimeout(() => {
-    teardown();
-    finish({ success: false, error: "\uC124\uCE58 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB410\uC2B5\uB2C8\uB2E4." });
-  }, NODE_INSTALL_TIMEOUT_MS);
-  const errors = [];
-  (_a = child.stdout) == null ? void 0 : _a.on("data", (chunk) => {
-    const line = chunk.toString().trim();
-    if (line) onProgress(line);
-  });
-  (_b = child.stderr) == null ? void 0 : _b.on("data", (chunk) => {
-    const line = chunk.toString().trim();
-    if (line) {
-      onProgress(line);
-      errors.push(line);
-    }
-  });
-  child.on("error", (err) => finish({ success: false, error: err.message }));
-  child.on("close", (code) => finish(code === 0 ? { success: true } : { success: false, error: errors.slice(-5).join("\n") || `\uC885\uB8CC \uCF54\uB4DC ${code != null ? code : "?"}` }));
-  return {
-    cancel() {
-      if (settled) return;
-      teardown();
-      finish({ success: false, error: "\uC124\uCE58\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4." });
-    },
-    done
-  };
-}
-var import_child_process6, fs11, path14, CANDIDATES, NODE_DOWNLOAD_URL, NODE_INSTALL_TIMEOUT_MS;
-var init_nodeInstall = __esm({
-  "src/core/setup/nodeInstall.ts"() {
-    import_child_process6 = require("child_process");
-    fs11 = __toESM(require("fs"));
-    path14 = __toESM(require("path"));
-    init_env();
-    init_processTree();
-    CANDIDATES = isWindows2 ? [{
-      id: "winget",
-      installArgs: ["install", "-e", "--id", "OpenJS.NodeJS.LTS", "--accept-source-agreements", "--accept-package-agreements"],
-      displayCommand: "winget install OpenJS.NodeJS.LTS"
-    }] : [{
-      id: "brew",
-      installArgs: ["install", "node"],
-      displayCommand: "brew install node"
-    }];
-    NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
-    NODE_INSTALL_TIMEOUT_MS = 20 * 60 * 1e3;
-  }
-});
-
 // src/core/setup/providerLogin.ts
 function stripAnsi(text) {
   return text.replace(OSC, "").replace(CSI, "").replace(LOOSE, "");
@@ -1416,7 +1480,7 @@ function startProviderLogin(providerId, onEvent, options = {}) {
     clearTimeout(timer);
     resolveDone(outcome);
   };
-  const child = (0, import_child_process7.spawn)(cliPath, [...recipe.args], {
+  const child = (0, import_child_process5.spawn)(cliPath, [...recipe.args], {
     env: { ...process.env, ...options.env, PATH: getEnhancedPath() },
     stdio: ["pipe", "pipe", "pipe"],
     // Own the whole tree: a login CLI spawns helpers, and killing only the
@@ -1477,10 +1541,10 @@ function startProviderLogin(providerId, onEvent, options = {}) {
     done
   };
 }
-var import_child_process7, CSI, OSC, LOOSE, RECIPES;
+var import_child_process5, CSI, OSC, LOOSE, RECIPES;
 var init_providerLogin = __esm({
   "src/core/setup/providerLogin.ts"() {
-    import_child_process7 = require("child_process");
+    import_child_process5 = require("child_process");
     init_env();
     init_providerRegistry();
     init_processTree();
@@ -1504,10 +1568,10 @@ var SetupWizardModal_exports = {};
 __export(SetupWizardModal_exports, {
   SetupWizardModal: () => SetupWizardModal
 });
-var import_obsidian24, MAX_LOG_LINES, SetupWizardModal;
+var import_obsidian, MAX_LOG_LINES, SetupWizardModal;
 var init_SetupWizardModal = __esm({
   "src/ui/modals/SetupWizardModal.ts"() {
-    import_obsidian24 = require("obsidian");
+    import_obsidian = require("obsidian");
     init_providerRegistry();
     init_AutoSetupService();
     init_nodeInstall();
@@ -1515,7 +1579,7 @@ var init_SetupWizardModal = __esm({
     init_providerLogin();
     init_providerReadiness();
     MAX_LOG_LINES = 6;
-    SetupWizardModal = class extends import_obsidian24.Modal {
+    SetupWizardModal = class extends import_obsidian.Modal {
       /**
        * @param target Provider the student just clicked. Without it the wizard
        * reopens on the chooser and asks a question they already answered.
@@ -1933,7 +1997,7 @@ var init_SetupWizardModal = __esm({
       }
       async recheck() {
         if (!this.hasSelectedProviderCli()) {
-          new import_obsidian24.Notice("CLI\uB97C \uC544\uC9C1 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uCE58 \uD6C4 \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+          new import_obsidian.Notice("CLI\uB97C \uC544\uC9C1 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uCE58 \uD6C4 \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
           return;
         }
         const state = await this.readConnectionState();
@@ -2012,7 +2076,7 @@ function providerSkillsRoot(vaultPath, providerId) {
     case "agy":
       return path15.join(vaultPath, ".agents", "skills");
     case "codex":
-      return path15.join(process.env.CODEX_HOME || path15.join(os5.homedir(), ".codex"), "skills");
+      return path15.join(process.env.CODEX_HOME || path15.join(os6.homedir(), ".codex"), "skills");
   }
 }
 function isMachineWideSkillsRoot(providerId) {
@@ -2021,11 +2085,11 @@ function isMachineWideSkillsRoot(providerId) {
 function providerGlobalSkillsRoot(providerId) {
   switch (providerId) {
     case "copilot":
-      return path15.join(os5.homedir(), ".copilot", "skills");
+      return path15.join(os6.homedir(), ".copilot", "skills");
     case "claude":
-      return path15.join(os5.homedir(), ".claude", "skills");
+      return path15.join(os6.homedir(), ".claude", "skills");
     case "agy":
-      return path15.join(os5.homedir(), ".gemini", "config", "skills");
+      return path15.join(os6.homedir(), ".gemini", "config", "skills");
     case "codex":
       return null;
   }
@@ -2421,12 +2485,12 @@ async function installSkillFromUrl(app, url, providerId) {
     return false;
   }
 }
-var fs12, import_obsidian26, os5, path15, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
+var fs12, import_obsidian26, os6, path15, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
 var init_ObsidianSkillsInstaller = __esm({
   "src/features/skills/ObsidianSkillsInstaller.ts"() {
     fs12 = __toESM(require("fs"));
     import_obsidian26 = require("obsidian");
-    os5 = __toESM(require("os"));
+    os6 = __toESM(require("os"));
     path15 = __toESM(require("path"));
     init_path();
     OBSIDIAN_MARKDOWN_SKILL = `---
@@ -2731,13 +2795,108 @@ Use the \`color\` property with values: \`1\`-\`6\` (preset colors) or hex codes
   }
 });
 
+// src/core/storage/SecretStorage.ts
+var SecretStorage_exports = {};
+__export(SecretStorage_exports, {
+  SECRET_FIELDS: () => SECRET_FIELDS,
+  adoptSecretsFromSettings: () => adoptSecretsFromSettings,
+  readSecrets: () => readSecrets,
+  writeSecrets: () => writeSecrets
+});
+function readSecrets(app) {
+  try {
+    const raw = app.loadLocalStorage(STORAGE_KEY);
+    if (!raw || typeof raw !== "object") return { ...EMPTY };
+    return {
+      githubToken: typeof raw.githubToken === "string" ? raw.githubToken : "",
+      environmentVariables: typeof raw.environmentVariables === "string" ? raw.environmentVariables : ""
+    };
+  } catch (e) {
+    return { ...EMPTY };
+  }
+}
+function writeSecrets(app, secrets) {
+  var _a, _b;
+  try {
+    app.saveLocalStorage(STORAGE_KEY, {
+      githubToken: (_a = secrets.githubToken) != null ? _a : "",
+      environmentVariables: (_b = secrets.environmentVariables) != null ? _b : ""
+    });
+    return true;
+  } catch (error) {
+    console.warn("[ObsidianCopilot] Failed to store secrets locally:", error);
+    return false;
+  }
+}
+function adoptSecretsFromSettings(app, settings) {
+  const stored = readSecrets(app);
+  const pending = [];
+  for (const field of SECRET_FIELDS) {
+    const value = settings[field];
+    if (typeof value !== "string" || value.length === 0) continue;
+    if (stored[field].length === 0) stored[field] = value;
+    pending.push(field);
+  }
+  if (pending.length === 0) return false;
+  if (!writeSecrets(app, stored)) return false;
+  for (const field of pending) settings[field] = "";
+  return true;
+}
+var STORAGE_KEY, SECRET_FIELDS, EMPTY;
+var init_SecretStorage = __esm({
+  "src/core/storage/SecretStorage.ts"() {
+    STORAGE_KEY = "obsidian-ai-tutor:secrets";
+    SECRET_FIELDS = ["githubToken", "environmentVariables"];
+    EMPTY = { githubToken: "", environmentVariables: "" };
+  }
+});
+
+// src/ui/modals/SecretMoveNoticeModal.ts
+var SecretMoveNoticeModal_exports = {};
+__export(SecretMoveNoticeModal_exports, {
+  SecretMoveNoticeModal: () => SecretMoveNoticeModal,
+  showSecretMoveNotice: () => showSecretMoveNotice
+});
+function showSecretMoveNotice(app) {
+  new SecretMoveNoticeModal(app).open();
+}
+var import_obsidian28, SecretMoveNoticeModal;
+var init_SecretMoveNoticeModal = __esm({
+  "src/ui/modals/SecretMoveNoticeModal.ts"() {
+    import_obsidian28 = require("obsidian");
+    SecretMoveNoticeModal = class extends import_obsidian28.Modal {
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl("h3", { text: "\uC778\uC99D \uC815\uBCF4\uB97C \uC774 PC \uC548\uC73C\uB85C \uC62E\uACBC\uC2B5\uB2C8\uB2E4" });
+        contentEl.createEl("p", {
+          text: "OneDrive\uB098 iCloud \uAC19\uC740 \uB3D9\uAE30\uD654 \uD3F4\uB354\uC5D0 \uAE08\uACE0(vault)\uB97C \uB450\uBA74, \uB178\uD2B8\uBFD0 \uC544\uB2C8\uB77C \uC124\uC815 \uD30C\uC77C\uB3C4 \uD568\uAED8 \uD074\uB77C\uC6B0\uB4DC\uB85C \uC62C\uB77C\uAC11\uB2C8\uB2E4. \uC9C0\uAE08\uAE4C\uC9C0\uB294 GitHub \uD1A0\uD070\uACFC \uD658\uACBD \uBCC0\uC218\uAC00 \uADF8 \uC124\uC815 \uD30C\uC77C \uC548\uC5D0 \uADF8\uB300\uB85C \uC801\uD600 \uC788\uC5C8\uC2B5\uB2C8\uB2E4."
+        });
+        contentEl.createEl("p", {
+          text: "\uBC29\uAE08 \uADF8 \uAC12\uB4E4\uC744 \uC124\uC815 \uD30C\uC77C\uC5D0\uC11C \uBE7C\uB0B4\uC5B4 \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uBCF4\uAD00\uD558\uB3C4\uB85D \uC62E\uACBC\uC2B5\uB2C8\uB2E4. \uAE08\uACE0\uB97C \uB2E4\uB978 \uC0AC\uB78C\uACFC \uACF5\uC720\uD558\uAC70\uB098 GitHub\uC5D0 \uC62C\uB824\uB3C4 \uC778\uC99D \uC815\uBCF4\uB294 \uB530\uB77C\uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
+        });
+        contentEl.createEl("p", {
+          text: "\uB300\uC2E0 \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C \uAC19\uC740 \uAE08\uACE0\uB97C \uC5F4\uBA74 \uD1A0\uD070\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uADF8\uB54C\uB294 \uC124\uC815 \uD654\uBA74\uC5D0\uC11C \uD55C \uBC88 \uB354 \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+          cls: "setting-item-description"
+        });
+        new import_obsidian28.Setting(contentEl).addButton(
+          (button) => button.setButtonText("\uC54C\uACA0\uC2B5\uB2C8\uB2E4").setCta().onClick(() => this.close())
+        );
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+  }
+});
+
 // src/main.ts
 var main_exports = {};
 __export(main_exports, {
   default: () => ObsidianCopilotPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian28 = require("obsidian");
+var import_obsidian29 = require("obsidian");
 
 // src/assets/icon.ts
 var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Obsidian AI Tutor">
@@ -2747,10 +2906,11 @@ var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100
 </svg>`;
 
 // src/core/agent/CopilotBridgeService.ts
-var import_child_process = require("child_process");
+var import_child_process6 = require("child_process");
 var import_crypto = require("crypto");
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var fs7 = __toESM(require("fs"));
+var os3 = __toESM(require("os"));
+var path7 = __toESM(require("path"));
 
 // src/utils/context.ts
 var CURRENT_NOTE_PREFIX_REGEX = /^<current_note>\n[\s\S]*?<\/current_note>\n\n/;
@@ -3203,6 +3363,58 @@ function buildSystemPrompt(settings = {}) {
 // src/core/agent/CopilotBridgeService.ts
 init_providerRegistry();
 
+// src/core/storage/ErrorLog.ts
+function errorLogPath(configDir, pluginId) {
+  return `${configDir}/plugins/${pluginId}/logs/errors.jsonl`;
+}
+var MAX_ENTRIES = 300;
+function maskHome(value, home) {
+  if (!value) return value;
+  if (!home) return value;
+  const normalized = value.replace(/\//g, "\\");
+  const normalizedHome = home.replace(/\//g, "\\");
+  return normalized.toLowerCase().startsWith(normalizedHome.toLowerCase()) ? "~" + value.slice(home.length) : value;
+}
+async function appendErrorLog(adapter, logPath, entry) {
+  try {
+    const line = JSON.stringify(entry);
+    const existing = await adapter.exists(logPath) ? await adapter.read(logPath) : "";
+    const lines = existing.split("\n").filter((l) => l.trim().length > 0);
+    lines.push(line);
+    await adapter.write(logPath, lines.slice(-MAX_ENTRIES).join("\n") + "\n");
+  } catch (error) {
+    console.warn("[ObsidianCopilot] Failed to write the error log:", error);
+  }
+}
+async function readRecentErrors(adapter, logPath, limit = 50) {
+  try {
+    if (!await adapter.exists(logPath)) return [];
+    const raw = await adapter.read(logPath);
+    return raw.split("\n").filter((l) => l.trim().length > 0).slice(-limit).map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch (e) {
+        return null;
+      }
+    }).filter((e) => e !== null);
+  } catch (e) {
+    return [];
+  }
+}
+function formatErrorsForReport(entries) {
+  if (entries.length === 0) return "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
+  return entries.map((e) => {
+    const head = `[${e.at}] ${e.provider} / ${e.stage}`;
+    const where = [e.cliPath && `cli: ${e.cliPath}`, e.resolved && `run: ${e.resolved}`].filter(Boolean).join(" | ");
+    const how = [
+      e.exitCode !== void 0 && e.exitCode !== null ? `exit ${e.exitCode}` : "",
+      e.signal ? `signal ${e.signal}` : "",
+      `${e.platform} / plugin ${e.pluginVersion}`
+    ].filter(Boolean).join(" | ");
+    return [head, where, how, e.message].filter(Boolean).join("\n");
+  }).join("\n\n");
+}
+
 // src/core/tools/toolNames.ts
 var TOOL_AGENT_OUTPUT = "AgentOutputTool";
 var TOOL_ASK_USER_QUESTION = "AskUserQuestion";
@@ -3414,6 +3626,8 @@ var ALLOWED_TOOLS = [
 ];
 var MAX_DIFF_SIZE = 100 * 1024;
 var CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
+var MAX_STDERR_CHARS = 1024 * 1024;
+var MAX_LINE_BUFFER_CHARS = 1024 * 1024;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map((tool) => tool.trim()).filter(Boolean)) != null ? _a : [];
@@ -3736,14 +3950,12 @@ User: ${injectedPrompt}` : historyContext;
       return pending;
     }
     const probePromise = new Promise((resolve6) => {
-      const probeShim = resolveCmdShim(copilotPath);
-      const [probeCmd, probeArgs] = probeShim ? [probeShim[0], [probeShim[1], "--help", "all"]] : [copilotPath, ["--help", "all"]];
-      (0, import_child_process.execFile)(probeCmd, probeArgs, {
+      const probeEntry = resolveProviderEntry(copilotPath, getProviderDescriptor("copilot").npmPackage);
+      const [probeCmd, probeArgs] = probeEntry ? [probeEntry[0], [...probeEntry[1], "--help", "all"]] : [copilotPath, ["--help", "all"]];
+      (0, import_child_process6.execFile)(probeCmd, probeArgs, {
         encoding: "utf8",
         env: this.getCustomEnv(copilotPath),
         timeout: CLI_CAPABILITY_PROBE_TIMEOUT_MS,
-        // shell:true only needed as fallback when .cmd shim resolution fails
-        shell: !probeShim && process.platform === "win32",
         windowsHide: true
       }, (error, stdout, stderr) => {
         const helpText = typeof stdout === "string" && stdout.trim().length > 0 ? stdout : typeof stderr === "string" ? stderr : "";
@@ -3795,8 +4007,10 @@ User: ${injectedPrompt}` : historyContext;
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) throw new Error(`${provider} CLI not found`);
+    const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
+    if (!entry) throw new Error(`${provider} CLI could not be run`);
     return new Promise((resolve6, reject) => {
-      (0, import_child_process.execFile)(cliPath, args, { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      (0, import_child_process6.execFile)(entry[0], [...entry[1], ...args], { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
         if (error) {
           reject(error);
           return;
@@ -3901,6 +4115,76 @@ User: ${injectedPrompt}` : historyContext;
       this.abortController = null;
     }
   }
+  /**
+   * Record a failure the student was shown, so it can be handed over later.
+   *
+   * Fire-and-forget on purpose: a logger that can fail a request is worse than
+   * no logger. Messages must arrive already redacted — this does not scrub.
+   */
+  logError(entry) {
+    var _a, _b, _c, _d;
+    try {
+      const adapter = (_b = (_a = this.plugin.storage) == null ? void 0 : _a.getAdapter) == null ? void 0 : _b.call(_a);
+      if (!adapter) return;
+      const home = os3.homedir();
+      const logPath = errorLogPath(this.plugin.app.vault.configDir, this.plugin.manifest.id);
+      void appendErrorLog(adapter, logPath, {
+        ...entry,
+        cliPath: maskHome(entry.cliPath, home),
+        resolved: maskHome(entry.resolved, home),
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        platform: `${process.platform} ${process.arch}`,
+        pluginVersion: (_d = (_c = this.plugin.manifest) == null ? void 0 : _c.version) != null ? _d : "unknown"
+      });
+    } catch (e) {
+    }
+  }
+  /**
+   * Strip configured credentials out of anything shown to the student.
+   *
+   * A failing CLI's stderr goes into the chat, and the chat is written to
+   * `.copilot/sessions/` inside the vault — the same synced folder the token
+   * was just moved out of. One stack trace that echoes GH_TOKEN would put it
+   * straight back.
+   *
+   * Only values long enough to be credentials are matched. `LANG=ko_KR.UTF-8`
+   * sits in the same settings field as an API key, and scrubbing every
+   * configured value would blank ordinary words out of error messages.
+   */
+  redactSecrets(text) {
+    if (!text) return text;
+    const candidates = [
+      this.plugin.settings.githubToken,
+      ...Object.values(parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables()))
+    ];
+    let out = text;
+    for (const value of candidates) {
+      if (typeof value !== "string" || value.trim().length < 16) continue;
+      out = out.split(value).join("[\uBE44\uBC00 \uAC12 \uAC00\uB9BC]");
+    }
+    return out;
+  }
+  /**
+   * What a student sees when the CLI is installed but nothing runnable can be
+   * named. Korean, and pointed at the fix rather than at the cause: a shim
+   * format we cannot parse is not something a student can act on, and the
+   * wizard below reinstalls the CLI in a layout we can.
+   */
+  unrunnableCliMessage(provider) {
+    const descriptor = getProviderDescriptor(provider);
+    const remedy = descriptor.installCommand ? "\uC790\uB3D9 \uC124\uC815 \uCC3D\uC5D0\uC11C \uB2E4\uC2DC \uC124\uCE58\uD558\uBA74 \uD574\uACB0\uB429\uB2C8\uB2E4." : `${descriptor.label}\uB294 \uC790\uB3D9 \uC124\uCE58\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBC29\uAE08 \uC5F4\uB9B0 \uCC3D\uC758 \uC548\uB0B4\uB300\uB85C \uB2E4\uC2DC \uC124\uCE58\uD574 \uC8FC\uC138\uC694.`;
+    return `${descriptor.label}\uB97C \uC2E4\uD589\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uCE58\uAC00 \uC190\uC0C1\uB418\uC5C8\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.
+${remedy}`;
+  }
+  /** Open the setup wizard so the message above has somewhere to go. */
+  async openSetupWizard(provider) {
+    try {
+      const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
+      new SetupWizardModal2(this.plugin.app, this.plugin, provider).open();
+    } catch (err) {
+      console.warn("[ObsidianCopilot] Setup wizard failed to open:", err);
+    }
+  }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -3908,6 +4192,7 @@ User: ${injectedPrompt}` : historyContext;
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || "";
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) {
+      this.logError({ provider, stage: "resolve", message: "CLI not found on PATH or at the configured path" });
       yield { type: "error", content: `${provider} CLI not found. Open Settings to complete setup.` };
       return;
     }
@@ -3924,11 +4209,17 @@ User: ${injectedPrompt}` : historyContext;
       (_a = this.onPermissionNotice) == null ? void 0 : _a.call(this, notice);
     }
     const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode);
-    const cmdShim = resolveCmdShim(cliPath);
-    const [command, args] = cmdShim ? [cmdShim[0], [cmdShim[1], ...native.args]] : [cliPath, native.args];
+    const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
+    if (!entry) {
+      this.logError({ provider, stage: "resolve", message: "No runnable executable could be resolved from this CLI path", cliPath });
+      yield { type: "error", content: this.unrunnableCliMessage(provider) };
+      void this.openSetupWizard(provider);
+      return;
+    }
+    const [command, args] = [entry[0], [...entry[1], ...native.args]];
     let child;
     try {
-      child = (0, import_child_process.spawn)(command, args, {
+      child = (0, import_child_process6.spawn)(command, args, {
         cwd: this.getWorkingDirectory(),
         // Do not pass the legacy Copilot token setting to another provider.
         env: (() => {
@@ -3940,12 +4231,13 @@ User: ${injectedPrompt}` : historyContext;
           };
         })(),
         stdio: ["pipe", "pipe", "pipe"],
-        shell: !cmdShim && process.platform === "win32",
         // No console window should flash on a student's screen per request.
         windowsHide: true
       });
     } catch (error) {
-      yield { type: "error", content: `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}` };
+      const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
+      this.logError({ provider, stage: "launch", message, cliPath, resolved: `${command} ${entry[1].join(" ")}`.trim() });
+      yield { type: "error", content: message };
       return;
     }
     this.currentProcess = child;
@@ -3962,6 +4254,12 @@ User: ${injectedPrompt}` : historyContext;
       wake = null;
       resume == null ? void 0 : resume();
     };
+    const push = (line) => {
+      const chunk = this.parseNativeProviderLine(provider, line);
+      if (!chunk) return;
+      if (chunk.type === "text" && chunk.content.trim()) sawText = true;
+      pending.push(chunk);
+    };
     (_b = child.stdout) == null ? void 0 : _b.on("data", (data) => {
       var _a2;
       lineBuffer += data.toString();
@@ -3970,15 +4268,18 @@ User: ${injectedPrompt}` : historyContext;
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        const chunk = this.parseNativeProviderLine(provider, trimmed);
-        if (!chunk) continue;
-        if (chunk.type === "text" && chunk.content.trim()) sawText = true;
-        pending.push(chunk);
+        push(trimmed);
+      }
+      if (lineBuffer.length > MAX_LINE_BUFFER_CHARS) {
+        const forced = lineBuffer;
+        lineBuffer = "";
+        push(forced);
       }
       signal();
     });
     (_c = child.stderr) == null ? void 0 : _c.on("data", (data) => {
-      errorOutput += data.toString();
+      if (errorOutput.length >= MAX_STDERR_CHARS) return;
+      errorOutput = (errorOutput + data.toString()).slice(0, MAX_STDERR_CHARS);
     });
     child.on("close", (code, receivedSignal) => {
       exitCode = code;
@@ -4018,14 +4319,15 @@ User: ${injectedPrompt}` : historyContext;
       }
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         (_f = this.onOutcome) == null ? void 0 : _f.call(this, provider, "failed");
-        yield { type: "error", content: explainEmptyNativeAnswer(provider, errorOutput) };
+        const emptyMessage = this.redactSecrets(explainEmptyNativeAnswer(provider, errorOutput));
+        this.logError({ provider, stage: "empty-answer", message: emptyMessage, exitCode, cliPath, resolved: command });
+        yield { type: "error", content: emptyMessage };
       }
       if (!this.wasInterrupted && exitCode !== 0) {
         (_g = this.onOutcome) == null ? void 0 : _g.call(this, provider, "failed");
-        yield {
-          type: "error",
-          content: errorOutput.trim() || (closeSignal ? `${provider} CLI was terminated (${closeSignal}).` : `${provider} CLI exited with code ${exitCode}.`)
-        };
+        const exitMessage = this.redactSecrets(errorOutput.trim()) || (closeSignal ? `${provider} CLI was terminated (${closeSignal}).` : `${provider} CLI exited with code ${exitCode}.`);
+        this.logError({ provider, stage: "exit", message: exitMessage, exitCode, signal: closeSignal, cliPath, resolved: command });
+        yield { type: "error", content: exitMessage };
       }
       yield { type: "done" };
     } finally {
@@ -4064,15 +4366,20 @@ User: ${injectedPrompt}` : historyContext;
   async *spawnCopilot(command, args, env) {
     var _a, _b;
     const cwd = this.getWorkingDirectory();
-    const cmdShim = resolveCmdShim(command);
-    const [spawnCmd, spawnArgs] = cmdShim ? [cmdShim[0], [cmdShim[1], ...args]] : [command, args];
+    const entry = resolveProviderEntry(command, getProviderDescriptor("copilot").npmPackage);
+    if (!entry) {
+      this.logError({ provider: "copilot", stage: "resolve", message: "No runnable executable could be resolved from this CLI path", cliPath: command });
+      yield { type: "error", content: this.unrunnableCliMessage("copilot") };
+      void this.openSetupWizard("copilot");
+      return;
+    }
+    const [spawnCmd, spawnArgs] = [entry[0], [...entry[1], ...args]];
     let child;
     try {
-      child = (0, import_child_process.spawn)(spawnCmd, spawnArgs, {
+      child = (0, import_child_process6.spawn)(spawnCmd, spawnArgs, {
         cwd,
         env,
         stdio: ["pipe", "pipe", "pipe"],
-        shell: !cmdShim && process.platform === "win32",
         // No console window should flash on a student's screen per request.
         windowsHide: true
       });
@@ -4090,27 +4397,33 @@ User: ${injectedPrompt}` : historyContext;
     const chunks = [];
     let resolveWait = null;
     let done = false;
+    const pushLine = (line) => {
+      const parsed = this.parseCopilotEvent(line.trim());
+      if (!parsed) {
+        chunks.push({ type: "text", content: line + "\n" });
+        return;
+      }
+      for (const chunk of this.translateCopilotEvent(parsed)) chunks.push(chunk);
+    };
     (_a = child.stdout) == null ? void 0 : _a.on("data", (data) => {
       var _a2;
       stdoutBuffer += data.toString();
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = (_a2 = lines.pop()) != null ? _a2 : "";
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const parsed = this.parseCopilotEvent(trimmed);
-        if (!parsed) {
-          chunks.push({ type: "text", content: line + "\n" });
-          continue;
-        }
-        for (const chunk of this.translateCopilotEvent(parsed)) {
-          chunks.push(chunk);
-        }
+        if (!line.trim()) continue;
+        pushLine(line);
+      }
+      if (stdoutBuffer.length > MAX_LINE_BUFFER_CHARS) {
+        const forced = stdoutBuffer;
+        stdoutBuffer = "";
+        pushLine(forced);
       }
       resolveWait == null ? void 0 : resolveWait();
     });
     (_b = child.stderr) == null ? void 0 : _b.on("data", (data) => {
-      stderrBuffer += data.toString();
+      if (stderrBuffer.length >= MAX_STDERR_CHARS) return;
+      stderrBuffer = (stderrBuffer + data.toString()).slice(0, MAX_STDERR_CHARS);
     });
     child.on("close", (code) => {
       var _a2;
@@ -4129,10 +4442,9 @@ User: ${injectedPrompt}` : historyContext;
       const sawErrorChunk = chunks.some((chunk) => chunk.type === "error");
       (_a2 = this.onOutcome) == null ? void 0 : _a2.call(this, "copilot", copilotRequestOutcome(code, stderrBuffer, sawErrorChunk));
       if (code !== 0 && stderrBuffer.trim()) {
-        chunks.push({
-          type: "error",
-          content: classifyCopilotFailure(stderrBuffer.trim()).message
-        });
+        const copilotMessage = this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message);
+        this.logError({ provider: "copilot", stage: "exit", message: copilotMessage, exitCode: code, cliPath: command, resolved: spawnCmd });
+        chunks.push({ type: "error", content: copilotMessage });
       }
       resolveWait == null ? void 0 : resolveWait();
     });
@@ -4250,7 +4562,7 @@ User: ${injectedPrompt}` : historyContext;
   }
   resolveVaultFilePath(filePath) {
     const normalizedPath = normalizePathForFilesystem(filePath);
-    return path5.isAbsolute(normalizedPath) ? normalizedPath : path5.join(this.getWorkingDirectory(), normalizedPath);
+    return path7.isAbsolute(normalizedPath) ? normalizedPath : path7.join(this.getWorkingDirectory(), normalizedPath);
   }
   trackWriteEditOriginalContent(toolUseId, toolName, toolInput) {
     if (!isWriteEditTool(toolName)) {
@@ -4263,10 +4575,10 @@ User: ${injectedPrompt}` : historyContext;
     }
     const fullPath = this.resolveVaultFilePath(filePath);
     try {
-      if (fs5.existsSync(fullPath)) {
-        const stats = fs5.statSync(fullPath);
+      if (fs7.existsSync(fullPath)) {
+        const stats = fs7.statSync(fullPath);
         if (stats.size <= MAX_DIFF_SIZE) {
-          const content = fs5.readFileSync(fullPath, "utf-8");
+          const content = fs7.readFileSync(fullPath, "utf-8");
           this.originalContents.set(toolUseId, { filePath, content });
         } else {
           this.originalContents.set(toolUseId, { filePath, content: null, skippedReason: "too_large" });
@@ -4296,10 +4608,10 @@ User: ${injectedPrompt}` : historyContext;
       diffData = { filePath, skippedReason: (_a = originalEntry.skippedReason) != null ? _a : "unavailable" };
     } else {
       try {
-        if (fs5.existsSync(fullPath)) {
-          const stats = fs5.statSync(fullPath);
+        if (fs7.existsSync(fullPath)) {
+          const stats = fs7.statSync(fullPath);
           if (stats.size <= MAX_DIFF_SIZE) {
-            const newContent = fs5.readFileSync(fullPath, "utf-8");
+            const newContent = fs7.readFileSync(fullPath, "utf-8");
             diffData = {
               filePath,
               originalContent: originalEntry.content,
@@ -4358,15 +4670,15 @@ User: ${injectedPrompt}` : historyContext;
 
 // src/core/images/imageCache.ts
 var import_crypto2 = require("crypto");
-var fs6 = __toESM(require("fs"));
-var path6 = __toESM(require("path"));
+var fs8 = __toESM(require("fs"));
+var path8 = __toESM(require("path"));
 init_path();
 var IMAGE_CACHE_DIR = ".ocop-cache/images";
 function ensureImageCacheDir(app) {
   const vaultPath = getVaultPath(app);
   if (!vaultPath) return null;
-  const cacheDir = path6.join(vaultPath, IMAGE_CACHE_DIR);
-  fs6.mkdirSync(cacheDir, { recursive: true });
+  const cacheDir = path8.join(vaultPath, IMAGE_CACHE_DIR);
+  fs8.mkdirSync(cacheDir, { recursive: true });
   return cacheDir;
 }
 function saveImageToCache(app, buffer, mediaType, preferredName) {
@@ -4375,10 +4687,10 @@ function saveImageToCache(app, buffer, mediaType, preferredName) {
   const hash = (0, import_crypto2.createHash)("sha256").update(buffer).digest("hex");
   const ext = getExtension(mediaType, preferredName);
   const filename = `${hash}${ext}`;
-  const relPath = path6.posix.join(IMAGE_CACHE_DIR, filename);
-  const absPath = path6.join(cacheDir, filename);
-  if (!fs6.existsSync(absPath)) {
-    fs6.writeFileSync(absPath, buffer);
+  const relPath = path8.posix.join(IMAGE_CACHE_DIR, filename);
+  const absPath = path8.join(cacheDir, filename);
+  if (!fs8.existsSync(absPath)) {
+    fs8.writeFileSync(absPath, buffer);
   }
   return { relPath, absPath };
 }
@@ -4386,7 +4698,7 @@ function readCachedImageBase64(app, relPath) {
   const absPath = getCacheAbsolutePath(app, relPath);
   if (!absPath) return null;
   try {
-    const buffer = fs6.readFileSync(absPath);
+    const buffer = fs8.readFileSync(absPath);
     return buffer.toString("base64");
   } catch (e) {
     return null;
@@ -4399,9 +4711,9 @@ function deleteCachedImages(app, relPaths) {
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     const absPath = getCacheAbsolutePath(app, normalized);
-    if (absPath && fs6.existsSync(absPath)) {
+    if (absPath && fs8.existsSync(absPath)) {
       try {
-        fs6.unlinkSync(absPath);
+        fs8.unlinkSync(absPath);
       } catch (e) {
       }
     }
@@ -4412,8 +4724,8 @@ function getCacheAbsolutePath(app, relPath) {
   if (!vaultPath) return null;
   const normalizedRel = normalizeCacheRelPath(relPath);
   if (!normalizedRel) return null;
-  const absPath = path6.resolve(vaultPath, normalizedRel);
-  const cacheRoot = path6.resolve(vaultPath, IMAGE_CACHE_DIR);
+  const absPath = path8.resolve(vaultPath, normalizedRel);
+  const cacheRoot = path8.resolve(vaultPath, IMAGE_CACHE_DIR);
   if (!absPath.startsWith(cacheRoot)) {
     return null;
   }
@@ -4422,13 +4734,13 @@ function getCacheAbsolutePath(app, relPath) {
 function normalizeCacheRelPath(relPath) {
   if (!relPath) return null;
   const normalized = relPath.replace(/\\/g, "/");
-  if (path6.isAbsolute(normalized)) return null;
+  if (path8.isAbsolute(normalized)) return null;
   if (!normalized.startsWith(IMAGE_CACHE_DIR)) return null;
   return normalized;
 }
 function getExtension(mediaType, preferredName) {
   if (preferredName) {
-    const ext = path6.extname(preferredName);
+    const ext = path8.extname(preferredName);
     if (ext) return ext;
   }
   const subtype = mediaType.split("/")[1] || "png";
@@ -4714,7 +5026,8 @@ var SettingsStorage = class {
   /** Save settings to .copilot/settings.json. */
   async save(settings) {
     try {
-      const content = JSON.stringify(settings, null, 2);
+      const { githubToken: _token, environmentVariables: _env, ...safe } = settings;
+      const content = JSON.stringify(safe, null, 2);
       await this.adapter.write(SETTINGS_PATH, content);
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to save settings:", error);
@@ -4737,9 +5050,9 @@ var SettingsStorage = class {
 };
 
 // src/core/storage/SlashCommandStorage.ts
-var fs7 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
-var path7 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
+var path9 = __toESM(require("path"));
 
 // src/utils/slashCommand.ts
 function formatSlashCommandWarnings(errors) {
@@ -4825,8 +5138,8 @@ function unquoteYamlString(value) {
 
 // src/core/storage/SlashCommandStorage.ts
 var COMMANDS_PATH = ".copilot/commands";
-var GLOBAL_COMMANDS_PATH = path7.join(os3.homedir(), ".copilot", "commands");
-var INSTALLED_PLUGINS_PATH = path7.join(os3.homedir(), ".copilot", "plugins", "installed_plugins.json");
+var GLOBAL_COMMANDS_PATH = path9.join(os4.homedir(), ".copilot", "commands");
+var INSTALLED_PLUGINS_PATH = path9.join(os4.homedir(), ".copilot", "plugins", "installed_plugins.json");
 var SlashCommandStorage = class {
   constructor(adapter) {
     this.adapter = adapter;
@@ -4861,7 +5174,7 @@ var SlashCommandStorage = class {
   }
   loadAllFromGlobal() {
     const commands = [];
-    if (!fs7.existsSync(GLOBAL_COMMANDS_PATH)) {
+    if (!fs9.existsSync(GLOBAL_COMMANDS_PATH)) {
       return commands;
     }
     try {
@@ -4869,8 +5182,8 @@ var SlashCommandStorage = class {
       for (const filePath of files) {
         if (!filePath.endsWith(".md")) continue;
         try {
-          const content = fs7.readFileSync(filePath, "utf-8");
-          const relativePath = path7.relative(GLOBAL_COMMANDS_PATH, filePath);
+          const content = fs9.readFileSync(filePath, "utf-8");
+          const relativePath = path9.relative(GLOBAL_COMMANDS_PATH, filePath);
           const command = this.parseFileFromGlobal(content, relativePath);
           if (command) {
             commands.push(command);
@@ -4886,11 +5199,11 @@ var SlashCommandStorage = class {
   }
   loadAllFromPlugins() {
     const commands = [];
-    if (!fs7.existsSync(INSTALLED_PLUGINS_PATH)) {
+    if (!fs9.existsSync(INSTALLED_PLUGINS_PATH)) {
       return commands;
     }
     try {
-      const content = fs7.readFileSync(INSTALLED_PLUGINS_PATH, "utf-8");
+      const content = fs9.readFileSync(INSTALLED_PLUGINS_PATH, "utf-8");
       const pluginsFile = JSON.parse(content);
       if (!pluginsFile.plugins || typeof pluginsFile.plugins !== "object") {
         return commands;
@@ -4899,14 +5212,14 @@ var SlashCommandStorage = class {
         if (!Array.isArray(installations) || installations.length === 0) continue;
         const installation = installations[0];
         if (!installation.installPath) continue;
-        const commandsDir = path7.join(installation.installPath, "commands");
-        if (!fs7.existsSync(commandsDir)) continue;
+        const commandsDir = path9.join(installation.installPath, "commands");
+        if (!fs9.existsSync(commandsDir)) continue;
         const files = this.listFilesRecursiveSync(commandsDir);
         for (const filePath of files) {
           if (!filePath.endsWith(".md")) continue;
           try {
-            const fileContent = fs7.readFileSync(filePath, "utf-8");
-            const relativePath = path7.relative(commandsDir, filePath);
+            const fileContent = fs9.readFileSync(filePath, "utf-8");
+            const relativePath = path9.relative(commandsDir, filePath);
             const command = this.parseFileFromPlugin(fileContent, relativePath, pluginId);
             if (command) {
               commands.push(command);
@@ -4939,10 +5252,10 @@ var SlashCommandStorage = class {
   listFilesRecursiveSync(dir) {
     const files = [];
     const processDir = (currentDir) => {
-      if (!fs7.existsSync(currentDir)) return;
-      const entries = fs7.readdirSync(currentDir, { withFileTypes: true });
+      if (!fs9.existsSync(currentDir)) return;
+      const entries = fs9.readdirSync(currentDir, { withFileTypes: true });
       for (const entry of entries) {
-        const fullPath = path7.join(currentDir, entry.name);
+        const fullPath = path9.join(currentDir, entry.name);
         if (entry.isDirectory()) {
           processDir(fullPath);
         } else if (entry.isFile()) {
@@ -5342,7 +5655,7 @@ var StorageService = class {
 var import_obsidian25 = require("obsidian");
 
 // src/core/commands/SlashCommandManager.ts
-var import_child_process4 = require("child_process");
+var import_child_process7 = require("child_process");
 init_env();
 function isVaultFileCandidate(value) {
   return !!value && typeof value === "object" && "path" in value;
@@ -5595,7 +5908,7 @@ function shellEscapeArgIfNeeded(arg) {
 }
 function defaultBashRunner(command, cwd) {
   return new Promise((resolve6, reject) => {
-    (0, import_child_process4.exec)(
+    (0, import_child_process7.exec)(
       command,
       {
         cwd,
@@ -6257,12 +6570,12 @@ function showAskUserQuestionPanel(app, containerEl, input) {
 }
 
 // src/ui/components/FileContext.ts
-var import_obsidian3 = require("obsidian");
-var path9 = __toESM(require("path"));
+var import_obsidian4 = require("obsidian");
+var path11 = __toESM(require("path"));
 init_path();
 
 // src/ui/components/file-context/mention/MentionDropdownController.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 
 // src/utils/externalContext.ts
 init_path();
@@ -6293,8 +6606,8 @@ function getFolderName(p) {
 }
 
 // src/utils/externalContextScanner.ts
-var fs8 = __toESM(require("fs"));
-var path8 = __toESM(require("path"));
+var fs10 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 init_path();
 var CACHE_TTL_MS = 3e4;
 var MAX_FILES_PER_PATH = 1e3;
@@ -6375,25 +6688,25 @@ var ExternalContextScanner = class {
     if (depth > MAX_DEPTH) return [];
     const files = [];
     try {
-      if (!fs8.existsSync(dir)) return [];
-      const stat = fs8.statSync(dir);
+      if (!fs10.existsSync(dir)) return [];
+      const stat = fs10.statSync(dir);
       if (!stat.isDirectory()) return [];
-      const entries = fs8.readdirSync(dir, { withFileTypes: true });
+      const entries = fs10.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name.startsWith(".")) continue;
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         if (entry.isSymbolicLink()) continue;
-        const fullPath = path8.join(dir, entry.name);
+        const fullPath = path10.join(dir, entry.name);
         if (entry.isDirectory()) {
           const subFiles = this.scanDirectory(fullPath, contextRoot, depth + 1);
           files.push(...subFiles);
         } else if (entry.isFile()) {
           try {
-            const fileStat = fs8.statSync(fullPath);
+            const fileStat = fs10.statSync(fullPath);
             files.push({
               path: fullPath,
               name: entry.name,
-              relativePath: path8.relative(contextRoot, fullPath),
+              relativePath: path10.relative(contextRoot, fullPath),
               contextRoot,
               mtime: fileStat.mtimeMs
             });
@@ -6412,24 +6725,24 @@ var ExternalContextScanner = class {
     if (depth > MAX_DEPTH) return [];
     const files = [];
     try {
-      const stat = await fs8.promises.stat(dir).catch(() => null);
+      const stat = await fs10.promises.stat(dir).catch(() => null);
       if (!(stat == null ? void 0 : stat.isDirectory())) return [];
-      const entries = await fs8.promises.readdir(dir, { withFileTypes: true });
+      const entries = await fs10.promises.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name.startsWith(".")) continue;
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         if (entry.isSymbolicLink()) continue;
-        const fullPath = path8.join(dir, entry.name);
+        const fullPath = path10.join(dir, entry.name);
         if (entry.isDirectory()) {
           const subFiles = await this.scanDirectoryAsync(fullPath, contextRoot, depth + 1);
           files.push(...subFiles);
         } else if (entry.isFile()) {
           try {
-            const fileStat = await fs8.promises.stat(fullPath);
+            const fileStat = await fs10.promises.stat(fullPath);
             files.push({
               path: fullPath,
               name: entry.name,
-              relativePath: path8.relative(contextRoot, fullPath),
+              relativePath: path10.relative(contextRoot, fullPath),
               contextRoot,
               mtime: fileStat.mtimeMs
             });
@@ -6952,13 +7265,13 @@ var MentionDropdownController = class {
       renderItem: (item, itemEl) => {
         const iconEl = itemEl.createSpan({ cls: "ocop-mention-icon" });
         if (item.type === "context-file") {
-          (0, import_obsidian.setIcon)(iconEl, "folder-open");
+          (0, import_obsidian2.setIcon)(iconEl, "folder-open");
         } else if (item.type === "context-folder") {
-          (0, import_obsidian.setIcon)(iconEl, "folder");
+          (0, import_obsidian2.setIcon)(iconEl, "folder");
         } else if (item.type === "vault-folder") {
-          (0, import_obsidian.setIcon)(iconEl, "folder");
+          (0, import_obsidian2.setIcon)(iconEl, "folder");
         } else {
-          (0, import_obsidian.setIcon)(iconEl, "file-text");
+          (0, import_obsidian2.setIcon)(iconEl, "file-text");
         }
         const textEl = itemEl.createSpan({ cls: "ocop-mention-text" });
         if (item.type === "context-folder") {
@@ -7191,7 +7504,7 @@ var MarkdownFileCache = class {
 };
 
 // src/ui/components/file-context/view/FileChipsView.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var FileChipsView = class {
   constructor(containerEl, callbacks) {
     /** Current note path (shown first). */
@@ -7278,7 +7591,7 @@ var FileChipsView = class {
       chipEl.addClass("ocop-file-chip-attached");
     }
     const iconEl = chipEl.createSpan({ cls: "ocop-file-chip-icon" });
-    (0, import_obsidian2.setIcon)(iconEl, "file-text");
+    (0, import_obsidian3.setIcon)(iconEl, "file-text");
     const normalizedPath = filePath.replace(/\\/g, "/");
     const filename = normalizedPath.split("/").pop() || filePath;
     chipEl.createSpan({ cls: "ocop-file-chip-badge", text: badgeText });
@@ -7292,7 +7605,7 @@ var FileChipsView = class {
       }
     });
     const pinEl = chipEl.createSpan({ cls: "ocop-file-chip-pin" });
-    (0, import_obsidian2.setIcon)(pinEl, isPinned ? "pin-off" : "pin");
+    (0, import_obsidian3.setIcon)(pinEl, isPinned ? "pin-off" : "pin");
     pinEl.setAttribute("aria-label", isPinned ? "Unpin (allow auto-change)" : "Pin (keep attached)");
     pinEl.setAttribute("title", isPinned ? "\u{1F4CC} Pinned - Click to unpin" : "Click to pin this note");
     pinEl.addEventListener("click", (e) => {
@@ -7335,23 +7648,23 @@ var FileContextManager = class {
       },
       onOpenFile: async (filePath) => {
         const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (!(file instanceof import_obsidian3.TFile)) {
-          new import_obsidian3.Notice(`Could not open file: ${filePath}`);
+        if (!(file instanceof import_obsidian4.TFile)) {
+          new import_obsidian4.Notice(`Could not open file: ${filePath}`);
           return;
         }
         try {
           await this.app.workspace.getLeaf().openFile(file);
         } catch (error) {
-          new import_obsidian3.Notice(`Failed to open file: ${error instanceof Error ? error.message : String(error)}`);
+          new import_obsidian4.Notice(`Failed to open file: ${error instanceof Error ? error.message : String(error)}`);
         }
       },
       onTogglePin: (filePath, shouldPin) => {
         if (shouldPin) {
           this.state.pinFile(filePath);
-          new import_obsidian3.Notice(`\u{1F4CC} Pinned: ${filePath.split("/").pop()}`);
+          new import_obsidian4.Notice(`\u{1F4CC} Pinned: ${filePath.split("/").pop()}`);
         } else {
           this.state.unpinFile(filePath);
-          new import_obsidian3.Notice(`Unpinned: ${filePath.split("/").pop()}`);
+          new import_obsidian4.Notice(`Unpinned: ${filePath.split("/").pop()}`);
         }
         this.refreshAllChips();
       }
@@ -7384,10 +7697,10 @@ var FileContextManager = class {
       }
     );
     this.deleteEventRef = this.app.vault.on("delete", (file) => {
-      if (file instanceof import_obsidian3.TFile) this.handleFileDeleted(file.path);
+      if (file instanceof import_obsidian4.TFile) this.handleFileDeleted(file.path);
     });
     this.renameEventRef = this.app.vault.on("rename", (file, oldPath) => {
-      if (file instanceof import_obsidian3.TFile) this.handleFileRenamed(oldPath, file.path);
+      if (file instanceof import_obsidian4.TFile) this.handleFileRenamed(oldPath, file.path);
     });
   }
   /** Returns the current note path (shown as chip). */
@@ -7586,8 +7899,8 @@ var FileContextManager = class {
     const normalizedRaw = normalizePathForFilesystem(rawPath);
     const vaultPath = getVaultPath(this.app);
     if (vaultPath && isPathWithinVault(normalizedRaw, vaultPath)) {
-      const absolute = path9.isAbsolute(normalizedRaw) ? normalizedRaw : path9.resolve(vaultPath, normalizedRaw);
-      const relative5 = path9.relative(vaultPath, absolute);
+      const absolute = path11.isAbsolute(normalizedRaw) ? normalizedRaw : path11.resolve(vaultPath, normalizedRaw);
+      const relative5 = path11.relative(vaultPath, absolute);
       if (relative5) {
         return relative5.replace(/\\/g, "/");
       }
@@ -7669,8 +7982,8 @@ var FileContextManager = class {
 };
 
 // src/ui/components/ImageContext.ts
-var import_obsidian4 = require("obsidian");
-var path10 = __toESM(require("path"));
+var import_obsidian5 = require("obsidian");
+var path12 = __toESM(require("path"));
 
 // src/utils/dropPayload.ts
 var WIKILINK = /\[\[([^\]]+)\]\]/g;
@@ -7892,7 +8205,7 @@ var ImageContextManager = class {
     return file.type.startsWith("image/") && this.getMediaType(file.name) !== null;
   }
   getMediaType(filename) {
-    const ext = path10.extname(filename).toLowerCase();
+    const ext = path12.extname(filename).toLowerCase();
     return IMAGE_EXTENSIONS[ext] || null;
   }
   async addImageFromFile(file, source) {
@@ -8011,7 +8324,7 @@ var ImageContextManager = class {
   }
   truncateName(name, maxLen) {
     if (name.length <= maxLen) return name;
-    const ext = path10.extname(name);
+    const ext = path12.extname(name);
     const base = name.slice(0, name.length - ext.length);
     const truncatedBase = base.slice(0, maxLen - ext.length - 3);
     return `${truncatedBase}...${ext}`;
@@ -8035,13 +8348,13 @@ var ImageContextManager = class {
         userMessage = `${message} (Permission denied)`;
       }
     }
-    new import_obsidian4.Notice(userMessage);
+    new import_obsidian5.Notice(userMessage);
   }
 };
 
 // src/ui/components/InputToolbar.ts
-var import_obsidian5 = require("obsidian");
-var os4 = __toESM(require("os"));
+var import_obsidian6 = require("obsidian");
+var os5 = __toESM(require("os"));
 init_providerRegistry();
 
 // src/utils/folderDialog.ts
@@ -8505,7 +8818,7 @@ var PermissionToggle = class {
     const settings = this.callbacks.getSettings();
     const provider = settings.selectedProvider;
     if (!supportsReadOnlyMode(provider)) {
-      new import_obsidian5.Notice("\uC774 CLI\uB294 \uC77D\uAE30 \uC804\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC77D\uAE30\uB9CC \uC2DC\uD0A4\uB824\uBA74 \uB2E4\uB978 provider\uB97C \uACE0\uB974\uC138\uC694.");
+      new import_obsidian6.Notice("\uC774 CLI\uB294 \uC77D\uAE30 \uC804\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC77D\uAE30\uB9CC \uC2DC\uD0A4\uB824\uBA74 \uB2E4\uB978 provider\uB97C \uACE0\uB974\uC138\uC694.");
       return;
     }
     const shown = this.needsBlanketWriteConsent(provider) ? "ask" : settings.permissionMode;
@@ -8528,7 +8841,7 @@ var PermissionToggle = class {
   async togglePlanMode() {
     var _a;
     if (this.isPlanModeLocked()) {
-      new import_obsidian5.Notice("Plan mode is active until the plan is approved.");
+      new import_obsidian6.Notice("Plan mode is active until the plan is approved.");
       return;
     }
     (_a = this.onPlanModeToggle) == null ? void 0 : _a.call(this, !this.isPlanModeRequested());
@@ -8617,7 +8930,7 @@ var ExternalContextSelector = class {
     this.container.empty();
     const iconWrapper = this.container.createDiv({ cls: "ocop-external-context-icon-wrapper" });
     this.iconEl = iconWrapper.createDiv({ cls: "ocop-external-context-icon" });
-    (0, import_obsidian5.setIcon)(this.iconEl, "folder");
+    (0, import_obsidian6.setIcon)(this.iconEl, "folder");
     iconWrapper.setAttribute("aria-label", "\uBCF4\uAD00\uD568 \uBC16 \uD3F4\uB354\uB97C \uCEE8\uD14D\uC2A4\uD2B8\uB85C \uCD94\uAC00");
     iconWrapper.setAttribute("title", "\uBCF4\uAD00\uD568 \uBC16 \uD3F4\uB354\uB97C \uCEE8\uD14D\uC2A4\uD2B8\uB85C \uCD94\uAC00");
     iconWrapper.createSpan({ cls: "ocop-external-context-caption", text: "\uD3F4\uB354" });
@@ -8634,7 +8947,7 @@ var ExternalContextSelector = class {
     var _a;
     const dialog = resolveFolderDialog(window.require);
     if (!dialog) {
-      new import_obsidian5.Notice("\uC774 Obsidian \uBE4C\uB4DC\uC5D0\uC11C\uB294 \uD3F4\uB354 \uC120\uD0DD\uCC3D\uC744 \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", 5e3);
+      new import_obsidian6.Notice("\uC774 Obsidian \uBE4C\uB4DC\uC5D0\uC11C\uB294 \uD3F4\uB354 \uC120\uD0DD\uCC3D\uC744 \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", 5e3);
       return;
     }
     try {
@@ -8659,14 +8972,14 @@ var ExternalContextSelector = class {
       }
     } catch (error) {
       console.error("Failed to open folder picker:", error);
-      new import_obsidian5.Notice("\uD3F4\uB354\uB97C \uC5EC\uB294 \uC911 \uBB38\uC81C\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.", 5e3);
+      new import_obsidian6.Notice("\uD3F4\uB354\uB97C \uC5EC\uB294 \uC911 \uBB38\uC81C\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.", 5e3);
     }
   }
   showConflictNotice(newPath, conflict) {
     const shortNew = this.shortenPath(newPath);
     const shortExisting = this.shortenPath(conflict.path);
     const message = conflict.type === "parent" ? `Cannot add "${shortNew}" - it's inside existing path "${shortExisting}"` : `Cannot add "${shortNew}" - it contains existing path "${shortExisting}"`;
-    new import_obsidian5.Notice(message, 5e3);
+    new import_obsidian6.Notice(message, 5e3);
   }
   renderDropdown() {
     if (!this.dropdownEl) return;
@@ -8683,7 +8996,7 @@ var ExternalContextSelector = class {
       pathTextEl.setText(this.shortenPath(pathStr));
       pathTextEl.setAttribute("title", pathStr);
       const removeBtn = itemEl.createSpan({ cls: "ocop-external-context-remove" });
-      (0, import_obsidian5.setIcon)(removeBtn, "x");
+      (0, import_obsidian6.setIcon)(removeBtn, "x");
       removeBtn.setAttribute("title", "Remove path");
       removeBtn.addEventListener("click", (event) => {
         var _a;
@@ -8697,7 +9010,7 @@ var ExternalContextSelector = class {
   }
   shortenPath(fullPath) {
     try {
-      const homeDir = os4.homedir();
+      const homeDir = os5.homedir();
       const normalize2 = (value) => value.replace(/\\/g, "/");
       const normalizedFull = normalize2(fullPath);
       const normalizedHome = normalize2(homeDir);
@@ -9272,7 +9585,7 @@ function showPlanApprovalPanel(app, containerEl, planContent, component) {
 }
 
 // src/ui/components/PlanBanner.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 var PlanBanner = class {
   constructor(options) {
     this.containerEl = null;
@@ -9365,7 +9678,7 @@ var PlanBanner = class {
   async renderContent() {
     if (!this.contentEl) return;
     try {
-      await import_obsidian6.MarkdownRenderer.render(
+      await import_obsidian7.MarkdownRenderer.render(
         this.app,
         this.planContent,
         this.contentEl,
@@ -10147,7 +10460,7 @@ var SocraticBanner = class {
 };
 
 // src/ui/components/TodoPanel.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var TodoPanel = class {
   constructor() {
     this.containerEl = null;
@@ -10254,7 +10567,7 @@ var TodoPanel = class {
     this.todoHeaderEl.empty();
     const icon = document.createElement("span");
     icon.className = "ocop-todo-panel-icon";
-    (0, import_obsidian7.setIcon)(icon, "list-checks");
+    (0, import_obsidian8.setIcon)(icon, "list-checks");
     this.todoHeaderEl.appendChild(icon);
     const label = document.createElement("span");
     label.className = "ocop-todo-panel-label";
@@ -10279,7 +10592,7 @@ var TodoPanel = class {
       const statusIcon = document.createElement("div");
       statusIcon.className = "ocop-todo-status-icon";
       statusIcon.setAttribute("aria-hidden", "true");
-      (0, import_obsidian7.setIcon)(statusIcon, this.getStatusIcon(todo.status));
+      (0, import_obsidian8.setIcon)(statusIcon, this.getStatusIcon(todo.status));
       itemEl.appendChild(statusIcon);
       const text = document.createElement("div");
       text.className = "ocop-todo-text";
@@ -10371,7 +10684,7 @@ var TodoPanel = class {
 };
 
 // src/ui/modals/ApprovalModal.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/core/tools/toolIcons.ts
 var TOOL_ICONS = {
@@ -10405,7 +10718,7 @@ function getToolIcon(toolName) {
 }
 
 // src/ui/modals/ApprovalModal.ts
-var ApprovalModal = class extends import_obsidian8.Modal {
+var ApprovalModal = class extends import_obsidian9.Modal {
   constructor(app, toolName, _input, description, resolve6, options = {}) {
     super(app);
     this.resolved = false;
@@ -10426,7 +10739,7 @@ var ApprovalModal = class extends import_obsidian8.Modal {
     const toolEl = infoEl.createDiv({ cls: "ocop-approval-tool" });
     const iconEl = toolEl.createSpan({ cls: "ocop-approval-icon" });
     iconEl.setAttribute("aria-hidden", "true");
-    (0, import_obsidian8.setIcon)(iconEl, getToolIcon(this.toolName));
+    (0, import_obsidian9.setIcon)(iconEl, getToolIcon(this.toolName));
     toolEl.createSpan({ text: this.toolName, cls: "ocop-approval-tool-name" });
     const descEl = contentEl.createDiv({ cls: "ocop-approval-desc" });
     descEl.setText(this.description);
@@ -10525,8 +10838,8 @@ var ApprovalModal = class extends import_obsidian8.Modal {
 };
 
 // src/ui/modals/BlanketWriteConsentModal.ts
-var import_obsidian9 = require("obsidian");
-var BlanketWriteConsentModal = class extends import_obsidian9.Modal {
+var import_obsidian10 = require("obsidian");
+var BlanketWriteConsentModal = class extends import_obsidian10.Modal {
   constructor(app, providerLabel, onResolve) {
     super(app);
     this.answered = false;
@@ -10548,7 +10861,7 @@ var BlanketWriteConsentModal = class extends import_obsidian9.Modal {
       text: "Ask\uB85C \uB450\uBA74 \uC77D\uAE30\uB9CC \uD558\uACE0 \uC544\uBB34\uAC83\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD5C8\uC6A9\uD55C \uB4A4\uC5D0\uB3C4 \uD1A0\uAE00\uC744 Ask\uB85C \uB418\uB3CC\uB9AC\uBA74 \uB2E4\uC2DC \uC77D\uAE30 \uC804\uC6A9\uC774 \uB429\uB2C8\uB2E4.",
       cls: "setting-item-description"
     });
-    new import_obsidian9.Setting(contentEl).addButton((button) => button.setButtonText("Ask\uB85C \uB450\uAE30").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC4F0\uAE30 \uD5C8\uC6A9").setCta().onClick(() => this.finish(true)));
+    new import_obsidian10.Setting(contentEl).addButton((button) => button.setButtonText("Ask\uB85C \uB450\uAE30").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC4F0\uAE30 \uD5C8\uC6A9").setCta().onClick(() => this.finish(true)));
   }
   finish(accepted) {
     this.answered = true;
@@ -10562,8 +10875,8 @@ var BlanketWriteConsentModal = class extends import_obsidian9.Modal {
 };
 
 // src/ui/modals/InlineEditModal.ts
-var import_obsidian10 = require("obsidian");
-var path11 = __toESM(require("path"));
+var import_obsidian11 = require("obsidian");
+var path13 = __toESM(require("path"));
 
 // src/core/security/BlocklistChecker.ts
 function normalizeCommand(command) {
@@ -11046,7 +11359,7 @@ var InlineEditModal = class {
       activeController.reject();
       return { decision: "reject" };
     }
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
     if (!view) return { decision: "reject" };
     const editor = view.editor;
     const editorView = editor.cm;
@@ -11272,7 +11585,7 @@ var InlineEditController = class {
           });
           userMessage = expansion.expandedPrompt;
           if (expansion.errors.length > 0) {
-            new import_obsidian10.Notice(formatSlashCommandWarnings(expansion.errors));
+            new import_obsidian11.Notice(formatSlashCommandWarnings(expansion.errors));
           }
         }
       }
@@ -11477,14 +11790,14 @@ var InlineEditController = class {
       const normalizedRaw = normalizePathForFilesystem(rawPath);
       const vaultPath = getVaultPath(this.app);
       if (vaultPath && isPathWithinVault(normalizedRaw, vaultPath)) {
-        const absolute = path11.isAbsolute(normalizedRaw) ? normalizedRaw : path11.resolve(vaultPath, normalizedRaw);
-        const relative5 = path11.relative(vaultPath, absolute);
+        const absolute = path13.isAbsolute(normalizedRaw) ? normalizedRaw : path13.resolve(vaultPath, normalizedRaw);
+        const relative5 = path13.relative(vaultPath, absolute);
         return relative5 ? relative5.replace(/\\/g, "/") : null;
       }
       return normalizedRaw.replace(/\\/g, "/");
     } catch (error) {
       console.error("[InlineEditModal] normalizePathForVault error:", error);
-      new import_obsidian10.Notice("Failed to attach file: invalid path");
+      new import_obsidian11.Notice("Failed to attach file: invalid path");
       return null;
     }
   }
@@ -11506,8 +11819,8 @@ ${command}`;
 };
 
 // src/ui/modals/InstructionConfirmModal.ts
-var import_obsidian11 = require("obsidian");
-var InstructionModal = class extends import_obsidian11.Modal {
+var import_obsidian12 = require("obsidian");
+var InstructionModal = class extends import_obsidian12.Modal {
   constructor(app, rawInstruction, callbacks) {
     super(app);
     this.state = "loading";
@@ -11551,7 +11864,7 @@ var InstructionModal = class extends import_obsidian11.Modal {
     const responseSection = this.clarificationEl.createDiv({ cls: "ocop-instruction-section" });
     const responseLabel = responseSection.createDiv({ cls: "ocop-instruction-label" });
     responseLabel.setText("Your response:");
-    this.responseTextarea = new import_obsidian11.TextAreaComponent(responseSection);
+    this.responseTextarea = new import_obsidian12.TextAreaComponent(responseSection);
     this.responseTextarea.inputEl.addClass("ocop-instruction-response-textarea");
     this.responseTextarea.inputEl.rows = 3;
     this.responseTextarea.inputEl.placeholder = "Provide more details...";
@@ -11569,7 +11882,7 @@ var InstructionModal = class extends import_obsidian11.Modal {
     this.refinedDisplayEl = refinedSection.createDiv({ cls: "ocop-instruction-refined" });
     this.editContainerEl = refinedSection.createDiv({ cls: "ocop-instruction-edit-container" });
     this.editContainerEl.style.display = "none";
-    this.editTextarea = new import_obsidian11.TextAreaComponent(this.editContainerEl);
+    this.editTextarea = new import_obsidian12.TextAreaComponent(this.editContainerEl);
     this.editTextarea.inputEl.addClass("ocop-instruction-edit-textarea");
     this.editTextarea.inputEl.rows = 4;
     this.buttonsEl = contentEl.createDiv({ cls: "ocop-instruction-buttons" });
@@ -11715,7 +12028,7 @@ var InstructionModal = class extends import_obsidian11.Modal {
 };
 
 // src/ui/modals/QuizSetupModal.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/core/learning/parsing.ts
 function parseSocraticMeta(content) {
@@ -12114,7 +12427,7 @@ All output must be in Korean.`;
 }
 
 // src/ui/modals/QuizSetupModal.ts
-var QuizSetupModal = class extends import_obsidian12.Modal {
+var QuizSetupModal = class extends import_obsidian13.Modal {
   constructor(app, activeFilePath, initialFocusText = "") {
     super(app);
     this.activeFilePath = activeFilePath;
@@ -12155,7 +12468,7 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
     const renderDetails = () => {
       detailsEl.empty();
       if (subjectRoot) {
-        new import_obsidian12.Setting(detailsEl).setName("Scope source").setDesc(this.useFullVault ? "Showing the full vault." : `Showing notes under ${subjectRoot}`).addToggle((toggle) => {
+        new import_obsidian13.Setting(detailsEl).setName("Scope source").setDesc(this.useFullVault ? "Showing the full vault." : `Showing notes under ${subjectRoot}`).addToggle((toggle) => {
           toggle.setValue(this.useFullVault).onChange((value) => {
             this.useFullVault = value;
             this.selectedNotePaths.clear();
@@ -12221,7 +12534,7 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
         });
       }
     };
-    new import_obsidian12.Setting(this.contentEl).setName("Scope").setDesc("Choose what the quiz should be based on.").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("Scope").setDesc("Choose what the quiz should be based on.").addDropdown((dropdown) => {
       if (this.activeFilePath) {
         dropdown.addOption("current-note", "Current note");
       }
@@ -12233,7 +12546,7 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
       });
     });
     renderDetails();
-    new import_obsidian12.Setting(this.contentEl).setName("Question count").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("Question count").addDropdown((dropdown) => {
       for (const count of ["3", "4", "5", "6", "7", "8", "9", "10"]) {
         dropdown.addOption(count, `${count} questions`);
       }
@@ -12241,7 +12554,7 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
         this.questionCount = value;
       });
     });
-    new import_obsidian12.Setting(this.contentEl).setName("Difficulty").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("Difficulty").addDropdown((dropdown) => {
       dropdown.addOption("\uD558", "\uD558 \u2014 \uAE30\uBCF8 \uC554\uAE30/\uC774\uD574 \uD655\uC778");
       dropdown.addOption("\uC911", "\uC911 \u2014 \uC885\uD569 \uC774\uD574 (\uAE30\uBCF8\uAC12)");
       dropdown.addOption("\uC0C1", "\uC0C1 \u2014 \uC2EC\uD654 (\uC6F9 \uAC80\uC0C9 \uC790\uB3D9 \uD65C\uC131\uD654)");
@@ -12249,7 +12562,7 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
         this.difficulty = value;
       });
     });
-    new import_obsidian12.Setting(this.contentEl).setName("Focus topic (optional)").setDesc("Example: PK, \uC815\uADDC\uD654, \uD2B8\uB79C\uC7AD\uC158").addText((text) => {
+    new import_obsidian13.Setting(this.contentEl).setName("Focus topic (optional)").setDesc("Example: PK, \uC815\uADDC\uD654, \uD2B8\uB79C\uC7AD\uC158").addText((text) => {
       text.setPlaceholder("Leave empty to cover the full selected scope").setValue(this.focusText).onChange((value) => {
         this.focusText = value.trim();
       });
@@ -12322,8 +12635,8 @@ var QuizSetupModal = class extends import_obsidian12.Modal {
 };
 
 // src/ui/modals/SocraticSetupModal.ts
-var import_obsidian13 = require("obsidian");
-var SocraticSetupModal = class extends import_obsidian13.Modal {
+var import_obsidian14 = require("obsidian");
+var SocraticSetupModal = class extends import_obsidian14.Modal {
   constructor(app, activeFilePath, initialFocusText = "") {
     super(app);
     this.activeFilePath = activeFilePath;
@@ -12362,7 +12675,7 @@ var SocraticSetupModal = class extends import_obsidian13.Modal {
     const renderDetails = () => {
       detailsEl.empty();
       if (subjectRoot) {
-        new import_obsidian13.Setting(detailsEl).setName("Scope source").setDesc(this.useFullVault ? "Showing the full vault." : `Showing notes under ${subjectRoot}`).addToggle((toggle) => {
+        new import_obsidian14.Setting(detailsEl).setName("Scope source").setDesc(this.useFullVault ? "Showing the full vault." : `Showing notes under ${subjectRoot}`).addToggle((toggle) => {
           toggle.setValue(this.useFullVault).onChange((value) => {
             this.useFullVault = value;
             this.selectedNotePaths.clear();
@@ -12428,7 +12741,7 @@ var SocraticSetupModal = class extends import_obsidian13.Modal {
         });
       }
     };
-    new import_obsidian13.Setting(this.contentEl).setName("Scope").setDesc("Choose what the dialogue should be based on.").addDropdown((dropdown) => {
+    new import_obsidian14.Setting(this.contentEl).setName("Scope").setDesc("Choose what the dialogue should be based on.").addDropdown((dropdown) => {
       if (this.activeFilePath) {
         dropdown.addOption("current-note", "Current note");
       }
@@ -12440,7 +12753,7 @@ var SocraticSetupModal = class extends import_obsidian13.Modal {
       });
     });
     renderDetails();
-    new import_obsidian13.Setting(this.contentEl).setName("Focus topic (optional)").setDesc("Example: \uC815\uADDC\uD654, \uD2B8\uB79C\uC7AD\uC158, \uC7AC\uADC0\uD568\uC218").addText((text) => {
+    new import_obsidian14.Setting(this.contentEl).setName("Focus topic (optional)").setDesc("Example: \uC815\uADDC\uD654, \uD2B8\uB79C\uC7AD\uC158, \uC7AC\uADC0\uD568\uC218").addText((text) => {
       text.setPlaceholder("Leave empty to cover the full selected scope").setValue(this.focusText).onChange((value) => {
         this.focusText = value.trim();
       });
@@ -12500,7 +12813,7 @@ var SocraticSetupModal = class extends import_obsidian13.Modal {
 };
 
 // src/ui/renderers/AskUserQuestionRenderer.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 function parseAskUserQuestionInput(input) {
   if (!input || typeof input !== "object") return null;
   const questions = input.questions;
@@ -12560,16 +12873,16 @@ function finalizeAskUserQuestionBlock(state, answers, isError, questions) {
   state.headerEl.setAttribute("aria-expanded", "false");
   const iconEl = state.headerEl.createDiv({ cls: "ocop-ask-question-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian14.setIcon)(iconEl, "help-circle");
+  (0, import_obsidian15.setIcon)(iconEl, "help-circle");
   const labelEl = state.headerEl.createDiv({ cls: "ocop-ask-question-label" });
   labelEl.setText("Clarification");
   const countEl = state.headerEl.createDiv({ cls: "ocop-ask-question-count" });
   countEl.setText(questionCount === 1 ? "1 question" : `${questionCount} questions`);
   const statusEl = state.headerEl.createDiv({ cls: `ocop-ask-question-status status-${isError ? "error" : "completed"}` });
   if (isError) {
-    (0, import_obsidian14.setIcon)(statusEl, "x");
+    (0, import_obsidian15.setIcon)(statusEl, "x");
   } else {
-    (0, import_obsidian14.setIcon)(statusEl, "check");
+    (0, import_obsidian15.setIcon)(statusEl, "check");
   }
   state.contentEl.empty();
   state.contentEl.style.display = "none";
@@ -12620,7 +12933,7 @@ function renderStoredAskUserQuestion(parentEl, toolCall) {
   headerEl.setAttribute("aria-label", `Clarification - ${toolCall.status}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-ask-question-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian14.setIcon)(iconEl, "help-circle");
+  (0, import_obsidian15.setIcon)(iconEl, "help-circle");
   const labelEl = headerEl.createDiv({ cls: "ocop-ask-question-label" });
   labelEl.setText("Clarification");
   const countEl = headerEl.createDiv({ cls: "ocop-ask-question-count" });
@@ -12628,9 +12941,9 @@ function renderStoredAskUserQuestion(parentEl, toolCall) {
   const statusEl = headerEl.createDiv({ cls: `ocop-ask-question-status status-${toolCall.status}` });
   statusEl.setAttribute("aria-label", `Status: ${toolCall.status}`);
   if (isCompleted) {
-    (0, import_obsidian14.setIcon)(statusEl, "check");
+    (0, import_obsidian15.setIcon)(statusEl, "check");
   } else if (isError) {
-    (0, import_obsidian14.setIcon)(statusEl, "x");
+    (0, import_obsidian15.setIcon)(statusEl, "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-ask-question-content" });
   contentEl.style.display = "none";
@@ -12793,7 +13106,7 @@ function isBinaryContent(content) {
 }
 
 // src/ui/renderers/SubagentRenderer.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 
 // src/ui/utils/collapsible.ts
 function setupCollapsible(wrapperEl, headerEl, contentEl, state, options = {}) {
@@ -12844,7 +13157,7 @@ function collapseElement(wrapperEl, headerEl, contentEl, state) {
 }
 
 // src/ui/renderers/ToolCallRenderer.ts
-var import_obsidian15 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 
 // src/features/chat/constants.ts
 var MCP_ICON_SVG = `<svg fill="currentColor" fill-rule="evenodd" height="1em" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>MCP</title><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"></path><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"></path></svg>`;
@@ -12862,7 +13175,7 @@ function setToolIcon(el, name) {
   if (icon === MCP_ICON_MARKER) {
     el.innerHTML = MCP_ICON_SVG;
   } else {
-    (0, import_obsidian15.setIcon)(el, icon);
+    (0, import_obsidian16.setIcon)(el, icon);
   }
 }
 function parseMcpToolName(name) {
@@ -13057,11 +13370,11 @@ function createToolCallDOM(parentEl, toolCall) {
 }
 function setStatusIcon(statusEl, status) {
   if (status === "completed") {
-    (0, import_obsidian15.setIcon)(statusEl, "check");
+    (0, import_obsidian16.setIcon)(statusEl, "check");
   } else if (status === "error") {
-    (0, import_obsidian15.setIcon)(statusEl, "x");
+    (0, import_obsidian16.setIcon)(statusEl, "x");
   } else if (status === "blocked") {
-    (0, import_obsidian15.setIcon)(statusEl, "shield-off");
+    (0, import_obsidian16.setIcon)(statusEl, "shield-off");
   }
 }
 function renderToolCall(parentEl, toolCall, toolCallElements) {
@@ -13148,7 +13461,7 @@ function createSubagentBlock(parentEl, taskToolId, taskInput) {
   headerEl.setAttribute("aria-label", `Subagent task: ${truncateDescription(description)} - click to expand`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(description));
   const countEl = headerEl.createDiv({ cls: "ocop-subagent-count" });
@@ -13219,9 +13532,9 @@ function finalizeSubagentBlock(state, result, isError) {
   state.statusEl.addClass(`status-${state.info.status}`);
   state.statusEl.empty();
   if (state.info.status === "completed") {
-    (0, import_obsidian16.setIcon)(state.statusEl, "check");
+    (0, import_obsidian17.setIcon)(state.statusEl, "check");
   } else {
-    (0, import_obsidian16.setIcon)(state.statusEl, "x");
+    (0, import_obsidian17.setIcon)(state.statusEl, "x");
   }
   if (state.info.status === "completed") {
     state.wrapperEl.addClass("done");
@@ -13252,7 +13565,7 @@ function renderStoredSubagent(parentEl, subagent) {
   headerEl.setAttribute("aria-label", `Subagent task: ${truncateDescription(subagent.description)} - ${toolCount} tool uses - Status: ${subagent.status}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(subagent.description));
   const countEl = headerEl.createDiv({ cls: "ocop-subagent-count" });
@@ -13260,9 +13573,9 @@ function renderStoredSubagent(parentEl, subagent) {
   const statusEl = headerEl.createDiv({ cls: `ocop-subagent-status status-${subagent.status}` });
   statusEl.setAttribute("aria-label", `Status: ${subagent.status}`);
   if (subagent.status === "completed") {
-    (0, import_obsidian16.setIcon)(statusEl, "check");
+    (0, import_obsidian17.setIcon)(statusEl, "check");
   } else if (subagent.status === "error") {
-    (0, import_obsidian16.setIcon)(statusEl, "x");
+    (0, import_obsidian17.setIcon)(statusEl, "x");
   } else {
     statusEl.createSpan({ cls: "ocop-spinner" });
   }
@@ -13341,7 +13654,7 @@ function createAsyncSubagentBlock(parentEl, taskToolId, taskInput) {
   headerEl.setAttribute("aria-label", `Background task: ${description} - Status: \uBC31\uADF8\uB77C\uC6B4\uB4DC \uC791\uC5C5 \uC911`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(description));
   const statusTextEl = headerEl.createDiv({ cls: "ocop-subagent-status-text" });
@@ -13390,9 +13703,9 @@ function finalizeAsyncSubagent(state, result, isError) {
   state.statusEl.addClass(`status-${isError ? "error" : "completed"}`);
   state.statusEl.empty();
   if (isError) {
-    (0, import_obsidian16.setIcon)(state.statusEl, "x");
+    (0, import_obsidian17.setIcon)(state.statusEl, "x");
   } else {
-    (0, import_obsidian16.setIcon)(state.statusEl, "check");
+    (0, import_obsidian17.setIcon)(state.statusEl, "check");
   }
   if (isError) {
     state.wrapperEl.addClass("error");
@@ -13420,7 +13733,7 @@ function markAsyncSubagentOrphaned(state) {
   state.statusTextEl.setText("Orphaned");
   state.statusEl.className = "ocop-subagent-status status-error";
   state.statusEl.empty();
-  (0, import_obsidian16.setIcon)(state.statusEl, "alert-circle");
+  (0, import_obsidian17.setIcon)(state.statusEl, "alert-circle");
   state.wrapperEl.addClass("error");
   state.wrapperEl.addClass("orphaned");
   state.contentEl.empty();
@@ -13448,7 +13761,7 @@ function renderStoredAsyncSubagent(parentEl, subagent) {
   headerEl.setAttribute("aria-label", `Background task: ${subagent.description} - Status: ${statusText}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(subagent.description));
   const statusTextEl = headerEl.createDiv({ cls: "ocop-subagent-status-text" });
@@ -13457,9 +13770,9 @@ function renderStoredAsyncSubagent(parentEl, subagent) {
   const statusEl = headerEl.createDiv({ cls: `ocop-subagent-status ${statusIconClass}` });
   statusEl.setAttribute("aria-label", `Status: ${statusText}`);
   if (subagent.asyncStatus === "completed") {
-    (0, import_obsidian16.setIcon)(statusEl, "check");
+    (0, import_obsidian17.setIcon)(statusEl, "check");
   } else if (subagent.asyncStatus === "error" || subagent.asyncStatus === "orphaned") {
-    (0, import_obsidian16.setIcon)(statusEl, subagent.asyncStatus === "orphaned" ? "alert-circle" : "x");
+    (0, import_obsidian17.setIcon)(statusEl, subagent.asyncStatus === "orphaned" ? "alert-circle" : "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-subagent-content" });
   const statusRow = contentEl.createDiv({ cls: "ocop-subagent-done" });
@@ -13601,7 +13914,7 @@ function extractLastTodosFromMessages(messages) {
 }
 
 // src/ui/renderers/WriteEditRenderer.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian18 = require("obsidian");
 function shortenPath2(filePath, maxLength = 40) {
   if (!filePath) return "file";
   const normalized = filePath.replace(/\\/g, "/");
@@ -13637,7 +13950,7 @@ function createWriteEditBlock(parentEl, toolCall) {
   headerEl.setAttribute("aria-label", `${toolName}: ${shortenPath2(filePath)} - click to expand`);
   const iconEl = headerEl.createDiv({ cls: "ocop-write-edit-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian17.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
+  (0, import_obsidian18.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
   const labelEl = headerEl.createDiv({ cls: "ocop-write-edit-label" });
   labelEl.setText(`${toolName}: ${shortenPath2(filePath)}`);
   const statsEl = headerEl.createDiv({ cls: "ocop-write-edit-stats" });
@@ -13705,7 +14018,7 @@ function finalizeWriteEditBlock(state, isError) {
   state.statusEl.empty();
   if (isError) {
     state.statusEl.addClass("status-error");
-    (0, import_obsidian17.setIcon)(state.statusEl, "x");
+    (0, import_obsidian18.setIcon)(state.statusEl, "x");
     state.statusEl.setAttribute("aria-label", "Status: error");
     if (!state.diffLines) {
       state.contentEl.empty();
@@ -13736,7 +14049,7 @@ function renderStoredWriteEdit(parentEl, toolCall) {
   headerEl.setAttribute("role", "button");
   const iconEl = headerEl.createDiv({ cls: "ocop-write-edit-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian17.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
+  (0, import_obsidian18.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
   const labelEl = headerEl.createDiv({ cls: "ocop-write-edit-label" });
   labelEl.setText(`${toolName}: ${shortenPath2(filePath)}`);
   const statsEl = headerEl.createDiv({ cls: "ocop-write-edit-stats" });
@@ -13758,7 +14071,7 @@ function renderStoredWriteEdit(parentEl, toolCall) {
   const statusEl = headerEl.createDiv({ cls: "ocop-write-edit-status" });
   if (isError) {
     statusEl.addClass("status-error");
-    (0, import_obsidian17.setIcon)(statusEl, "x");
+    (0, import_obsidian18.setIcon)(statusEl, "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-write-edit-content" });
   const row = contentEl.createDiv({ cls: "ocop-write-edit-diff-row" });
@@ -13787,8 +14100,8 @@ function renderStoredWriteEdit(parentEl, toolCall) {
 }
 
 // src/ui/settings/EnvSnippetManager.ts
-var import_obsidian18 = require("obsidian");
-var EnvSnippetModal = class extends import_obsidian18.Modal {
+var import_obsidian19 = require("obsidian");
+var EnvSnippetModal = class extends import_obsidian19.Modal {
   constructor(app, plugin, snippet, onSave) {
     super(app);
     this.plugin = plugin;
@@ -13815,7 +14128,7 @@ var EnvSnippetModal = class extends import_obsidian18.Modal {
       var _a;
       const name = nameEl.value.trim();
       if (!name) {
-        new import_obsidian18.Notice("Please enter a name for the snippet");
+        new import_obsidian19.Notice("Please enter a name for the snippet");
         return;
       }
       const snippet = {
@@ -13827,19 +14140,19 @@ var EnvSnippetModal = class extends import_obsidian18.Modal {
       this.onSave(snippet);
       this.close();
     };
-    new import_obsidian18.Setting(contentEl).setName("Name").setDesc("A descriptive name for this environment configuration").addText((text) => {
+    new import_obsidian19.Setting(contentEl).setName("Name").setDesc("A descriptive name for this environment configuration").addText((text) => {
       var _a;
       nameEl = text.inputEl;
       text.setValue(((_a = this.snippet) == null ? void 0 : _a.name) || "");
       text.inputEl.addEventListener("keydown", handleKeyDown);
     });
-    new import_obsidian18.Setting(contentEl).setName("Description").setDesc("Optional description").addText((text) => {
+    new import_obsidian19.Setting(contentEl).setName("Description").setDesc("Optional description").addText((text) => {
       var _a;
       descEl = text.inputEl;
       text.setValue(((_a = this.snippet) == null ? void 0 : _a.description) || "");
       text.inputEl.addEventListener("keydown", handleKeyDown);
     });
-    const envVarsSetting = new import_obsidian18.Setting(contentEl).setName("Environment variables").setDesc("KEY=VALUE format, one per line").addTextArea((text) => {
+    const envVarsSetting = new import_obsidian19.Setting(contentEl).setName("Environment variables").setDesc("KEY=VALUE format, one per line").addTextArea((text) => {
       var _a, _b;
       envVarsEl = text.inputEl;
       const envVarsToShow = (_b = (_a = this.snippet) == null ? void 0 : _a.envVars) != null ? _b : this.plugin.settings.environmentVariables;
@@ -13880,7 +14193,7 @@ var EnvSnippetManager = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Save current" }
     });
-    (0, import_obsidian18.setIcon)(saveBtn, "plus");
+    (0, import_obsidian19.setIcon)(saveBtn, "plus");
     saveBtn.addEventListener("click", () => this.saveCurrentEnv());
     const snippets = this.plugin.settings.envSnippets;
     if (snippets.length === 0) {
@@ -13904,7 +14217,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn",
         attr: { "aria-label": "Insert" }
       });
-      (0, import_obsidian18.setIcon)(restoreBtn, "clipboard-paste");
+      (0, import_obsidian19.setIcon)(restoreBtn, "clipboard-paste");
       restoreBtn.addEventListener("click", async () => {
         await this.insertSnippet(snippet);
       });
@@ -13912,7 +14225,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn",
         attr: { "aria-label": "Edit" }
       });
-      (0, import_obsidian18.setIcon)(editBtn, "pencil");
+      (0, import_obsidian19.setIcon)(editBtn, "pencil");
       editBtn.addEventListener("click", () => {
         this.editSnippet(snippet);
       });
@@ -13920,7 +14233,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn ocop-settings-delete-btn",
         attr: { "aria-label": "Delete" }
       });
-      (0, import_obsidian18.setIcon)(deleteBtn, "trash-2");
+      (0, import_obsidian19.setIcon)(deleteBtn, "trash-2");
       deleteBtn.addEventListener("click", async () => {
         if (confirm(`Delete environment snippet "${snippet.name}"?`)) {
           await this.deleteSnippet(snippet);
@@ -13937,7 +14250,7 @@ var EnvSnippetManager = class {
         this.plugin.settings.envSnippets.push(snippet);
         await this.plugin.saveSettings();
         this.render();
-        new import_obsidian18.Notice(`Environment snippet "${snippet.name}" saved`);
+        new import_obsidian19.Notice(`Environment snippet "${snippet.name}" saved`);
       }
     );
     modal.open();
@@ -13975,7 +14288,7 @@ var EnvSnippetManager = class {
           this.plugin.settings.envSnippets[index] = updatedSnippet;
           await this.plugin.saveSettings();
           this.render();
-          new import_obsidian18.Notice(`Environment snippet "${updatedSnippet.name}" updated`);
+          new import_obsidian19.Notice(`Environment snippet "${updatedSnippet.name}" updated`);
         }
       }
     );
@@ -13985,7 +14298,7 @@ var EnvSnippetManager = class {
     this.plugin.settings.envSnippets = this.plugin.settings.envSnippets.filter((s) => s.id !== snippet.id);
     await this.plugin.saveSettings();
     this.render();
-    new import_obsidian18.Notice(`Environment snippet "${snippet.name}" deleted`);
+    new import_obsidian19.Notice(`Environment snippet "${snippet.name}" deleted`);
   }
   refresh() {
     this.render();
@@ -13993,8 +14306,8 @@ var EnvSnippetManager = class {
 };
 
 // src/ui/settings/SlashCommandSettings.ts
-var import_obsidian19 = require("obsidian");
-var SlashCommandModal = class extends import_obsidian19.Modal {
+var import_obsidian20 = require("obsidian");
+var SlashCommandModal = class extends import_obsidian20.Modal {
   constructor(app, plugin, existingCmd, onSave) {
     super(app);
     this.plugin = plugin;
@@ -14010,32 +14323,32 @@ var SlashCommandModal = class extends import_obsidian19.Modal {
     let hintInput;
     let modelInput;
     let toolsInput;
-    new import_obsidian19.Setting(contentEl).setName("Command name").setDesc('The name used after / (e.g., "review" for /review)').addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Command name").setDesc('The name used after / (e.g., "review" for /review)').addText((text) => {
       var _a;
       nameInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.name) || "").setPlaceholder("review-code");
     });
-    new import_obsidian19.Setting(contentEl).setName("Description").setDesc("Optional description shown in dropdown").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Description").setDesc("Optional description shown in dropdown").addText((text) => {
       var _a;
       descInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.description) || "");
     });
-    new import_obsidian19.Setting(contentEl).setName("Argument hint").setDesc('Placeholder text for arguments (e.g., "[file] [focus]")').addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Argument hint").setDesc('Placeholder text for arguments (e.g., "[file] [focus]")').addText((text) => {
       var _a;
       hintInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.argumentHint) || "");
     });
-    new import_obsidian19.Setting(contentEl).setName("Model override").setDesc("Optional model to use for this command").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Model override").setDesc("Optional model to use for this command").addText((text) => {
       var _a;
       modelInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.model) || "").setPlaceholder("claude-sonnet-4-5");
     });
-    new import_obsidian19.Setting(contentEl).setName("Allowed tools").setDesc("Comma-separated list of tools to allow (empty = all)").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Allowed tools").setDesc("Comma-separated list of tools to allow (empty = all)").addText((text) => {
       var _a, _b;
       toolsInput = text.inputEl;
       text.setValue(((_b = (_a = this.existingCmd) == null ? void 0 : _a.allowedTools) == null ? void 0 : _b.join(", ")) || "");
     });
-    new import_obsidian19.Setting(contentEl).setName("Prompt template").setDesc("Use $ARGUMENTS, $1, $2, @file, !`bash`");
+    new import_obsidian20.Setting(contentEl).setName("Prompt template").setDesc("Use $ARGUMENTS, $1, $2, @file, !`bash`");
     const contentArea = contentEl.createEl("textarea", {
       cls: "ocop-slash-content-area",
       attr: {
@@ -14059,16 +14372,16 @@ var SlashCommandModal = class extends import_obsidian19.Modal {
       var _a;
       const name = nameInput.value.trim();
       if (!name) {
-        new import_obsidian19.Notice("Command name is required");
+        new import_obsidian20.Notice("Command name is required");
         return;
       }
       const content = contentArea.value;
       if (!content.trim()) {
-        new import_obsidian19.Notice("Prompt template is required");
+        new import_obsidian20.Notice("Prompt template is required");
         return;
       }
       if (!/^[a-zA-Z0-9_/-]+$/.test(name)) {
-        new import_obsidian19.Notice("Command name can only contain letters, numbers, hyphens, underscores, and slashes");
+        new import_obsidian20.Notice("Command name can only contain letters, numbers, hyphens, underscores, and slashes");
         return;
       }
       const existing = this.plugin.settings.slashCommands.find(
@@ -14078,7 +14391,7 @@ var SlashCommandModal = class extends import_obsidian19.Modal {
         }
       );
       if (existing) {
-        new import_obsidian19.Notice(`A command named "/${name}" already exists`);
+        new import_obsidian20.Notice(`A command named "/${name}" already exists`);
         return;
       }
       const parsed = parseSlashCommandContent(content);
@@ -14122,19 +14435,19 @@ var SlashCommandSettings = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Import" }
     });
-    (0, import_obsidian19.setIcon)(importBtn, "download");
+    (0, import_obsidian20.setIcon)(importBtn, "download");
     importBtn.addEventListener("click", () => this.importCommands());
     const exportBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Export" }
     });
-    (0, import_obsidian19.setIcon)(exportBtn, "upload");
+    (0, import_obsidian20.setIcon)(exportBtn, "upload");
     exportBtn.addEventListener("click", () => this.exportCommands());
     const addBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Add" }
     });
-    (0, import_obsidian19.setIcon)(addBtn, "plus");
+    (0, import_obsidian20.setIcon)(addBtn, "plus");
     addBtn.addEventListener("click", () => this.openCommandModal(null));
     const commands = this.plugin.settings.slashCommands;
     if (commands.length === 0) {
@@ -14166,13 +14479,13 @@ var SlashCommandSettings = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Edit" }
     });
-    (0, import_obsidian19.setIcon)(editBtn, "pencil");
+    (0, import_obsidian20.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", () => this.openCommandModal(cmd));
     const deleteBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn ocop-settings-delete-btn",
       attr: { "aria-label": "Delete" }
     });
-    (0, import_obsidian19.setIcon)(deleteBtn, "trash-2");
+    (0, import_obsidian20.setIcon)(deleteBtn, "trash-2");
     deleteBtn.addEventListener("click", async () => {
       await this.deleteCommand(cmd);
     });
@@ -14195,13 +14508,13 @@ var SlashCommandSettings = class {
     }
     await this.reloadCommands();
     this.render();
-    new import_obsidian19.Notice(`Slash command "/${cmd.name}" ${existing ? "updated" : "created"}`);
+    new import_obsidian20.Notice(`Slash command "/${cmd.name}" ${existing ? "updated" : "created"}`);
   }
   async deleteCommand(cmd) {
     await this.plugin.storage.commands.delete(cmd.id);
     await this.reloadCommands();
     this.render();
-    new import_obsidian19.Notice(`Slash command "/${cmd.name}" deleted`);
+    new import_obsidian20.Notice(`Slash command "/${cmd.name}" deleted`);
   }
   /** Reload commands from storage and update in-memory settings. */
   async reloadCommands() {
@@ -14211,7 +14524,7 @@ var SlashCommandSettings = class {
   exportCommands() {
     const commands = this.plugin.settings.slashCommands;
     if (commands.length === 0) {
-      new import_obsidian19.Notice("No slash commands to export");
+      new import_obsidian20.Notice("No slash commands to export");
       return;
     }
     const json = JSON.stringify(commands, null, 2);
@@ -14222,7 +14535,7 @@ var SlashCommandSettings = class {
     a.download = "ocop-slash-commands.json";
     a.click();
     URL.revokeObjectURL(url);
-    new import_obsidian19.Notice(`Exported ${commands.length} slash command(s)`);
+    new import_obsidian20.Notice(`Exported ${commands.length} slash command(s)`);
   }
   importCommands() {
     const input = document.createElement("input");
@@ -14285,9 +14598,9 @@ var SlashCommandSettings = class {
         }
         await this.reloadCommands();
         this.render();
-        new import_obsidian19.Notice(`Imported ${imported} slash command(s)`);
+        new import_obsidian20.Notice(`Imported ${imported} slash command(s)`);
       } catch (e2) {
-        new import_obsidian19.Notice("Failed to import slash commands. Check file format.");
+        new import_obsidian20.Notice("Failed to import slash commands. Check file format.");
       }
     });
     input.click();
@@ -14366,7 +14679,7 @@ var MentionHighlighter = class {
 init_path();
 
 // src/features/chat/controllers/ConversationController.ts
-var import_obsidian20 = require("obsidian");
+var import_obsidian21 = require("obsidian");
 var ConversationController = class {
   constructor(deps, callbacks = {}) {
     this.deps = deps;
@@ -14621,7 +14934,7 @@ var ConversationController = class {
         cls: `ocop-history-item${isCurrent ? " active" : ""}`
       });
       const iconEl = item.createDiv({ cls: "ocop-history-item-icon" });
-      (0, import_obsidian20.setIcon)(iconEl, isCurrent ? "message-square-dot" : "message-square");
+      (0, import_obsidian21.setIcon)(iconEl, isCurrent ? "message-square-dot" : "message-square");
       const content = item.createDiv({ cls: "ocop-history-item-content" });
       const titleEl = content.createDiv({ cls: "ocop-history-item-title", text: conv.title });
       titleEl.setAttribute("title", conv.title);
@@ -14638,11 +14951,11 @@ var ConversationController = class {
       const actions = item.createDiv({ cls: "ocop-history-item-actions" });
       if (conv.titleGenerationStatus === "pending") {
         const loadingEl = actions.createEl("span", { cls: "ocop-action-btn ocop-action-loading" });
-        (0, import_obsidian20.setIcon)(loadingEl, "loader-2");
+        (0, import_obsidian21.setIcon)(loadingEl, "loader-2");
         loadingEl.setAttribute("aria-label", "Generating title...");
       } else if (conv.titleGenerationStatus === "failed") {
         const regenerateBtn = actions.createEl("button", { cls: "ocop-action-btn" });
-        (0, import_obsidian20.setIcon)(regenerateBtn, "refresh-cw");
+        (0, import_obsidian21.setIcon)(regenerateBtn, "refresh-cw");
         regenerateBtn.setAttribute("aria-label", "Regenerate title");
         regenerateBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
@@ -14654,14 +14967,14 @@ var ConversationController = class {
         });
       }
       const renameBtn = actions.createEl("button", { cls: "ocop-action-btn" });
-      (0, import_obsidian20.setIcon)(renameBtn, "pencil");
+      (0, import_obsidian21.setIcon)(renameBtn, "pencil");
       renameBtn.setAttribute("aria-label", "Rename");
       renameBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.showRenameInput(item, conv.id, conv.title);
       });
       const deleteBtn = actions.createEl("button", { cls: "ocop-action-btn ocop-delete-btn" });
-      (0, import_obsidian20.setIcon)(deleteBtn, "trash-2");
+      (0, import_obsidian21.setIcon)(deleteBtn, "trash-2");
       deleteBtn.setAttribute("aria-label", "Delete");
       deleteBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -14780,7 +15093,7 @@ var ConversationController = class {
 };
 
 // src/features/chat/controllers/InputController.ts
-var import_obsidian21 = require("obsidian");
+var import_obsidian22 = require("obsidian");
 
 // src/utils/editor.ts
 function findNearestNonEmptyLine(getLine, lineCount, startLine, direction) {
@@ -15153,7 +15466,7 @@ var InputController = class {
           });
           content = result.expandedPrompt;
           if (result.errors.length > 0) {
-            new import_obsidian21.Notice(formatSlashCommandWarnings(result.errors));
+            new import_obsidian22.Notice(formatSlashCommandWarnings(result.errors));
           }
           if (result.allowedTools || result.model) {
             queryOptions = {
@@ -15324,7 +15637,7 @@ ${promptToSend}`;
   }
   async readCurrentNoteContent(notePath) {
     const file = this.deps.plugin.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof import_obsidian21.TFile)) {
+    if (!(file instanceof import_obsidian22.TFile)) {
       return null;
     }
     try {
@@ -15402,7 +15715,7 @@ ${promptToSend}`;
     const content = inputEl.value.trim();
     if (!content) return;
     if (state.isStreaming) {
-      new import_obsidian21.Notice("Cannot request plan mode while agent is working");
+      new import_obsidian22.Notice("Cannot request plan mode while agent is working");
       return;
     }
     if (plugin.settings.permissionMode === "plan") {
@@ -15663,7 +15976,7 @@ ${content}
       }
     ).catch((error) => {
       console.error("[InputController] Title generation failed:", error instanceof Error ? error.message : error);
-      new import_obsidian21.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
+      new import_obsidian22.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
     });
   }
   // ============================================
@@ -15724,7 +16037,7 @@ ${content}
             const currentPrompt = plugin.settings.systemPrompt;
             plugin.settings.systemPrompt = appendMarkdownSnippet(currentPrompt, finalInstruction);
             await plugin.saveSettings();
-            new import_obsidian21.Notice("Instruction added to custom system prompt");
+            new import_obsidian22.Notice("Instruction added to custom system prompt");
             instructionModeManager == null ? void 0 : instructionModeManager.clear();
           },
           onReject: () => {
@@ -15741,7 +16054,7 @@ ${content}
               if (result2.error === "Cancelled") {
                 return;
               }
-              new import_obsidian21.Notice(result2.error || "Failed to process response");
+              new import_obsidian22.Notice(result2.error || "Failed to process response");
               modal == null ? void 0 : modal.showError(result2.error || "Failed to process response");
               return;
             }
@@ -15767,7 +16080,7 @@ ${content}
           instructionModeManager == null ? void 0 : instructionModeManager.clear();
           return;
         }
-        new import_obsidian21.Notice(result.error || "Failed to refine instruction");
+        new import_obsidian22.Notice(result.error || "Failed to refine instruction");
         modal.showError(result.error || "Failed to refine instruction");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
         return;
@@ -15777,13 +16090,13 @@ ${content}
       } else if (result.refinedInstruction) {
         modal.showConfirmation(result.refinedInstruction);
       } else {
-        new import_obsidian21.Notice("No instruction received");
+        new import_obsidian22.Notice("No instruction received");
         modal.showError("No instruction received");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian21.Notice(`Error: ${errorMsg}`);
+      new import_obsidian22.Notice(`Error: ${errorMsg}`);
       modal == null ? void 0 : modal.showError(errorMsg);
       instructionModeManager == null ? void 0 : instructionModeManager.clear();
     }
@@ -16090,7 +16403,7 @@ var NavigationController = class {
 };
 
 // src/features/chat/controllers/SelectionController.ts
-var import_obsidian22 = require("obsidian");
+var import_obsidian23 = require("obsidian");
 var SELECTION_POLL_INTERVAL = 250;
 var SelectionController = class {
   constructor(app, indicatorEl, inputEl) {
@@ -16126,7 +16439,7 @@ var SelectionController = class {
   /** Polls editor selection and updates stored selection. */
   poll() {
     var _a, _b, _c, _d;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian23.MarkdownView);
     if (!view) return;
     const editor = view.editor;
     const editorView = editor.cm;
@@ -16838,25 +17151,25 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
 };
 
 // src/features/chat/rendering/MessageRenderer.ts
-var import_obsidian23 = require("obsidian");
+var import_obsidian24 = require("obsidian");
 
 // src/core/images/imageLoader.ts
-var fs9 = __toESM(require("fs"));
-var path12 = __toESM(require("path"));
+var fs11 = __toESM(require("fs"));
+var path14 = __toESM(require("path"));
 init_path();
 function resolveImageFilePath(filePath, vaultPath) {
   const normalized = normalizePathForFilesystem(filePath);
-  if (path12.isAbsolute(normalized)) {
+  if (path14.isAbsolute(normalized)) {
     return normalized;
   }
   if (vaultPath) {
-    return path12.join(vaultPath, normalized);
+    return path14.join(vaultPath, normalized);
   }
   return null;
 }
 function readFileBase64(absPath) {
   try {
-    const buffer = fs9.readFileSync(absPath);
+    const buffer = fs11.readFileSync(absPath);
     return buffer.toString("base64");
   } catch (error) {
     console.warn("Failed to read image file:", absPath, error);
@@ -16871,7 +17184,7 @@ function readImageAttachmentBase64(app, image, vaultPath) {
   if (image.filePath) {
     const vault = vaultPath != null ? vaultPath : getVaultPath(app);
     const absPath = resolveImageFilePath(image.filePath, vault);
-    if (absPath && fs9.existsSync(absPath)) {
+    if (absPath && fs11.existsSync(absPath)) {
       return readFileBase64(absPath);
     }
   }
@@ -17183,17 +17496,17 @@ var MessageRenderer = class {
     switch (indicator.type) {
       case "approve":
         indicatorEl.classList.add("ocop-approval-indicator-approve");
-        (0, import_obsidian23.setIcon)(iconEl, "check");
+        (0, import_obsidian24.setIcon)(iconEl, "check");
         textEl.textContent = "User approved plan.";
         break;
       case "approve_new_session":
         indicatorEl.classList.add("ocop-approval-indicator-approve");
-        (0, import_obsidian23.setIcon)(iconEl, "check");
+        (0, import_obsidian24.setIcon)(iconEl, "check");
         textEl.textContent = "User approved plan, implement in new session.";
         break;
       case "revise":
         indicatorEl.classList.add("ocop-approval-indicator-revise");
-        (0, import_obsidian23.setIcon)(iconEl, "x");
+        (0, import_obsidian24.setIcon)(iconEl, "x");
         textEl.textContent = indicator.feedback || "User requested revision.";
         break;
     }
@@ -17442,7 +17755,7 @@ var MessageRenderer = class {
    */
   async renderContent(el, markdown) {
     el.empty();
-    await import_obsidian23.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
+    await import_obsidian24.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
     el.querySelectorAll("pre").forEach((pre) => {
       var _a, _b;
       if ((_a = pre.parentElement) == null ? void 0 : _a.classList.contains("ocop-code-wrapper")) return;
@@ -17482,13 +17795,13 @@ var MessageRenderer = class {
       cls: "ocop-msg-copy-btn",
       attr: { "aria-label": "Copy message", type: "button" }
     });
-    (0, import_obsidian23.setIcon)(btn, "copy");
+    (0, import_obsidian24.setIcon)(btn, "copy");
     btn.addEventListener("click", () => {
       void navigator.clipboard.writeText(msg.content).then(() => {
-        (0, import_obsidian23.setIcon)(btn, "check");
+        (0, import_obsidian24.setIcon)(btn, "check");
         btn.classList.add("is-copied");
         setTimeout(() => {
-          (0, import_obsidian23.setIcon)(btn, "copy");
+          (0, import_obsidian24.setIcon)(btn, "copy");
           btn.classList.remove("is-copied");
         }, 1500);
       });
@@ -19632,7 +19945,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian27.PluginSettingTab
       cls: "setting-item-description",
       text: "The toggle below is the main safety control for beginners. Detailed allow/block rules are in Advanced."
     });
-    new import_obsidian27.Setting(advancedContentEl).setName("Enable command blocklist").setDesc("Block potentially dangerous shell commands").addToggle(
+    new import_obsidian27.Setting(advancedContentEl).setName("\uC778\uB77C\uC778 Bash \uBA85\uB839 \uCC28\uB2E8").setDesc("\uC2AC\uB798\uC2DC \uBA85\uB839 \uC548\uC758 !`\uBA85\uB839` \uC2E4\uD589\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. AI\uAC00 \uC2A4\uC2A4\uB85C \uC2E4\uD589\uD558\uB294 \uBA85\uB839\uC740 \uB9C9\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 AI\uC758 \uAD8C\uD55C\uC740 Ask/Agent \uD1A0\uAE00\uB85C \uC870\uC808\uD558\uC138\uC694.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableBlocklist).onChange(async (value) => {
         this.plugin.settings.enableBlocklist = value;
         await this.plugin.saveSettings();
@@ -19713,14 +20026,14 @@ var ObsidianCopilotSettingTab = class extends import_obsidian27.PluginSettingTab
       cls: "setting-item-description",
       text: `\uB300\uBD80\uBD84\uC758 \uD559\uC0DD\uC740 \uADF8\uB300\uB85C \uB450\uBA74 \uB429\uB2C8\uB2E4. ${getProviderDescriptor(this.plugin.settings.selectedProvider).label} \uB85C\uADF8\uC778\uC774 \uC774\uBBF8 \uB05D\uB0AC\uB2E4\uBA74 \uC190\uB308 \uD544\uC694\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`
     });
-    new import_obsidian27.Setting(advancedContentEl).setName("GitHub token").setDesc("Optional. Uses COPILOT_GITHUB_TOKEN, GH_TOKEN, and GITHUB_TOKEN for the Copilot child process when set.").addText(
+    new import_obsidian27.Setting(advancedContentEl).setName("GitHub token").setDesc("\uC120\uD0DD \uC0AC\uD56D\uC785\uB2C8\uB2E4. \uC785\uB825\uD558\uBA74 Copilot \uC2E4\uD589 \uC2DC COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN\uC73C\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4. \uD1A0\uD070\uC740 \uAE08\uACE0\uAC00 \uC544\uB2C8\uB77C \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uC800\uC7A5\uB418\uBBC0\uB85C, \uAE08\uACE0\uB97C \uACF5\uC720\uD558\uAC70\uB098 \uD074\uB77C\uC6B0\uB4DC\uC5D0 \uC62C\uB824\uB3C4 \uD568\uAED8 \uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C\uB294 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.").addText(
       (text) => text.setPlaceholder("github_pat_...").setValue(this.plugin.settings.githubToken).onChange(async (value) => {
         this.plugin.settings.githubToken = value.trim();
         await this.plugin.saveSettings();
       })
     );
     new import_obsidian27.Setting(advancedContentEl).setName("Custom variables").setDesc("\uC120\uD0DD\uD55C provider\uC758 CLI\uC5D0 \uB118\uAE38 \uD658\uACBD \uBCC0\uC218\uC785\uB2C8\uB2E4 (KEY=VALUE, \uD55C \uC904\uC5D0 \uD558\uB098).").addTextArea((text) => {
-      text.setPlaceholder("COPILOT_GITHUB_TOKEN=your-token\nGH_TOKEN=your-token").setValue(this.plugin.settings.environmentVariables).onChange(async (value) => {
+      text.setPlaceholder("HTTPS_PROXY=http://proxy.school.ac.kr:8080\nLANG=ko_KR.UTF-8").setValue(this.plugin.settings.environmentVariables).onChange(async (value) => {
         await this.plugin.applyEnvironmentVariables(value);
       });
       text.inputEl.rows = 6;
@@ -19729,6 +20042,23 @@ var ObsidianCopilotSettingTab = class extends import_obsidian27.PluginSettingTab
     });
     const envSnippetsContainer = advancedContentEl.createDiv({ cls: "ocop-env-snippets-container" });
     new EnvSnippetManager(envSnippetsContainer, this.plugin);
+    new import_obsidian27.Setting(advancedContentEl).setName("\uBB38\uC81C \uAE30\uB85D").setHeading();
+    advancedContentEl.createDiv({
+      cls: "setting-item-description",
+      // The failures that matter most are on machines nobody here can reach, and
+      // a student cannot be asked to open a terminal to retrieve them.
+      text: `\uC624\uB958\uAC00 \uC0DD\uAE30\uBA74 \uC790\uB3D9\uC73C\uB85C ${errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)} \uC5D0 \uAE30\uB85D\uB429\uB2C8\uB2E4. \uC778\uC99D \uD1A0\uD070 \uAC19\uC740 \uBE44\uBC00 \uAC12\uC740 \uAC00\uB824\uC11C \uC800\uC7A5\uD569\uB2C8\uB2E4.`
+    });
+    new import_obsidian27.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
+      (button) => button.setButtonText("\uBCF5\uC0AC").onClick(async () => {
+        const entries = await readRecentErrors(
+          this.plugin.storage.getAdapter(),
+          errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)
+        );
+        await navigator.clipboard.writeText(formatErrorsForReport(entries));
+        new import_obsidian27.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      })
+    );
     new import_obsidian27.Setting(advancedContentEl).setName("Advanced & Developer").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
@@ -19787,13 +20117,16 @@ var ObsidianCopilotSettingTab = class extends import_obsidian27.PluginSettingTab
 };
 
 // src/main.ts
-var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
+var ObsidianCopilotPlugin = class extends import_obsidian29.Plugin {
   constructor() {
     super(...arguments);
     this.conversations = [];
     this.activeConversationId = null;
     this.runtimeEnvironmentVariables = "";
     this.hasNotifiedEnvChange = false;
+    /** True when this launch moved credentials out of the vault settings file.
+     * Only then does the student get the one-time explanation. */
+    this.secretsJustMoved = false;
   }
   async onload() {
     try {
@@ -19807,7 +20140,7 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
       };
       this.conversations = [];
       this.activeConversationId = null;
-      new import_obsidian28.Notice("Obsidian AI Tutor loaded with default settings due to a startup error.");
+      new import_obsidian29.Notice("Obsidian AI Tutor loaded with default settings due to a startup error.");
     }
     this.agentService = new CopilotBridgeService(this);
     this.agentService.onOutcome = (providerId, outcome) => {
@@ -19815,14 +20148,15 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
       if (next !== this.providerConnections) this.persistProviderConnections(next);
     };
     this.agentService.onPermissionNotice = (message) => {
-      new import_obsidian28.Notice(message);
+      new import_obsidian29.Notice(message);
     };
     void this.agentService.prewarmCapabilities();
     this.app.workspace.onLayoutReady(() => {
       void this.checkAndShowSetupWizard();
       void this.installBundledSkillsOnce();
+      void this.finishSecretMove();
     });
-    (0, import_obsidian28.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
+    (0, import_obsidian29.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
     this.registerView(
       VIEW_TYPE_OBSIDIAN_COPILOT,
       (leaf) => new ObsidianCopilotView(leaf, this)
@@ -19860,7 +20194,7 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
         const modal = new InlineEditModal(this.app, this, editContext, notePath);
         const result = await modal.openAndWait();
         if (result.decision === "accept" && result.editedText !== void 0) {
-          new import_obsidian28.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
+          new import_obsidian29.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
         }
       }
     });
@@ -19876,7 +20210,7 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
           if (chatView == null ? void 0 : chatView.fileContextManager) {
             const normalizedPath = activeFile.path.replace(/\\/g, "/");
             chatView.fileContextManager.attachFileFromCommand(normalizedPath);
-            new import_obsidian28.Notice(`Attached: ${activeFile.name}`);
+            new import_obsidian29.Notice(`Attached: ${activeFile.name}`);
           }
         }).catch((error) => {
           console.error("[ObsidianCopilot] Failed to activate view for file attach:", error);
@@ -19958,6 +20292,11 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
       ...settings,
       slashCommands
     };
+    const { adoptSecretsFromSettings: adoptSecretsFromSettings2, readSecrets: readSecrets2 } = await Promise.resolve().then(() => (init_SecretStorage(), SecretStorage_exports));
+    this.secretsJustMoved = adoptSecretsFromSettings2(this.app, this.settings);
+    const secrets = readSecrets2(this.app);
+    this.settings.githubToken = secrets.githubToken;
+    this.settings.environmentVariables = secrets.environmentVariables;
     if (this.settings.permissionMode === "yolo") this.settings.permissionMode = "agent";
     if (this.settings.permissionMode === "normal") this.settings.permissionMode = "ask";
     if (this.settings.lastNonPlanPermissionMode === "yolo") this.settings.lastNonPlanPermissionMode = "agent";
@@ -19981,6 +20320,22 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
       }
     }
   }
+  /**
+   * Rewrite the vault settings file without the credentials, then tell the
+   * student once. The rewrite has to happen — `adoptSecretsFromSettings` only
+   * blanked the in-memory copy, and the token is still on disk until we save.
+   */
+  async finishSecretMove() {
+    if (!this.secretsJustMoved) return;
+    this.secretsJustMoved = false;
+    try {
+      await this.saveSettings();
+      const { showSecretMoveNotice: showSecretMoveNotice2 } = await Promise.resolve().then(() => (init_SecretMoveNoticeModal(), SecretMoveNoticeModal_exports));
+      showSecretMoveNotice2(this.app);
+    } catch (error) {
+      console.error("[ObsidianCopilot] Failed to complete the secret move:", error);
+    }
+  }
   backfillConversationResponseTimestamps() {
     const updated = [];
     for (const conv of this.conversations) {
@@ -19999,7 +20354,13 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
   }
   /** Persists settings to storage. */
   async saveSettings() {
+    var _a, _b;
     const { slashCommands: _, ...settingsToSave } = this.settings;
+    const { writeSecrets: writeSecrets2 } = await Promise.resolve().then(() => (init_SecretStorage(), SecretStorage_exports));
+    writeSecrets2(this.app, {
+      githubToken: (_a = this.settings.githubToken) != null ? _a : "",
+      environmentVariables: (_b = this.settings.environmentVariables) != null ? _b : ""
+    });
     await this.storage.settings.save(settingsToSave);
     await this.storage.saveState({
       activeConversationId: this.activeConversationId,
@@ -20029,7 +20390,7 @@ var ObsidianCopilotPlugin = class extends import_obsidian28.Plugin {
     await this.saveSettings();
     if (envText !== this.runtimeEnvironmentVariables) {
       if (!this.hasNotifiedEnvChange) {
-        new import_obsidian28.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
+        new import_obsidian29.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
         this.hasNotifiedEnvChange = true;
       }
     } else {
