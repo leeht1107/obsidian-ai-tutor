@@ -23,6 +23,23 @@ describe('systemPrompt', () => {
       expect(prompt).not.toContain('# Custom Instructions');
     });
 
+    // Agent mode runs the CLI with the vault as its working directory, and
+    // `.obsidian/plugins/` is inside it — a JavaScript file there is executed by
+    // Obsidian at the next reload. A prompt is not an access-control boundary,
+    // so this is not the defence; but the prompt was actively inviting the model
+    // into that folder ("touch only if you know what you are doing", plus an
+    // example wikilink pointing at a plugin's data.json), and an invitation is
+    // an own goal that costs nothing to remove.
+    it('tells the model never to write into the vault config folder', () => {
+      const prompt = buildSystemPrompt({});
+      expect(prompt).toContain('Never create, edit, or delete anything under `.obsidian/`');
+      expect(prompt).not.toContain('Touch only if you know what you are doing');
+    });
+
+    it('does not use a plugin file as the example of a linkable path', () => {
+      expect(buildSystemPrompt({})).not.toContain('.obsidian/plugins/my-plugin/data.json');
+    });
+
     it('should include base system prompt elements', () => {
       const prompt = buildSystemPrompt();
       expect(prompt).toContain('Mocked Date');
