@@ -499,7 +499,17 @@ export class CopilotBridgeService {
       return historyContext ? `${historyContext}\n\nUser: ${injectedPrompt}` : injectedPrompt;
     }
 
-    if (!this.sessionId && conversationHistory && conversationHistory.length > 0) {
+    // `sessionId` is a copilot concept — only the copilot path ever assigns one —
+    // and it means "the CLI is holding this conversation, so do not resend it".
+    // No native CLI can do that: `buildNativeProviderCommand` passes no resume flag
+    // for claude, codex or agy, so each turn is a fresh process and the replayed
+    // transcript is the only continuity there is. Reading the flag for every
+    // provider meant one copilot turn anywhere in a conversation left the next
+    // claude turn with no history and no current note, while the UI still showed
+    // the note attached. A fresh conversation looked fine; switching mid-way did not.
+    const holdsItsOwnSession = this.plugin.settings.selectedProvider === 'copilot' && Boolean(this.sessionId);
+
+    if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
       const lastUserMessage = getLastUserMessage(conversationHistory);
       const actualPrompt = stripCurrentNotePrefix(prompt);
