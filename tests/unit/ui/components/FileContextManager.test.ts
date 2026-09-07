@@ -253,7 +253,12 @@ describe('FileContextManager', () => {
     } as unknown as HTMLTextAreaElement;
   });
 
-  it('tracks current note send state per session', () => {
+  // These three tests used to assert the opposite: that the note is sent once and
+  // never again. That contract assumed the CLI holds the conversation, and three
+  // of the four CLIs do not — each turn is a fresh process. "Already sent" meant
+  // "sent to a process that has since exited", which is how a student ended up
+  // asking claude about the note on screen and being told there was none.
+  it('sends the current note on every message, not once per conversation', () => {
     const app = createMockApp();
     const manager = new FileContextManager(
       app,
@@ -264,21 +269,14 @@ describe('FileContextManager', () => {
 
     manager.setCurrentNote('notes/alpha.md');
     expect(manager.shouldSendCurrentNote()).toBe(true);
-    manager.markCurrentNoteSent();
-    expect(manager.shouldSendCurrentNote()).toBe(false);
-
-    manager.resetForLoadedConversation(true);
-    manager.setCurrentNote('notes/alpha.md');
-    expect(manager.shouldSendCurrentNote()).toBe(false);
-
-    manager.resetForLoadedConversation(false);
-    manager.setCurrentNote('notes/beta.md');
+    // A second and third turn on the same note still carry it.
+    expect(manager.shouldSendCurrentNote()).toBe(true);
     expect(manager.shouldSendCurrentNote()).toBe(true);
 
     manager.destroy();
   });
 
-  it('should NOT resend current note when loading conversation with existing messages', () => {
+  it('follows the student to a different note', () => {
     const app = createMockApp();
     const manager = new FileContextManager(
       app,
@@ -287,28 +285,27 @@ describe('FileContextManager', () => {
       createMockCallbacks()
     );
 
-    // When loading a conversation that already has messages, the current note
-    // should be marked as already sent to avoid re-sending context
+    manager.setCurrentNote('notes/alpha.md');
+    expect(manager.shouldSendCurrentNote()).toBe(true);
+    manager.setCurrentNote('notes/beta.md');
+    expect(manager.shouldSendCurrentNote('notes/beta.md')).toBe(true);
+
+    manager.destroy();
+  });
+
+  it('sends the current note again after an existing conversation is reopened', () => {
+    const app = createMockApp();
+    const manager = new FileContextManager(
+      app,
+      containerEl as any,
+      inputEl,
+      createMockCallbacks()
+    );
+
+    // Reopening a conversation starts a new CLI process, so the note it was
+    // told about in the previous run is gone with it.
     manager.resetForLoadedConversation(true);
     manager.setCurrentNote('notes/restored.md');
-    expect(manager.shouldSendCurrentNote()).toBe(false);
-
-    manager.destroy();
-  });
-
-  it('should send current note when loading empty conversation', () => {
-    const app = createMockApp();
-    const manager = new FileContextManager(
-      app,
-      containerEl as any,
-      inputEl,
-      createMockCallbacks()
-    );
-
-    // When loading a conversation with no messages, the current note
-    // should be sent with the first message
-    manager.resetForLoadedConversation(false);
-    manager.setCurrentNote('notes/new.md');
     expect(manager.shouldSendCurrentNote()).toBe(true);
 
     manager.destroy();

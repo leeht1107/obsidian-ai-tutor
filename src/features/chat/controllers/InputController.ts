@@ -582,7 +582,6 @@ ${promptToSend}`;
       promptToSend = fileContextManager.transformContextMentions(promptToSend);
     }
 
-    fileContextManager?.markCurrentNoteSent();
 
     // Add external context paths to query
     const externalContextSelector = this.deps.getExternalContextSelector();
@@ -889,7 +888,6 @@ ${content}
       currentNoteForMessage = currentNote;
     }
 
-    fileContextManager?.markCurrentNoteSent();
 
     if (!skipUserMessage) {
       const displayContent = options?.displayContent ?? content;

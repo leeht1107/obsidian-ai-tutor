@@ -408,14 +408,16 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.isStreaming).toBe(false);
     });
 
-    it('should prepend current note only once per session', async () => {
+    // Was "only once per session". Three of the four CLIs get a fresh process per
+    // turn, so the note the first turn announced is gone with the process that
+    // heard it — which is how a student ended up asking about the note on screen
+    // and being told there was none.
+    it('prepends the current note to every message, not just the first', async () => {
       const prompts: string[] = [];
-      let currentNoteSent = false;
       const fileContextManager = {
         startSession: jest.fn(),
         getCurrentNotePath: jest.fn().mockReturnValue('notes/session.md'),
-        shouldSendCurrentNote: jest.fn().mockImplementation(() => !currentNoteSent),
-        markCurrentNoteSent: jest.fn().mockImplementation(() => { currentNoteSent = true; }),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
         transformContextMentions: jest.fn().mockImplementation((text: string) => text),
       };
 
@@ -432,7 +434,8 @@ describe('InputController - Message Queue', () => {
       await controller.sendMessage();
 
       expect(prompts[0]).toContain('<current_note>');
-      expect(prompts[1]).not.toContain('<current_note>');
+      expect(prompts[1]).toContain('<current_note>');
+      expect(prompts[1]).toContain('notes/session.md');
     });
 
     it('should send hidden message with content override without clearing input', async () => {

@@ -12,7 +12,6 @@ export class FileContextState {
   /** Files that are explicitly attached (via command or @-mention) and won't be replaced. */
   private pinnedFiles: Set<string> = new Set();
   private sessionStarted = false;
-  private currentNoteSent = false;
   /** Maps display name (e.g., "@folder/file.ts") to absolute path for context files. */
   private contextFileMap: Map<string, string> = new Map();
 
@@ -29,14 +28,6 @@ export class FileContextState {
     return this.pinnedFiles.size > 0;
   }
 
-  hasSentCurrentNote(): boolean {
-    return this.currentNoteSent;
-  }
-
-  markCurrentNoteSent(): void {
-    this.currentNoteSent = true;
-  }
-
   isSessionStarted(): boolean {
     return this.sessionStarted;
   }
@@ -47,14 +38,12 @@ export class FileContextState {
 
   resetForNewConversation(): void {
     this.sessionStarted = false;
-    this.currentNoteSent = false;
     this.attachedFiles.clear();
     this.pinnedFiles.clear();
     this.contextFileMap.clear();
   }
 
   resetForLoadedConversation(hasMessages: boolean): void {
-    this.currentNoteSent = hasMessages;
     this.attachedFiles.clear();
     this.pinnedFiles.clear();
     this.contextFileMap.clear();

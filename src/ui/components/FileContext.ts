@@ -147,15 +147,20 @@ export class FileContextManager {
     return this.currentNotePath;
   }
 
-  /** Checks whether current note should be sent for this session. */
+  /**
+   * Whether this message carries the current note. It does, whenever there is one.
+   *
+   * This used to fire once per conversation, on the theory that the CLI keeps the
+   * note in its session. Three of the four CLIs have no session — each turn is a
+   * fresh process fed a replayed transcript — so "already sent" meant "sent to a
+   * process that has since exited". Switching provider mid-conversation, or just
+   * opening a different note, left the model with no idea what the student was
+   * looking at while the chip above the input still said CURRENT.
+   *
+   * The cost of sending it every turn is one line of text.
+   */
   shouldSendCurrentNote(notePath?: string | null): boolean {
-    const resolvedPath = notePath ?? this.currentNotePath;
-    return !!resolvedPath && !this.state.hasSentCurrentNote();
-  }
-
-  /** Marks current note as sent (call after sending a message). */
-  markCurrentNoteSent() {
-    this.state.markCurrentNoteSent();
+    return !!(notePath ?? this.currentNotePath);
   }
 
   isSessionStarted(): boolean {
