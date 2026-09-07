@@ -4,6 +4,7 @@ import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
 import { defaultModelSource, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption,PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
+import { ERROR_LOG_PATH, formatErrorsForReport, readRecentErrors } from '../../core/storage/ErrorLog';
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
@@ -840,6 +841,27 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     const envSnippetsContainer = advancedContentEl.createDiv({ cls: 'ocop-env-snippets-container' });
     new EnvSnippetManager(envSnippetsContainer, this.plugin);
+
+    new Setting(advancedContentEl).setName('문제 기록').setHeading();
+    advancedContentEl.createDiv({
+      cls: 'setting-item-description',
+      // The failures that matter most are on machines nobody here can reach, and
+      // a student cannot be asked to open a terminal to retrieve them.
+      text: `오류가 생기면 자동으로 금고 안 ${ERROR_LOG_PATH} 에 기록됩니다. 인증 토큰 같은 비밀 값은 가려서 저장합니다.`,
+    });
+
+    new Setting(advancedContentEl)
+      .setName('최근 오류 복사')
+      .setDesc('버튼을 누르면 최근 오류 기록이 복사됩니다. 그대로 선생님께 붙여넣어 주세요.')
+      .addButton((button) =>
+        button.setButtonText('복사').onClick(async () => {
+          const entries = await readRecentErrors(this.plugin.storage.getAdapter());
+          await navigator.clipboard.writeText(formatErrorsForReport(entries));
+          new Notice(entries.length > 0
+            ? `최근 오류 ${entries.length}건을 복사했습니다.`
+            : '기록된 오류가 없습니다.');
+        })
+      );
 
     new Setting(advancedContentEl).setName('Advanced & Developer').setHeading();
     advancedContentEl.createDiv({

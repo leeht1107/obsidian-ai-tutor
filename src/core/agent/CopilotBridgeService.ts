@@ -1,6 +1,7 @@
 import { type ChildProcess, execFile, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import type ObsidianCopilotPlugin from '../../main';
@@ -24,6 +25,7 @@ import {
   writesWithoutAsking,
 } from '../providers/providerRegistry';
 import type { RequestOutcome } from '../setup/providerConnection';
+import { appendErrorLog, type ErrorLogEntry, maskHome } from '../storage/ErrorLog';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -769,6 +771,28 @@ export class CopilotBridgeService {
   }
 
   /**
+   * Record a failure the student was shown, so it can be handed over later.
+   *
+   * Fire-and-forget on purpose: a logger that can fail a request is worse than
+   * no logger. Messages must arrive already redacted — this does not scrub.
+   */
+  private logError(entry: Omit<ErrorLogEntry, 'at' | 'platform' | 'pluginVersion'>): void {
+    try {
+      const adapter = this.plugin.storage?.getAdapter?.();
+      if (!adapter) return;
+      const home = os.homedir();
+      void appendErrorLog(adapter, {
+        ...entry,
+        cliPath: maskHome(entry.cliPath, home),
+        resolved: maskHome(entry.resolved, home),
+        at: new Date().toISOString(),
+        platform: `${process.platform} ${process.arch}`,
+        pluginVersion: this.plugin.manifest?.version ?? 'unknown',
+      });
+    } catch { /* never break a request to write a log line */ }
+  }
+
+  /**
    * Strip configured credentials out of anything shown to the student.
    *
    * A failing CLI's stderr goes into the chat, and the chat is written to
@@ -831,6 +855,7 @@ export class CopilotBridgeService {
     const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) {
+      this.logError({ provider, stage: 'resolve', message: 'CLI not found on PATH or at the configured path' });
       yield { type: 'error', content: `${provider} CLI not found. Open Settings to complete setup.` };
       return;
     }
@@ -871,6 +896,9 @@ export class CopilotBridgeService {
     // would flatten it into a command string where `&` and `|` are operators.
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
     if (!entry) {
+      // The single most valuable line in this log: it names the exact install
+      // layout that defeated the resolver on a machine we cannot reach.
+      this.logError({ provider, stage: 'resolve', message: 'No runnable executable could be resolved from this CLI path', cliPath });
       yield { type: 'error', content: this.unrunnableCliMessage(provider) };
       void this.openSetupWizard(provider);
       return;
@@ -894,7 +922,9 @@ export class CopilotBridgeService {
       windowsHide: true,
       });
     } catch (error) {
-      yield { type: 'error', content: `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}` };
+      const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
+      this.logError({ provider, stage: 'launch', message, cliPath, resolved: `${command} ${entry[1].join(' ')}`.trim() });
+      yield { type: 'error', content: message };
       return;
     }
     this.currentProcess = child;
@@ -979,7 +1009,9 @@ export class CopilotBridgeService {
       // and counted the run as ok.
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         this.onOutcome?.(provider, 'failed');
-        yield { type: 'error', content: this.redactSecrets(explainEmptyNativeAnswer(provider, errorOutput)) };
+        const emptyMessage = this.redactSecrets(explainEmptyNativeAnswer(provider, errorOutput));
+        this.logError({ provider, stage: 'empty-answer', message: emptyMessage, exitCode, cliPath, resolved: command });
+        yield { type: 'error', content: emptyMessage };
       }
       if (!this.wasInterrupted && exitCode !== 0) {
         // Only 'failed'. These CLIs have no auth string we have verified, and
@@ -987,13 +1019,12 @@ export class CopilotBridgeService {
         this.onOutcome?.(provider, 'failed');
         // Never silent: a CLI that dies without writing to stderr would otherwise render
         // as an empty but successful answer.
-        yield {
-          type: 'error',
-          content: this.redactSecrets(errorOutput.trim())
-            || (closeSignal
-              ? `${provider} CLI was terminated (${closeSignal}).`
-              : `${provider} CLI exited with code ${exitCode}.`),
-        };
+        const exitMessage = this.redactSecrets(errorOutput.trim())
+          || (closeSignal
+            ? `${provider} CLI was terminated (${closeSignal}).`
+            : `${provider} CLI exited with code ${exitCode}.`);
+        this.logError({ provider, stage: 'exit', message: exitMessage, exitCode, signal: closeSignal, cliPath, resolved: command });
+        yield { type: 'error', content: exitMessage };
       }
       yield { type: 'done' };
     } finally {
@@ -1053,6 +1084,7 @@ export class CopilotBridgeService {
     // as arguments — and, more importantly, keeping note content off a command line.
     const entry = resolveProviderEntry(command, getProviderDescriptor('copilot').npmPackage);
     if (!entry) {
+      this.logError({ provider: 'copilot', stage: 'resolve', message: 'No runnable executable could be resolved from this CLI path', cliPath: command });
       yield { type: 'error', content: this.unrunnableCliMessage('copilot') };
       void this.openSetupWizard('copilot');
       return;
@@ -1137,10 +1169,9 @@ export class CopilotBridgeService {
       const sawErrorChunk = chunks.some((chunk) => chunk.type === 'error');
       this.onOutcome?.('copilot', copilotRequestOutcome(code, stderrBuffer, sawErrorChunk));
       if (code !== 0 && stderrBuffer.trim()) {
-        chunks.push({
-          type: 'error',
-          content: this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message),
-        });
+        const copilotMessage = this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message);
+        this.logError({ provider: 'copilot', stage: 'exit', message: copilotMessage, exitCode: code, cliPath: command, resolved: spawnCmd });
+        chunks.push({ type: 'error', content: copilotMessage });
       }
       resolveWait?.();
     });
