@@ -667,8 +667,14 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     });
 
     new Setting(advancedContentEl)
-      .setName('Enable command blocklist')
-      .setDesc('Block potentially dangerous shell commands')
+      // Scope stated out loud: isCommandBlocked is only ever called from the
+      // inline-bash paths (InlineEditModal, InputController). A native CLI running
+      // in Agent mode decides its own commands and never passes through this
+      // check, and the old wording ("Block potentially dangerous shell commands")
+      // read as though it did.
+      .setName('인라인 Bash 명령 차단')
+      .setDesc('슬래시 명령 안의 !`명령` 실행에만 적용됩니다. '
+        + 'AI가 스스로 실행하는 명령은 막지 못합니다 — AI의 권한은 Ask/Agent 토글로 조절하세요.')
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.enableBlocklist)
