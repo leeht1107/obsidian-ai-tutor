@@ -8,28 +8,31 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Released `0.1.8`. `main` == `origin/main` at `671eb3b`; 73 suites / 1095 tests green; tree
-  clean. The Ask/Agent toggle now sets a measured permission flag on all four CLIs — a lock for
-  claude/codex in Ask, a key for agy/copilot in Agent — codex's toggle is no longer disabled, claude
-  joins agy in requiring one written write-consent, and a CLI that exits 0 having said nothing is
-  reported as failed instead of showing an empty answer. Reviewed by two peers, deployed to the vault.
-  KNOWN FALSE in the plan: copilot Agent was never blocked in the plugin, so the registry's copilot
-  argv row is inert — `query()` bypasses the builder for copilot (DEC-26 in the living handoff).
-- Next likely action: Mark runs the manual four-CLI pass from the plan's `## 검증` table after
-  reloading the plugin; only a failure there reopens the work. Then his four standing asks —
-  PowerShell/cmd hardening, a student error-report channel, Settings/UI UX proposals, and
+- Status: Released `0.1.11`. `main` == `origin/main` at `aa5b8f8`; 81 suites / 1151 tests green; tree
+  clean; CI green on both `ubuntu-latest` and `windows-latest`. Since 0.1.8: the Windows shell was
+  removed from every dispatch path, credentials moved to device-local storage, a student error log
+  was added, and two adversarial reviews were answered claim by claim. 0.1.11 fixes a student-visible
+  context bug — switching provider mid-conversation dropped the transcript and the current note,
+  because `sessionId` is a copilot-only concept that was gating history replay for every provider,
+  and the current note was announced once per conversation and never again.
+  KNOWN FALSE in the older plan: copilot Agent was never blocked in the plugin, so the registry's
+  copilot argv row is inert — `query()` bypasses the builder for copilot (DEC-26).
+- Next likely action: Mark reloads the plugin and runs the active plan's 5-row manual table (row 3 —
+  a copilot turn then back to claude — is the path just fixed). Then: run the plugin on Windows and
+  hand back `<configDir>/plugins/obsidian-ai-tutor/logs/errors.jsonl`, and decide when to run the
+  provider capability matrix. Standing asks remain: PowerShell/cmd hardening, Settings/UI UX,
   quiz/socratic improvements.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-06/141500_obsidian-ai-tutor_ask-agent-toggle_handoff.md`
+- Living handoff: `.handoff/2026-09-07/140325_obsidian-ai-tutor_note-context-loss_handoff.md`
 - NOTE: `.handoff/` and `.claude/` are gitignored. Both live on this machine only, so a fresh clone resolves neither.
-- Active plan: `.claude/artifacts/ask-agent-toggle-20260906-1020/plan.md` — implemented; its `## 검증` manual table is the only step left. Objective contract stays `goal-contract.md`
-- Relevant artifacts: `.claude/artifacts/ask-agent-toggle-20260906-1020/` (locked contract, measured flag table, plan, scratchpad, and the `ai-review-20260906-1307/` peer reports) and `.claude/artifacts/provider-settings-20260905-2100/` (earlier CLI capability measurements) — gitignored, on this disk only
+- Active plan: `.claude/artifacts/note-context-loss-20260907-1349/plan.md` — the fixes are implemented; its `## 검증` manual table and its `§2` capability-matrix design are what remain. Objective contract stays `goal-contract.md`
+- Relevant artifacts: `.claude/artifacts/note-context-loss-20260907-1349/` (plan, scratchpad), `.claude/artifacts/security-audit-fixes-20260907-1224/` (the 0.1.9 plan, `review-outcome.md`, the two peer reports, and advisor-astra's verdict), and `.claude/artifacts/ask-agent-toggle-20260906-1020/` (the measured Ask/Agent flag table) — gitignored, on this disk only
 
 ## Context Chain
 
-- Previous handoff: `.handoff/2026-09-06/123500_obsidian-ai-tutor_ask-agent-toggle_handoff.md` (planning half of the same task)
+- Previous handoff: `.handoff/2026-09-07/133000_obsidian-ai-tutor_security-audit-response_handoff.md` (the 0.1.9 security work this session continued from)
 - History index: `.handoff/LATEST.md` (this project's handoff registry, newest first)
 
 ## Resume Guidance
