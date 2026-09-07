@@ -75,7 +75,12 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        # Pinned to the commit behind v1, not the tag: this is the one third-party
+        # action here and the only job that carries `contents: write`, so a moved
+        # tag would run someone else's code with permission to publish releases.
+        # The official actions above stay on their tags — same trade, far smaller
+        # surface, and pinning them buys a maintenance burden with no evidence.
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           name: ${{ steps.tag.outputs.name }}
