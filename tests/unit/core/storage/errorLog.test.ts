@@ -8,13 +8,15 @@
  */
 import {
   appendErrorLog,
-  ERROR_LOG_PATH,
   type ErrorLogEntry,
+  errorLogPath,
   formatErrorsForReport,
   maskHome,
   readRecentErrors,
 } from '@/core/storage/ErrorLog';
 import type { VaultFileAdapter } from '@/core/storage/VaultFileAdapter';
+
+const LOG_PATH = errorLogPath('.obsidian', 'obsidian-ai-tutor');
 
 /** An in-memory vault. */
 function fakeAdapter(seed: Record<string, string> = {}) {
@@ -40,13 +42,21 @@ function entry(overrides: Partial<ErrorLogEntry> = {}): ErrorLogEntry {
 }
 
 describe('ErrorLog', () => {
-  it('writes one JSON object per line under the plugin folder', async () => {
+  it('writes one JSON object per line inside the plugin folder', async () => {
+    // Not `.copilot/` — that folder is the student's, holding settings and slash
+    // commands they are meant to open and share. A diagnostic file is ours.
     const { adapter, files } = fakeAdapter();
-    await appendErrorLog(adapter, entry());
+    await appendErrorLog(adapter, LOG_PATH, entry());
 
-    const written = files.get(ERROR_LOG_PATH) ?? '';
-    expect(ERROR_LOG_PATH).toBe('.copilot/logs/errors.jsonl');
-    expect(JSON.parse(written.trim())).toMatchObject({ provider: 'claude', stage: 'exit' });
+    expect(LOG_PATH).toBe('.obsidian/plugins/obsidian-ai-tutor/logs/errors.jsonl');
+    expect(JSON.parse((files.get(LOG_PATH) ?? '').trim())).toMatchObject({ provider: 'claude', stage: 'exit' });
+  });
+
+  it('follows a vault that keeps its config somewhere other than .obsidian', () => {
+    // Obsidian allows a custom config directory; hardcoding `.obsidian` would
+    // write the log into a folder that does not exist on those vaults.
+    expect(errorLogPath('.my-config', 'obsidian-ai-tutor'))
+      .toBe('.my-config/plugins/obsidian-ai-tutor/logs/errors.jsonl');
   });
 
   it('keeps the tail rather than growing without limit', async () => {
@@ -54,14 +64,14 @@ describe('ErrorLog', () => {
     const { adapter, files } = fakeAdapter();
     for (let i = 0; i < 320; i++) {
       // eslint-disable-next-line no-await-in-loop -- appends are ordered by design
-      await appendErrorLog(adapter, entry({ message: `failure ${i}` }));
+      await appendErrorLog(adapter, LOG_PATH, entry({ message: `failure ${i}` }));
     }
 
-    const lines = (files.get(ERROR_LOG_PATH) ?? '').split('\n').filter(Boolean);
+    const lines = (files.get(LOG_PATH) ?? '').split('\n').filter(Boolean);
     expect(lines.length).toBe(300);
     // The newest survives; the oldest is what got dropped.
     expect(lines[lines.length - 1]).toContain('failure 319');
-    expect(files.get(ERROR_LOG_PATH)).not.toContain('failure 0"');
+    expect(files.get(LOG_PATH)).not.toContain('failure 0"');
   });
 
   it('never throws when the vault refuses the write', async () => {
@@ -72,14 +82,14 @@ describe('ErrorLog', () => {
       write: async () => { throw new Error('EACCES'); },
     } as unknown as VaultFileAdapter;
 
-    await expect(appendErrorLog(broken, entry())).resolves.toBeUndefined();
+    await expect(appendErrorLog(broken, LOG_PATH, entry())).resolves.toBeUndefined();
   });
 
   it('survives a corrupted line when reading back', async () => {
     const { adapter } = fakeAdapter({
-      [ERROR_LOG_PATH]: `${JSON.stringify(entry())}\nnot json at all\n${JSON.stringify(entry({ provider: 'codex' }))}\n`,
+      [LOG_PATH]: `${JSON.stringify(entry())}\nnot json at all\n${JSON.stringify(entry({ provider: 'codex' }))}\n`,
     });
-    const read = await readRecentErrors(adapter);
+    const read = await readRecentErrors(adapter, LOG_PATH);
     expect(read.map((e) => e.provider)).toEqual(['claude', 'codex']);
   });
 

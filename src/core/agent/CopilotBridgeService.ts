@@ -25,7 +25,7 @@ import {
   writesWithoutAsking,
 } from '../providers/providerRegistry';
 import type { RequestOutcome } from '../setup/providerConnection';
-import { appendErrorLog, type ErrorLogEntry, maskHome } from '../storage/ErrorLog';
+import { appendErrorLog, type ErrorLogEntry, errorLogPath, maskHome } from '../storage/ErrorLog';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -781,7 +781,8 @@ export class CopilotBridgeService {
       const adapter = this.plugin.storage?.getAdapter?.();
       if (!adapter) return;
       const home = os.homedir();
-      void appendErrorLog(adapter, {
+      const logPath = errorLogPath(this.plugin.app.vault.configDir, this.plugin.manifest.id);
+      void appendErrorLog(adapter, logPath, {
         ...entry,
         cliPath: maskHome(entry.cliPath, home),
         resolved: maskHome(entry.resolved, home),

@@ -6,9 +6,12 @@
  * that exits without answering. The student sees a Korean sentence and moves on,
  * and the evidence disappears with the session.
  *
- * So every error the student is shown is also written here, in the vault beside
- * their settings, one JSON object per line. It is meant to be read by a person
- * later, not by this plugin.
+ * So every error the student is shown is also written here, one JSON object per
+ * line. It is meant to be read by a person later, not by this plugin.
+ *
+ * It lives in the plugin's own folder under `.obsidian/plugins/`, not in
+ * `.copilot/`. That folder is the student's — settings and slash commands they
+ * are meant to open and share — and a diagnostic file does not belong in it.
  *
  * Two rules this file exists to keep:
  * - Nothing here may throw. A logger that breaks a request is worse than no log.
@@ -18,7 +21,18 @@
  */
 import type { VaultFileAdapter } from './VaultFileAdapter';
 
-export const ERROR_LOG_PATH = '.copilot/logs/errors.jsonl';
+/**
+ * Vault-relative path to the log, inside the plugin's own folder.
+ *
+ * `configDir` rather than a hardcoded `.obsidian`: a vault can be configured to
+ * keep its settings elsewhere, and hardcoding would write the log into a folder
+ * that does not exist on those machines. Both arguments come from Obsidian
+ * itself (`app.vault.configDir`, `plugin.manifest.id`), so this stays correct on
+ * macOS and Windows alike.
+ */
+export function errorLogPath(configDir: string, pluginId: string): string {
+  return `${configDir}/plugins/${pluginId}/logs/errors.jsonl`;
+}
 
 /** Keep the tail. An old failure is rarely what the student is asking about. */
 const MAX_ENTRIES = 300;
@@ -62,19 +76,17 @@ export function maskHome(value: string | undefined, home: string): string | unde
 /** Append one entry, trimming the file to the most recent MAX_ENTRIES. */
 export async function appendErrorLog(
   adapter: VaultFileAdapter,
+  logPath: string,
   entry: ErrorLogEntry
 ): Promise<void> {
   try {
     const line = JSON.stringify(entry);
-    const existing = (await adapter.exists(ERROR_LOG_PATH))
-      ? await adapter.read(ERROR_LOG_PATH)
+    const existing = (await adapter.exists(logPath))
+      ? await adapter.read(logPath)
       : '';
     const lines = existing.split('\n').filter((l) => l.trim().length > 0);
     lines.push(line);
-    await adapter.write(
-      ERROR_LOG_PATH,
-      lines.slice(-MAX_ENTRIES).join('\n') + '\n'
-    );
+    await adapter.write(logPath, lines.slice(-MAX_ENTRIES).join('\n') + '\n');
   } catch (error) {
     console.warn('[ObsidianCopilot] Failed to write the error log:', error);
   }
@@ -83,11 +95,12 @@ export async function appendErrorLog(
 /** The most recent entries, newest last, for the settings tab's copy button. */
 export async function readRecentErrors(
   adapter: VaultFileAdapter,
+  logPath: string,
   limit = 50
 ): Promise<ErrorLogEntry[]> {
   try {
-    if (!(await adapter.exists(ERROR_LOG_PATH))) return [];
-    const raw = await adapter.read(ERROR_LOG_PATH);
+    if (!(await adapter.exists(logPath))) return [];
+    const raw = await adapter.read(logPath);
     return raw
       .split('\n')
       .filter((l) => l.trim().length > 0)
