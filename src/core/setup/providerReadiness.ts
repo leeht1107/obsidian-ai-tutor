@@ -13,9 +13,9 @@
 
 import { spawn } from 'child_process';
 
-import { resolveCmdShim } from '../../utils/copilotCli';
+import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
-import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
 export type LoginState =
@@ -107,9 +107,17 @@ const PROBES: Partial<Record<ProviderId, ReadinessProbe>> = {
  * resolveCmdShim; this probe did not, so every Windows probe failed to spawn
  * and resolved to 'unknown' — telling a logged-in Windows student 확인 불가.
  */
-export function resolveProbeCommand(cliPath: string, args: readonly string[]): [string, string[]] {
-  const shim = resolveCmdShim(cliPath);
-  return shim ? [shim[0], [shim[1], ...args]] : [cliPath, [...args]];
+export function resolveProbeCommand(
+  cliPath: string,
+  args: readonly string[],
+  npmPackage?: string
+): [string, string[]] {
+  // The same ladder dispatch uses. resolveCmdShim alone only read npm's own
+  // shim format, so on Windows a login check against any other install layout
+  // spawned a .cmd directly — which CreateProcessW cannot do — and every
+  // provider reported `unknown`. Measured on a Windows runner, not guessed.
+  const entry = resolveProviderEntry(cliPath, npmPackage);
+  return entry ? [entry[0], [...entry[1], ...args]] : [cliPath, [...args]];
 }
 
 /** True when the CLI can answer the question at all. */
@@ -223,7 +231,7 @@ export async function checkProviderReadiness(
   if (!cliPath) return { state: 'cli-missing' };
   if (!probe) return { state: 'unknown' };
 
-  const [probeCommand, probeArgs] = resolveProbeCommand(cliPath, probe.args);
+  const [probeCommand, probeArgs] = resolveProbeCommand(cliPath, probe.args, getProviderDescriptor(providerId).npmPackage);
   const run = await runProbeProcess(probeCommand, probeArgs, {
     timeoutMs: options.timeoutMs,
     signal: options.signal,

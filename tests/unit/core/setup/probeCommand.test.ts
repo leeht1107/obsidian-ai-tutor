@@ -6,28 +6,39 @@
  * execute without the shim, so every Windows probe resolved to 'unknown' and
  * a logged-in Windows student was told 확인 불가.
  *
- * The Windows behaviour itself is unverified — no Windows machine was
- * available — so this pins the resolution, not the spawn.
+ * That first fix used resolveCmdShim, which only understands npm's own shim
+ * text. A windows-latest CI runner then reported every claude and codex probe
+ * still answering 'unknown' — so the probe now uses the same four-rung
+ * resolveProviderEntry the request path does. The failure was measured, not
+ * predicted; the spawn itself is still only exercised on that runner.
  */
 import { resolveProbeCommand } from '@/core/setup/providerReadiness';
-import { resolveCmdShim } from '@/utils/copilotCli';
+import { resolveProviderEntry } from '@/utils/copilotCli';
 
 jest.mock('@/utils/copilotCli', () => ({
   ...jest.requireActual('@/utils/copilotCli'),
-  resolveCmdShim: jest.fn(),
+  resolveProviderEntry: jest.fn(),
 }));
 
 describe('resolveProbeCommand', () => {
   it('leaves the command alone where there is no shim (macOS and Linux)', () => {
-    (resolveCmdShim as jest.Mock).mockReturnValue(null);
+    (resolveProviderEntry as jest.Mock).mockReturnValue(['/usr/local/bin/claude', []]);
     expect(resolveProbeCommand('/usr/local/bin/claude', ['auth', 'status']))
       .toEqual(['/usr/local/bin/claude', ['auth', 'status']]);
   });
 
   it('runs the shim target with the probe args appended, as the request path does', () => {
-    (resolveCmdShim as jest.Mock).mockReturnValue(['C:\\node.exe', 'C:\\cli.js']);
+    (resolveProviderEntry as jest.Mock).mockReturnValue(['C:\\node.exe', ['C:\\cli.js']]);
     expect(resolveProbeCommand('C:\\claude.cmd', ['auth', 'status']))
       .toEqual(['C:\\node.exe', ['C:\\cli.js', 'auth', 'status']]);
+  });
+
+  it('falls back to the raw path when nothing can be resolved', () => {
+    // The probe must still answer a state rather than throw; an unlaunchable
+    // path fails the spawn and the caller reports 'unknown'.
+    (resolveProviderEntry as jest.Mock).mockReturnValue(null);
+    expect(resolveProbeCommand('C:\\claude.cmd', ['auth', 'status']))
+      .toEqual(['C:\\claude.cmd', ['auth', 'status']]);
   });
 });
 

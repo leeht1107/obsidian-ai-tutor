@@ -32,8 +32,13 @@ function writeNoisyCli(dir: string, name: string, stdout: string, stderr: string
 
 function writeCli(dir: string, name: string, stdout: string, exitCode = 0): string {
   if (isWindows) {
+    // A real npm shim in front of a real .js. A bare batch file is not runnable
+    // at all now that the probe refuses a shell, and — more to the point — it
+    // never resembled what `npm install -g` actually leaves on a student's disk.
+    const js = path.join(dir, `${name}.js`);
+    fs.writeFileSync(js, `process.stdout.write(${JSON.stringify(stdout + '\n')});\nprocess.exit(${exitCode});\n`);
     const p = path.join(dir, `${name}.cmd`);
-    fs.writeFileSync(p, `@echo off\r\necho ${stdout}\r\nexit /b ${exitCode}\r\n`);
+    fs.writeFileSync(p, `@ECHO off\r\nSET dp0=%~dp0\r\n"%_prog%"  "%dp0%\\${name}.js" %*\r\n`);
     return p;
   }
   const p = path.join(dir, name);

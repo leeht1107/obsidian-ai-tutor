@@ -19,8 +19,9 @@
 
 import { type ChildProcess,spawn } from 'child_process';
 
+import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
-import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
 /*
@@ -156,7 +157,11 @@ export function startProviderLogin(
     resolveDone(outcome);
   };
 
-  const child: ChildProcess = spawn(cliPath, [...recipe.args], {
+  // A .cmd shim cannot be spawned directly on Windows, so without this the
+  // login flow died with EINVAL before printing a device code.
+  const entry = resolveProviderEntry(cliPath, getProviderDescriptor(providerId).npmPackage);
+  const [loginCommand, loginPrefix] = entry ?? [cliPath, []];
+  const child: ChildProcess = spawn(loginCommand, [...loginPrefix, ...recipe.args], {
     env: { ...process.env, ...options.env, PATH: getEnhancedPath() },
     stdio: ['pipe', 'pipe', 'pipe'],
     // Own the whole tree: a login CLI spawns helpers, and killing only the
