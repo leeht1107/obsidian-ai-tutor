@@ -4,6 +4,18 @@
  * Tests for SessionStorage (JSONL), SlashCommandStorage, and StorageService (migration).
  */
 
+const noticeMessages: string[] = [];
+jest.mock('obsidian', () => ({
+  ...jest.requireActual('obsidian'),
+  Notice: class {
+    constructor(message: string) {
+      noticeMessages.push(message);
+    }
+  },
+}));
+
+import { readSecrets } from '@/core/storage/SecretStorage';
+import { StorageService } from '@/core/storage/StorageService';
 import type { ChatMessage, Conversation, ConversationMeta, SlashCommand } from '@/core/types';
 import { parseSlashCommandContent } from '@/utils/slashCommand';
 
@@ -503,6 +515,402 @@ describe('StorageService migration', () => {
         migrationVersion: 2,
       };
       expect(needsMigrationHelper(stateOnlyData)).toBe(false);
+    });
+  });
+
+  describe('migrateFromLegacyPath', () => {
+    beforeEach(() => {
+      noticeMessages.length = 0;
+    });
+
+    it('migrates from .copilot to .ai-tutor when .copilot exists and sanitizes legacy settings', async () => {
+      const legacySettings = {
+        model: 'gpt-4.1',
+        githubToken: 'ghp_secret_token',
+        environmentVariables: 'SECRET_ENV=1',
+        permissionMode: 'ask',
+        copilotCliPath: '/usr/local/bin/copilot',
+      };
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', JSON.stringify(legacySettings)],
+        ['.copilot/commands/cmd.md', 'command content'],
+        ['.copilot/sessions/sess.jsonl', 'session content'],
+      ]);
+      const folders = new Set<string>(['.copilot', '.copilot/commands', '.copilot/sessions']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => {
+                const subFiles = [...files.keys()].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                const subFolders = [...folders].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                return { files: subFiles, folders: subFolders };
+              },
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await storage.initialize();
+
+      // Original .copilot files preserved, but settings.json is sanitized
+      const sanitizedLegacy = JSON.parse(files.get('.copilot/settings.json')!);
+      expect(sanitizedLegacy.model).toBe('gpt-4.1');
+      expect(sanitizedLegacy.githubToken).toBeUndefined();
+      expect(sanitizedLegacy.environmentVariables).toBeUndefined();
+      expect(sanitizedLegacy.permissionMode).toBeUndefined();
+      expect(sanitizedLegacy.copilotCliPath).toBeUndefined();
+      expect(files.get('.copilot/commands/cmd.md')).toBe('command content');
+      expect(files.get('.copilot/sessions/sess.jsonl')).toBe('session content');
+
+      // Migrated to .ai-tutor (written sanitized from the start)
+      const migratedSettings = JSON.parse(files.get('.ai-tutor/settings.json')!);
+      expect(migratedSettings.model).toBe('gpt-4.1');
+      expect(migratedSettings.githubToken).toBeUndefined();
+      expect(migratedSettings.environmentVariables).toBeUndefined();
+      expect(migratedSettings.permissionMode).toBeUndefined();
+      expect(migratedSettings.copilotCliPath).toBeUndefined();
+      expect(files.get('.ai-tutor/commands/cmd.md')).toBe('command content');
+      expect(files.get('.ai-tutor/sessions/sess.jsonl')).toBe('session content');
+    });
+
+    it('shows a notice and aborts migration when legacy sanitization write fails', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const legacySettings = {
+        model: 'gpt-4.1',
+        githubToken: 'ghp_secret_token',
+        copilotCliPath: '/usr/local/bin/copilot',
+      };
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', JSON.stringify(legacySettings)],
+      ]);
+      const folders = new Set<string>(['.copilot']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => {
+                if (p === '.copilot/settings.json') {
+                  throw new Error('EACCES: permission denied');
+                }
+                files.set(p, c);
+              },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => ({ files: [], folders: [] }),
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await expect(storage.initialize()).rejects.toThrow(
+        '[obsidian-ai-tutor] Failed to sanitize legacy credentials in .copilot/settings.json'
+      );
+
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      expect(noticeMessages).toHaveLength(1);
+      expect(noticeMessages[0]).toContain(
+        '이전 버전 설정 파일(.copilot/settings.json)의 보안 정보를 정리하지 못해 마이그레이션을 중단했습니다. 파일 쓰기 권한을 확인해 주세요.'
+      );
+      expect(files.has('.ai-tutor/settings.json')).toBe(false);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('does not adopt secrets from legacy .copilot/settings.json into device-local storage', async () => {
+      const legacySettings = {
+        environmentVariables: 'PATH=/attacker-controlled',
+        githubToken: 'ghp_attacker',
+      };
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', JSON.stringify(legacySettings)],
+      ]);
+      const folders = new Set<string>(['.copilot']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => ({ files: [], folders: [] }),
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await storage.initialize();
+
+      expect(readSecrets(fakePlugin.app as never).environmentVariables).toBe('');
+      expect(readSecrets(fakePlugin.app as never).githubToken).toBe('');
+    });
+
+    it('continues migrating commands and sessions when legacy settings JSON is corrupt', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const corruptContent = '{ "model": "gpt-4.1", invalid_json...';
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', corruptContent],
+        ['.copilot/commands/cmd.md', 'command content'],
+        ['.copilot/sessions/sess.jsonl', 'session content'],
+      ]);
+      const folders = new Set<string>(['.copilot', '.copilot/commands', '.copilot/sessions']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => {
+                const subFiles = [...files.keys()].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                const subFolders = [...folders].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                return { files: subFiles, folders: subFolders };
+              },
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await storage.initialize();
+
+      // Corrupt legacy settings file was NOT overwritten with empty object
+      expect(files.get('.copilot/settings.json')).toBe(corruptContent);
+      // .ai-tutor/settings.json was NOT created
+      expect(files.has('.ai-tutor/settings.json')).toBe(false);
+      // Commands and sessions ARE successfully migrated
+      expect(files.get('.ai-tutor/commands/cmd.md')).toBe('command content');
+      expect(files.get('.ai-tutor/sessions/sess.jsonl')).toBe('session content');
+      expect(consoleErrorSpy).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('rejects and displays Notice when legacy settings JSON is malformed and contains prohibited security fields', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const malformedContent = '{"githubToken":"ghp_leak", malformed_json...';
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', malformedContent],
+        ['.copilot/commands/cmd.md', 'command content'],
+        ['.copilot/sessions/sess.jsonl', 'session content'],
+      ]);
+      const folders = new Set<string>(['.copilot', '.copilot/commands', '.copilot/sessions']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => {
+                const subFiles = [...files.keys()].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                const subFolders = [...folders].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                return { files: subFiles, folders: subFolders };
+              },
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await expect(storage.initialize()).rejects.toThrow(
+        '[obsidian-ai-tutor] Legacy .copilot/settings.json is malformed and contains prohibited security fields. Migration aborted.'
+      );
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[obsidian-ai-tutor] Legacy settings file is malformed and contains credentials/trust fields. Migration aborted.'
+      );
+      expect(noticeMessages).toHaveLength(1);
+      expect(noticeMessages[0]).toContain(
+        '이전 버전 설정 파일(.copilot/settings.json)이 손상되어 보안 정보를 안전하게 정리할 수 없습니다. 보안을 위해 해당 파일을 수동으로 확인하거나 삭제해 주세요.'
+      );
+      // Malformed legacy settings file was NOT overwritten
+      expect(files.get('.copilot/settings.json')).toBe(malformedContent);
+      // .ai-tutor/settings.json was NOT created
+      expect(files.has('.ai-tutor/settings.json')).toBe(false);
+      // Commands and sessions were NOT migrated because migration was aborted
+      expect(files.has('.ai-tutor/commands/cmd.md')).toBe(false);
+      expect(files.has('.ai-tutor/sessions/sess.jsonl')).toBe(false);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it.each([
+      ['escaped githubToken', '{"git\\u0068ubToken":"ghp_leak", malformed_json'],
+      ['escaped environmentVariables', '{"\\u0065nvironmentVariables":"A=1", malformed_json'],
+      ['escaped copilotCliPath', '{"\\u0063opilotCliPath":"/bin/evil", malformed_json'],
+    ])('rejects and displays Notice when legacy settings JSON is malformed and contains escaped prohibited key: %s', async (_name, malformedContent) => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', malformedContent],
+        ['.copilot/commands/cmd.md', 'command content'],
+        ['.copilot/sessions/sess.jsonl', 'session content'],
+      ]);
+      const folders = new Set<string>(['.copilot', '.copilot/commands', '.copilot/sessions']);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => {
+                const subFiles = [...files.keys()].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                const subFolders = [...folders].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                return { files: subFiles, folders: subFolders };
+              },
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await expect(storage.initialize()).rejects.toThrow(
+        '[obsidian-ai-tutor] Legacy .copilot/settings.json is malformed and contains prohibited security fields. Migration aborted.'
+      );
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[obsidian-ai-tutor] Legacy settings file is malformed and contains credentials/trust fields. Migration aborted.'
+      );
+      expect(noticeMessages).toHaveLength(1);
+      expect(noticeMessages[0]).toContain(
+        '이전 버전 설정 파일(.copilot/settings.json)이 손상되어 보안 정보를 안전하게 정리할 수 없습니다. 보안을 위해 해당 파일을 수동으로 확인하거나 삭제해 주세요.'
+      );
+      // Malformed legacy settings file was NOT overwritten
+      expect(files.get('.copilot/settings.json')).toBe(malformedContent);
+      // .ai-tutor/settings.json was NOT created
+      expect(files.has('.ai-tutor/settings.json')).toBe(false);
+      // Commands and sessions were NOT migrated because migration was aborted
+      expect(files.has('.ai-tutor/commands/cmd.md')).toBe(false);
+      expect(files.has('.ai-tutor/sessions/sess.jsonl')).toBe(false);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('resumes incomplete migration when .ai-tutor already has settings.json but missing commands/sessions', async () => {
+      const files = new Map<string, string>([
+        ['.copilot/settings.json', JSON.stringify({ model: 'old-model', githubToken: 'ghp_old' })],
+        ['.copilot/commands/cmd1.md', 'command 1'],
+        ['.copilot/commands/cmd2.md', 'command 2'],
+        ['.copilot/sessions/sess1.jsonl', 'session 1'],
+        ['.ai-tutor/settings.json', JSON.stringify({ model: 'new-model' })],
+        ['.ai-tutor/commands/cmd1.md', 'existing command 1'],
+      ]);
+      const folders = new Set<string>([
+        '.copilot',
+        '.copilot/commands',
+        '.copilot/sessions',
+        '.ai-tutor',
+        '.ai-tutor/commands',
+      ]);
+
+      const localStore = new Map<string, unknown>();
+      const fakePlugin = {
+        app: {
+          loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+          saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+          vault: {
+            adapter: {
+              exists: async (p: string) => files.has(p) || folders.has(p),
+              read: async (p: string) => files.get(p) ?? '',
+              write: async (p: string, c: string) => { files.set(p, c); },
+              mkdir: async (p: string) => { folders.add(p); },
+              list: async (p: string) => {
+                const subFiles = [...files.keys()].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                const subFolders = [...folders].filter(
+                  f => f.startsWith(p + '/') && !f.substring(p.length + 1).includes('/')
+                );
+                return { files: subFiles, folders: subFolders };
+              },
+            },
+          },
+        },
+        loadData: async () => null,
+        saveData: async () => {},
+      };
+
+      const storage = new StorageService(fakePlugin as never);
+      await storage.initialize();
+
+      // .ai-tutor/settings.json remains untouched
+      expect(files.get('.ai-tutor/settings.json')).toBe(JSON.stringify({ model: 'new-model' }));
+      // Existing command was NOT overwritten
+      expect(files.get('.ai-tutor/commands/cmd1.md')).toBe('existing command 1');
+      // Missing command was copied
+      expect(files.get('.ai-tutor/commands/cmd2.md')).toBe('command 2');
+      // Missing session was copied
+      expect(files.get('.ai-tutor/sessions/sess1.jsonl')).toBe('session 1');
+
+      // Legacy settings.json is still sanitized
+      const sanitizedLegacy = JSON.parse(files.get('.copilot/settings.json')!);
+      expect(sanitizedLegacy.githubToken).toBeUndefined();
+      expect(sanitizedLegacy.model).toBe('old-model');
     });
   });
 });

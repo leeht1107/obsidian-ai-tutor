@@ -3,10 +3,11 @@
  */
 
 export { SESSIONS_PATH, SessionStorage } from './SessionStorage';
-export { SETTINGS_PATH, SettingsStorage, type StoredSettings } from './SettingsStorage';
+export { LEGACY_SETTINGS_PATH, SETTINGS_PATH, SettingsStorage, type StoredSettings } from './SettingsStorage';
 export { COMMANDS_PATH, SlashCommandStorage } from './SlashCommandStorage';
 export {
-  COPILOT_PATH,
+  LEGACY_PATH,
+  PLUGIN_PATH,
   type PluginState,
   StorageService,
 } from './StorageService';

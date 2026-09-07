@@ -249,14 +249,29 @@ export default class ObsidianCopilotPlugin extends Plugin {
       slashCommands,
     };
 
-    // Credentials must not stay in the shareable vault settings file. Anything
-    // still there is moved to device-local storage now; from here on the two
-    // fields are read from and written to that store only.
-    const { adoptSecretsFromSettings, readSecrets } = await import('./core/storage/SecretStorage');
-    this.secretsJustMoved = adoptSecretsFromSettings(this.app, this.settings);
+    // Credentials and trust state must not stay in the shareable vault settings
+    // file. Device-local storage is authoritative; from here on these fields
+    // are read from and written to that store only.
+    const {
+      readSecrets,
+      readTrust,
+    } = await import('./core/storage/SecretStorage');
     const secrets = readSecrets(this.app);
     this.settings.githubToken = secrets.githubToken;
     this.settings.environmentVariables = secrets.environmentVariables;
+
+    const trust = readTrust(this.app);
+    this.settings.permissionMode = trust.permissionMode;
+    this.settings.lastNonPlanPermissionMode = trust.lastNonPlanPermissionMode;
+    this.settings.blanketWriteAcknowledged = trust.blanketWriteAcknowledged;
+    this.settings.permissions = trust.permissions;
+    this.settings.enableInlineBash = trust.enableInlineBash;
+    this.settings.enableBlocklist = trust.enableBlocklist;
+    this.settings.blockedCommands = trust.blockedCommands;
+    this.settings.providerCliPaths = trust.providerCliPaths;
+    this.settings.copilotCliPath = trust.copilotCliPath;
+    this.settings.allowedExportPaths = trust.allowedExportPaths;
+    this.settings.envSnippets = trust.envSnippets;
 
     // Migrate legacy permission mode values (yolo→agent, normal→ask)
     if ((this.settings.permissionMode as string) === 'yolo') this.settings.permissionMode = 'agent';
@@ -337,12 +352,25 @@ export default class ObsidianCopilotPlugin extends Plugin {
   /** Persists settings to storage. */
   async saveSettings() {
     const { slashCommands: _, ...settingsToSave } = this.settings;
-    // Credentials go to device-local storage, never to the vault file.
+    // Credentials and trust state go to device-local storage, never to the vault file.
     // SettingsStorage.save strips them again as a backstop.
-    const { writeSecretsOrNotify } = await import('./core/storage/SecretStorage');
+    const { writeSecretsOrNotify, writeTrustOrNotify } = await import('./core/storage/SecretStorage');
     writeSecretsOrNotify(this.app, {
       githubToken: this.settings.githubToken ?? '',
       environmentVariables: this.settings.environmentVariables ?? '',
+    });
+    writeTrustOrNotify(this.app, {
+      permissionMode: this.settings.permissionMode,
+      lastNonPlanPermissionMode: this.settings.lastNonPlanPermissionMode,
+      blanketWriteAcknowledged: this.settings.blanketWriteAcknowledged ?? [],
+      permissions: this.settings.permissions ?? [],
+      enableInlineBash: this.settings.enableInlineBash,
+      enableBlocklist: this.settings.enableBlocklist,
+      blockedCommands: this.settings.blockedCommands,
+      providerCliPaths: this.settings.providerCliPaths ?? {},
+      copilotCliPath: this.settings.copilotCliPath ?? '',
+      allowedExportPaths: this.settings.allowedExportPaths ?? [],
+      envSnippets: this.settings.envSnippets ?? [],
     });
     await this.storage.settings.save(settingsToSave);
 

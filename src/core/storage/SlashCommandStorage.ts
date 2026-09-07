@@ -1,5 +1,5 @@
 /**
- * SlashCommandStorage - Handles slash command files in vault/.copilot/commands/
+ * SlashCommandStorage - Handles slash command files in vault/.ai-tutor/commands/
  * and global ~/.copilot/commands/
  *
  * Each command is stored as a Markdown file with YAML frontmatter.
@@ -28,7 +28,7 @@ import { parseSlashCommandContent } from '../../utils/slashCommand';
 import type { CopilotModel, SlashCommand } from '../types';
 import type { VaultFileAdapter } from './VaultFileAdapter';
 
-export const COMMANDS_PATH = '.copilot/commands';
+export const COMMANDS_PATH = '.ai-tutor/commands';
 export const GLOBAL_COMMANDS_PATH = path.join(os.homedir(), '.copilot', 'commands');
 const INSTALLED_PLUGINS_PATH = path.join(os.homedir(), '.copilot', 'plugins', 'installed_plugins.json');
 

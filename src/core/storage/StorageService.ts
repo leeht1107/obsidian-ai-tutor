@@ -2,15 +2,16 @@
  * StorageService - Main coordinator for distributed storage system.
  *
  * Manages:
- * - Settings in .copilot/settings.json (user-facing, shareable)
- * - Slash commands in .copilot/commands/*.md
- * - Chat sessions in .copilot/sessions/*.jsonl
+ * - Settings in .ai-tutor/settings.json (user-facing, shareable)
+ * - Slash commands in .ai-tutor/commands/*.md
+ * - Chat sessions in .ai-tutor/sessions/*.jsonl
  * - Plugin state in data.json (machine-specific)
  *
  * Handles migration from legacy data.json format on first load.
  */
 
 import type { App, Plugin } from 'obsidian';
+import { Notice } from 'obsidian';
 
 import type { ProviderId } from '../providers/providerRegistry';
 import type { ProviderConnections } from '../setup/providerConnection';
@@ -21,8 +22,10 @@ import { SettingsStorage, type StoredSettings } from './SettingsStorage';
 import { COMMANDS_PATH, SlashCommandStorage } from './SlashCommandStorage';
 import { VaultFileAdapter } from './VaultFileAdapter';
 
-/** Base path for all ObsidianCode storage. */
-export const COPILOT_PATH = '.copilot';
+/** Base path for all plugin storage in the vault. */
+export const PLUGIN_PATH = '.ai-tutor';
+/** Legacy base path, checked during migration. */
+export const LEGACY_PATH = '.copilot';
 
 /** Machine-specific state stored in Obsidian's data.json. */
 export interface PluginState {
@@ -67,7 +70,7 @@ export class StorageService {
     this.plugin = plugin;
     this.app = plugin.app;
     this.adapter = new VaultFileAdapter(this.app);
-    this.settings = new SettingsStorage(this.adapter);
+    this.settings = new SettingsStorage(this.adapter, this.app);
     this.commands = new SlashCommandStorage(this.adapter);
     this.sessions = new SessionStorage(this.adapter);
   }
@@ -77,7 +80,9 @@ export class StorageService {
     settings: StoredSettings;
     state: PluginState;
   }> {
-    // Ensure .copilot directory structure exists
+    await this.migrateFromLegacyPath();
+
+    // Ensure .ai-tutor directory structure exists
     await this.ensureDirectories();
 
     // Check if migration is needed based on legacy data.json contents
@@ -93,7 +98,7 @@ export class StorageService {
       }
     }
 
-    // Load settings from .copilot/settings.json
+    // Load settings from .ai-tutor/settings.json
     const settings = await this.settings.load();
 
     // Load plugin state from data.json
@@ -207,9 +212,111 @@ export class StorageService {
     return write;
   }
 
+  /**
+   * Migrate legacy .copilot/settings.json to .ai-tutor/settings.json.
+   * Credentials and trust fields in the preserved legacy file are sanitized
+   * so secrets do not linger. If reading or parsing legacy JSON fails,
+   * settings migration is aborted to prevent data loss, but commands and
+   * sessions migration can still proceed.
+   * If sanitization write fails, it fails closed by throwing an error.
+   */
+  private async migrateLegacySettings(): Promise<void> {
+    const legacySettingsPath = `${LEGACY_PATH}/settings.json`;
+    if (!(await this.adapter.exists(legacySettingsPath))) {
+      return;
+    }
+
+    const { containsProhibitedKeys, stripTrustFields } = await import('./SecretStorage');
+
+    const legacyContent = await this.adapter.read(legacySettingsPath);
+    const hasRawForbidden = containsProhibitedKeys(legacyContent);
+
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(legacyContent) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Legacy settings is not an object');
+      }
+    } catch (error) {
+      if (hasRawForbidden) {
+        console.error('[obsidian-ai-tutor] Legacy settings file is malformed and contains credentials/trust fields. Migration aborted.');
+        new Notice(
+          '이전 버전 설정 파일(.copilot/settings.json)이 손상되어 보안 정보를 안전하게 정리할 수 없습니다. 보안을 위해 해당 파일을 수동으로 확인하거나 삭제해 주세요.',
+          0
+        );
+        throw new Error(
+          '[obsidian-ai-tutor] Legacy .copilot/settings.json is malformed and contains prohibited security fields. Migration aborted.'
+        );
+      }
+      console.error('[obsidian-ai-tutor] Failed to read or parse legacy settings JSON, skipping settings migration:', error);
+      return;
+    }
+
+    const sanitized = stripTrustFields(parsed);
+    delete (sanitized as Record<string, unknown>).githubToken;
+    delete (sanitized as Record<string, unknown>).environmentVariables;
+
+    // Sanitize legacy settings file
+    try {
+      await this.adapter.write(legacySettingsPath, JSON.stringify(sanitized, null, 2));
+    } catch (error) {
+      console.error('[obsidian-ai-tutor] Failed to sanitize legacy settings file:', error);
+      new Notice(
+        '이전 버전 설정 파일(.copilot/settings.json)의 보안 정보를 정리하지 못해 마이그레이션을 중단했습니다. 파일 쓰기 권한을 확인해 주세요.',
+        0
+      );
+      throw new Error('[obsidian-ai-tutor] Failed to sanitize legacy credentials in .copilot/settings.json');
+    }
+
+    if (!(await this.adapter.exists(`${PLUGIN_PATH}/settings.json`))) {
+      await this.adapter.write(`${PLUGIN_PATH}/settings.json`, JSON.stringify(sanitized, null, 2));
+    }
+  }
+
+  /**
+   * One-time migration: if .copilot/ exists, copy settings, commands, and
+   * sessions to .ai-tutor/ without overwriting existing files.
+   * Credentials and trust fields in the preserved legacy .copilot/settings.json
+   * are sanitized so secrets do not linger in the legacy directory.
+   */
+  private async migrateFromLegacyPath(): Promise<void> {
+    const hasLegacy = await this.adapter.exists(LEGACY_PATH);
+    if (!hasLegacy) return;
+
+    console.log('[obsidian-ai-tutor] Checking migration from .copilot/ → .ai-tutor/...');
+
+    await this.adapter.ensureFolder(PLUGIN_PATH);
+
+    // 1. Migrate settings if .ai-tutor/settings.json doesn't exist yet
+    await this.migrateLegacySettings();
+
+    // 2. Commands: copy any missing files from legacy to new
+    await this.copyMissingFiles(`${LEGACY_PATH}/commands`, COMMANDS_PATH);
+
+    // 3. Sessions: copy any missing files from legacy to new
+    await this.copyMissingFiles(`${LEGACY_PATH}/sessions`, SESSIONS_PATH);
+
+    console.log('[obsidian-ai-tutor] Migration check complete.');
+  }
+
+  private async copyMissingFiles(src: string, dst: string): Promise<void> {
+    if (!(await this.adapter.exists(src))) return;
+    await this.adapter.ensureFolder(dst);
+    const files = await this.adapter.listFilesRecursive(src);
+    for (const file of files) {
+      const relativePath = file.startsWith(`${src}/`) ? file.substring(src.length + 1) : file;
+      const targetPath = `${dst}/${relativePath}`;
+      if (!(await this.adapter.exists(targetPath))) {
+        const content = await this.adapter.read(file);
+        await this.adapter.write(targetPath, content);
+      }
+    }
+  }
+
   /** Ensure all required directories exist. */
   async ensureDirectories(): Promise<void> {
-    await this.adapter.ensureFolder(COPILOT_PATH);
+    await this.adapter.ensureFolder(PLUGIN_PATH);
     await this.adapter.ensureFolder(COMMANDS_PATH);
     await this.adapter.ensureFolder(SESSIONS_PATH);
   }

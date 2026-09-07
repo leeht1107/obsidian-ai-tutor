@@ -24,9 +24,13 @@ import type { App } from 'obsidian';
 
 import {
   adoptSecretsFromSettings,
+  containsProhibitedKeys,
+  getDefaultTrust,
   readSecrets,
+  readTrust,
   writeSecrets,
   writeSecretsOrNotify,
+  writeTrustOrNotify,
 } from '@/core/storage/SecretStorage';
 import { SettingsStorage } from '@/core/storage/SettingsStorage';
 import type { VaultFileAdapter } from '@/core/storage/VaultFileAdapter';
@@ -43,10 +47,11 @@ function fakeApp(): App {
   } as unknown as App;
 }
 
+beforeEach(() => {
+  noticeMessages.length = 0;
+});
+
 describe('SecretStorage', () => {
-  beforeEach(() => {
-    noticeMessages.length = 0;
-  });
 
   it('round-trips secrets through device-local storage', () => {
     const app = fakeApp();
@@ -117,6 +122,223 @@ describe('SettingsStorage refuses to write secrets to the vault', () => {
     expect(written).not.toContain('A=1');
     expect(written).toContain('gpt-4.1');
   });
+
+  it('strips trust fields before saving to the vault', async () => {
+    let written = '';
+    const adapter = {
+      exists: async () => true,
+      read: async () => '{}',
+      write: async (_path: string, content: string) => { written = content; },
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    await storage.save({
+      model: 'gpt-4.1',
+      permissionMode: 'ask',
+      enableInlineBash: true,
+      copilotCliPath: '/usr/local/bin/copilot',
+    } as never);
+
+    const parsed = JSON.parse(written);
+    expect(parsed.model).toBe('gpt-4.1');
+    expect(parsed.permissionMode).toBeUndefined();
+    expect(parsed.enableInlineBash).toBeUndefined();
+    expect(parsed.copilotCliPath).toBeUndefined();
+  });
+
+  it('strips trust fields when loading from the vault', async () => {
+    const vaultContent = JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      permissionMode: 'plan',
+      enableInlineBash: true,
+      copilotCliPath: '/usr/bin/malicious-binary',
+    });
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => vaultContent,
+      write: async () => {},
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    const loaded = await storage.load();
+
+    expect(loaded.model).toBe('claude-sonnet-4-5');
+    // Defaults are preserved because vault's trust fields were stripped
+    expect(loaded.permissionMode).toBe('agent');
+    expect(loaded.enableInlineBash).toBe(false);
+    expect(loaded.copilotCliPath).toBe('');
+  });
+
+  it('never adopts trust fields from vault into device-local storage (untrusted vault cannot dictate trust)', async () => {
+    let writtenContent = '';
+    const app = fakeApp();
+    const vaultContent = JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      githubToken: 'ghp_secret_token',
+      environmentVariables: 'ATTACKER_ENV=evil',
+      permissionMode: 'ask',
+      enableInlineBash: true,
+      copilotCliPath: '/custom/bin/copilot',
+    });
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => vaultContent,
+      write: async (_p: string, c: string) => { writtenContent = c; },
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter, app);
+    const loaded = await storage.load();
+
+    // Trust fields stripped from loaded settings
+    expect(loaded.permissionMode).toBe('agent');
+    expect(loaded.enableInlineBash).toBe(false);
+    expect(loaded.copilotCliPath).toBe('');
+    expect(loaded.model).toBe('claude-sonnet-4-5');
+
+    // Trust fields were NOT adopted into device-local storage (remains safe defaults)
+    const localTrust = readTrust(app);
+    expect(localTrust.permissionMode).toBe('agent');
+    expect(localTrust.enableInlineBash).toBe(false);
+    expect(localTrust.copilotCliPath).toBe('');
+
+    // Secrets were NOT adopted into device-local storage
+    const localSecrets = readSecrets(app);
+    expect(localSecrets.githubToken).toBe('');
+    expect(localSecrets.environmentVariables).toBe('');
+
+    // On-disk file was rewritten without forbidden keys
+    expect(writtenContent).not.toBe('');
+    const rewritten = JSON.parse(writtenContent);
+    expect(rewritten.copilotCliPath).toBeUndefined();
+    expect(rewritten.enableInlineBash).toBeUndefined();
+    expect(rewritten.githubToken).toBeUndefined();
+    expect(rewritten.environmentVariables).toBeUndefined();
+  });
+
+  it('never adopts secrets or environment variables from vault into device-local storage (untrusted vault cannot dictate env)', async () => {
+    const app = fakeApp();
+    const vaultContent = JSON.stringify({
+      environmentVariables: 'PATH=/attacker-controlled',
+      githubToken: 'ghp_attacker_token',
+      model: 'gpt-4.1',
+    });
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => vaultContent,
+      write: async () => {},
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter, app);
+    const loaded = await storage.load();
+
+    expect(loaded.environmentVariables).toBe('');
+    expect(loaded.githubToken).toBe('');
+    expect(readSecrets(app).environmentVariables).toBe('');
+    expect(readSecrets(app).githubToken).toBe('');
+  });
+
+  it('rejects and fails closed when rewriting a contaminated settings file fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const vaultContent = JSON.stringify({
+      model: 'claude-sonnet-4-5',
+      githubToken: 'ghp_secret_token',
+      copilotCliPath: '/usr/bin/malicious-binary',
+    });
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => vaultContent,
+      write: async () => {
+        throw new Error('EACCES: permission denied');
+      },
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    await expect(storage.load()).rejects.toThrow(
+      '[obsidian-ai-tutor] Failed to sanitize prohibited security fields in .ai-tutor/settings.json. File rewrite failed.'
+    );
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects and fails closed when settings file is malformed and contains prohibited security fields', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const malformedContent = '{"githubToken":"ghp_leak", malformed_json...';
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => malformedContent,
+      write: async () => {},
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    await expect(storage.load()).rejects.toThrow(
+      '[obsidian-ai-tutor] .ai-tutor/settings.json is malformed and contains prohibited security fields. Initialization aborted.'
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[obsidian-ai-tutor] Settings file is malformed and contains prohibited security fields. Initialization aborted.'
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it.each([
+    ['escaped githubToken', '{"git\\u0068ubToken":"ghp_leak", malformed_json'],
+    ['escaped environmentVariables', '{"\\u0065nvironmentVariables":"A=1", malformed_json'],
+    ['escaped copilotCliPath', '{"\\u0063opilotCliPath":"/bin/evil", malformed_json'],
+  ])('rejects and fails closed when settings file is malformed and contains escaped prohibited key: %s', async (_name, malformedContent) => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => malformedContent,
+      write: async () => {},
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    await expect(storage.load()).rejects.toThrow(
+      '[obsidian-ai-tutor] .ai-tutor/settings.json is malformed and contains prohibited security fields. Initialization aborted.'
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[obsidian-ai-tutor] Settings file is malformed and contains prohibited security fields. Initialization aborted.'
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('falls back to defaults when settings file is malformed without prohibited security fields', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const malformedContent = '{"model":"gpt-4.1", invalid_json...';
+
+    const adapter = {
+      exists: async () => true,
+      read: async () => malformedContent,
+      write: async () => {},
+    } as unknown as VaultFileAdapter;
+
+    const storage = new SettingsStorage(adapter);
+    const loaded = await storage.load();
+
+    expect(loaded.permissionMode).toBe('agent');
+    expect(consoleWarnSpy).toHaveBeenCalled();
+    consoleWarnSpy.mockRestore();
+  });
+});
+
+describe('containsProhibitedKeys', () => {
+  it('detects unescaped prohibited keys', () => {
+    expect(containsProhibitedKeys('{"githubToken":"ghp_leak"}')).toBe(true);
+    expect(containsProhibitedKeys('{"environmentVariables":"A=1"}')).toBe(true);
+    expect(containsProhibitedKeys('{"copilotCliPath":"/bin/evil"}')).toBe(true);
+    expect(containsProhibitedKeys('{"model":"gpt-4.1"}')).toBe(false);
+  });
+
+  it('detects unicode-escaped prohibited keys', () => {
+    expect(containsProhibitedKeys('{"git\\u0068ubToken":"ghp_leak"}')).toBe(true);
+    expect(containsProhibitedKeys('{"\\u0065nvironmentVariables":"A=1"}')).toBe(true);
+    expect(containsProhibitedKeys('{"\\u0063opilotCliPath":"/bin/evil"}')).toBe(true);
+  });
 });
 
 describe('SecretStorage migration cannot lose or clobber a credential', () => {
@@ -175,6 +397,19 @@ describe('SecretStorage migration cannot lose or clobber a credential', () => {
       expect(writeSecretsOrNotify(brokenApp(), { githubToken: 'a', environmentVariables: '' })).toBe(false);
       expect(noticeMessages).toHaveLength(1);
       expect(noticeMessages[0]).toContain('저장하지 못했습니다');
+    });
+  });
+
+  describe('writeTrustOrNotify', () => {
+    it('says nothing when the write lands', () => {
+      expect(writeTrustOrNotify(fakeApp(), getDefaultTrust())).toBe(true);
+      expect(noticeMessages).toHaveLength(0);
+    });
+
+    it('tells the student in Korean when the write did not land', () => {
+      expect(writeTrustOrNotify(brokenApp(), getDefaultTrust())).toBe(false);
+      expect(noticeMessages).toHaveLength(1);
+      expect(noticeMessages[0]).toContain('보안 및 권한 설정을 이 컴퓨터에 저장하지 못했습니다');
     });
   });
 });

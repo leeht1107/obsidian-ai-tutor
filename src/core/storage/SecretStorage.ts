@@ -1,21 +1,31 @@
 /**
- * SecretStorage — credentials, kept out of the vault.
+ * SecretStorage — credentials and trust state, kept out of the vault.
  *
- * Everything else this plugin stores lives in `.copilot/settings.json`, which is
+ * Everything else this plugin stores lives in `.ai-tutor/settings.json`, which is
  * described in its own header as "user-facing, shareable": it is meant to be
- * committed and handed to a classmate. A GitHub token and a block of KEY=VALUE
- * environment variables were being written there too, so a vault kept in
- * OneDrive, iCloud or git carried the student's credentials along with the notes.
+ * committed and handed to a classmate. Credentials (GitHub token, environment
+ * variables) and device-local trust state (permission modes, approved permissions,
+ * blocklists, CLI paths, export paths) must not travel with a shared vault.
  *
  * Obsidian's device-local storage is the only store here that a sync client never
  * sees — `data.json` would not do, because it sits inside `.obsidian/` in the
  * vault folder like everything else.
  *
  * The cost is real and deliberate: opening the same vault on a second machine
- * finds no token there. SecretMoveNoticeModal says so in as many words.
+ * finds no token or trust state there. SecretMoveNoticeModal says so in as many words.
  */
 import type { App } from 'obsidian';
 import { Notice } from 'obsidian';
+
+import {
+  type EnvSnippet,
+  getDefaultBlockedCommands,
+  type NonPlanPermissionMode,
+  type Permission,
+  type PermissionMode,
+  type PlatformBlockedCommands,
+  type SelectedProvider,
+} from '../types/settings';
 
 const STORAGE_KEY = 'obsidian-ai-tutor:secrets';
 
@@ -115,3 +125,133 @@ export function adoptSecretsFromSettings(app: App, settings: Partial<StoredSecre
   for (const field of pending) settings[field] = '';
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Trust state — device-local authority fields that must not travel with a vault
+// ---------------------------------------------------------------------------
+
+const TRUST_STORAGE_KEY = 'obsidian-ai-tutor:trust';
+
+/** Fields whose effective value comes from device-local storage, never the vault. */
+export const TRUST_FIELDS = [
+  'permissionMode', 'lastNonPlanPermissionMode',
+  'blanketWriteAcknowledged', 'permissions',
+  'enableInlineBash', 'enableBlocklist', 'blockedCommands',
+  'providerCliPaths', 'copilotCliPath',
+  'allowedExportPaths', 'envSnippets',
+] as const;
+
+export interface StoredTrust {
+  permissionMode: PermissionMode;
+  lastNonPlanPermissionMode?: NonPlanPermissionMode;
+  blanketWriteAcknowledged: string[];
+  permissions: Permission[];
+  enableInlineBash: boolean;
+  enableBlocklist: boolean;
+  blockedCommands: PlatformBlockedCommands;
+  providerCliPaths: Partial<Record<SelectedProvider, string>>;
+  copilotCliPath: string;
+  allowedExportPaths: string[];
+  envSnippets: EnvSnippet[];
+}
+
+function isPermissionMode(v: unknown): v is PermissionMode {
+  return v === 'agent' || v === 'ask' || v === 'plan';
+}
+
+export function getDefaultTrust(): StoredTrust {
+  return {
+    permissionMode: 'agent',
+    blanketWriteAcknowledged: [],
+    permissions: [],
+    enableInlineBash: false,
+    enableBlocklist: true,
+    blockedCommands: getDefaultBlockedCommands(),
+    providerCliPaths: {},
+    copilotCliPath: '',
+    allowedExportPaths: ['~/Desktop', '~/Downloads'],
+    envSnippets: [],
+  };
+}
+
+export function readTrust(app: App): StoredTrust {
+  try {
+    const raw = app.loadLocalStorage(TRUST_STORAGE_KEY) as Partial<StoredTrust> | null;
+    if (!raw || typeof raw !== 'object') return getDefaultTrust();
+    const defaults = getDefaultTrust();
+    return {
+      permissionMode: isPermissionMode(raw.permissionMode) ? raw.permissionMode : defaults.permissionMode,
+      lastNonPlanPermissionMode: raw.lastNonPlanPermissionMode === 'agent' || raw.lastNonPlanPermissionMode === 'ask'
+        ? raw.lastNonPlanPermissionMode : undefined,
+      blanketWriteAcknowledged: Array.isArray(raw.blanketWriteAcknowledged) ? raw.blanketWriteAcknowledged : [],
+      permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+      enableInlineBash: typeof raw.enableInlineBash === 'boolean' ? raw.enableInlineBash : defaults.enableInlineBash,
+      enableBlocklist: typeof raw.enableBlocklist === 'boolean' ? raw.enableBlocklist : defaults.enableBlocklist,
+      blockedCommands: raw.blockedCommands && typeof raw.blockedCommands === 'object'
+        ? raw.blockedCommands as PlatformBlockedCommands : defaults.blockedCommands,
+      providerCliPaths: raw.providerCliPaths && typeof raw.providerCliPaths === 'object'
+        ? raw.providerCliPaths as Partial<Record<SelectedProvider, string>> : {},
+      copilotCliPath: typeof raw.copilotCliPath === 'string' ? raw.copilotCliPath : '',
+      allowedExportPaths: Array.isArray(raw.allowedExportPaths) ? raw.allowedExportPaths : defaults.allowedExportPaths,
+      envSnippets: Array.isArray(raw.envSnippets) ? raw.envSnippets : [],
+    };
+  } catch {
+    return getDefaultTrust();
+  }
+}
+
+export function writeTrust(app: App, trust: StoredTrust): boolean {
+  try {
+    app.saveLocalStorage(TRUST_STORAGE_KEY, trust);
+    return true;
+  } catch (error) {
+    console.warn('[obsidian-ai-tutor] Failed to store trust state locally:', error);
+    return false;
+  }
+}
+
+/**
+ * Write trust state, and notify the student if device-local storage fails.
+ */
+export function writeTrustOrNotify(app: App, trust: StoredTrust): boolean {
+  if (writeTrust(app, trust)) return true;
+  new Notice(
+    '보안 및 권한 설정을 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 기본값으로 재설정될 수 있으니 설정 화면을 확인해 주세요.',
+    10000
+  );
+  return false;
+}
+
+
+
+/** Strip trust fields from an object before writing to vault. */
+export function stripTrustFields<T extends Record<string, unknown>>(obj: T): Omit<T, typeof TRUST_FIELDS[number]> {
+  const result: Record<string, unknown> = { ...obj };
+  for (const field of TRUST_FIELDS) {
+    delete result[field];
+  }
+  return result as Omit<T, typeof TRUST_FIELDS[number]>;
+}
+
+/**
+ * Detect whether raw JSON content contains prohibited keys (credentials or trust fields).
+ * Normalizes unicode escape sequences (e.g. \u0068 -> h) to prevent escape-based bypasses
+ * in malformed files that cannot be parsed as JSON objects.
+ */
+export function containsProhibitedKeys(rawContent: string): boolean {
+  const normalized = rawContent.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
+    try {
+      return String.fromCharCode(parseInt(hex, 16));
+    } catch {
+      return _;
+    }
+  });
+
+  return (
+    normalized.includes('githubToken') ||
+    normalized.includes('environmentVariables') ||
+    TRUST_FIELDS.some(f => normalized.includes(f))
+  );
+}
+
+
