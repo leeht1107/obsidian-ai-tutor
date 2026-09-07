@@ -76,17 +76,19 @@ describe('resolveCheckedState', () => {
   });
 });
 
-describe('checkCopilotCredential', () => {
-  // These describe the macOS keychain path specifically. On Windows the function
-  // returns 'unknown' before it ever runs a probe — deliberately, because nobody
-  // has established where copilot keeps credentials there. Asserting the macOS
-  // answer on a Windows runner tests the wrong platform, not a defect.
-  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
-  beforeEach(() => { Object.defineProperty(process, 'platform', { value: 'darwin' }); });
-  afterEach(() => {
-    if (platform) Object.defineProperty(process, 'platform', platform);
-    jest.restoreAllMocks();
-  });
+/**
+ * The keychain path is macOS-only. On Windows checkCopilotCredential returns
+ * 'unknown' before running any probe — deliberately, because nobody has
+ * established where copilot keeps credentials there — and the Windows behaviour
+ * has its own test below, so nothing goes uncovered by skipping these.
+ *
+ * Overriding process.platform does not work here: `isWindows` is a module-level
+ * constant, frozen when the module was imported.
+ */
+const describeOnMac = process.platform === 'win32' ? describe.skip : describe;
+
+describeOnMac('checkCopilotCredential', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
 
   it('reads existence only, never the secret', async () => {
     const run = jest.spyOn(readiness, 'runProbeProcess')
@@ -135,9 +137,6 @@ describe('checkCopilotCredential', () => {
  * The mapping the settings rows are drawn from. A reviewer noted it was the one
  * piece of this module with no test of its own.
  */
-const afterEachRestore: Array<() => void> = [];
-afterEach(() => { while (afterEachRestore.length) afterEachRestore.pop()!(); });
-
 describe('checkProviderConnection', () => {
   afterEach(() => { jest.restoreAllMocks(); });
 
@@ -159,12 +158,19 @@ describe('checkProviderConnection', () => {
     await expect(checkProviderConnection('agy')).resolves.toBe('unknown');
   });
 
+
+  it('does not call a leftover keychain entry a connection when copilot is not installed', async () => {
+    jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
+    const run = jest.spyOn(readiness, 'runProbeProcess');
+    await expect(checkProviderConnection('copilot')).resolves.toBe('not-connected');
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describeOnMac('checkProviderConnection — the copilot route, on macOS', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
   it('never asks a login probe about copilot, which cannot answer one', async () => {
-    // macOS: the keychain is the only place this has been established. Windows
-    // returns 'unknown' by design, which is a different assertion.
-    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
-    Object.defineProperty(process, 'platform', { value: 'darwin' });
-    if (platform) afterEachRestore.push(() => Object.defineProperty(process, 'platform', platform));
     const probe = jest.spyOn(readiness, 'checkProviderReadiness');
     jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/usr/local/bin/copilot');
     const run = jest.spyOn(readiness, 'runProbeProcess')
@@ -173,12 +179,5 @@ describe('checkProviderConnection', () => {
     await expect(checkProviderConnection('copilot')).resolves.toBe('connected');
     expect(probe).not.toHaveBeenCalled();
     expect(run).toHaveBeenCalledWith('security', expect.any(Array), expect.any(Object));
-  });
-
-  it('does not call a leftover keychain entry a connection when copilot is not installed', async () => {
-    jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
-    const run = jest.spyOn(readiness, 'runProbeProcess');
-    await expect(checkProviderConnection('copilot')).resolves.toBe('not-connected');
-    expect(run).not.toHaveBeenCalled();
   });
 });
