@@ -44,6 +44,9 @@ export default class ObsidianCopilotPlugin extends Plugin {
   providerConnections: ProviderConnections | undefined;
   private runtimeEnvironmentVariables = '';
   private hasNotifiedEnvChange = false;
+  /** True when this launch moved credentials out of the vault settings file.
+   * Only then does the student get the one-time explanation. */
+  private secretsJustMoved = false;
 
   async onload() {
     try {
@@ -74,6 +77,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void this.checkAndShowSetupWizard();
       void this.installBundledSkillsOnce();
+      void this.finishSecretMove();
     });
 
     addIcon('obsidian-ai-tutor-icon', COPILOT_ICON_SVG);
@@ -245,6 +249,15 @@ export default class ObsidianCopilotPlugin extends Plugin {
       slashCommands,
     };
 
+    // Credentials must not stay in the shareable vault settings file. Anything
+    // still there is moved to device-local storage now; from here on the two
+    // fields are read from and written to that store only.
+    const { adoptSecretsFromSettings, readSecrets } = await import('./core/storage/SecretStorage');
+    this.secretsJustMoved = adoptSecretsFromSettings(this.app, this.settings);
+    const secrets = readSecrets(this.app);
+    this.settings.githubToken = secrets.githubToken;
+    this.settings.environmentVariables = secrets.environmentVariables;
+
     // Migrate legacy permission mode values (yolo→agent, normal→ask)
     if ((this.settings.permissionMode as string) === 'yolo') this.settings.permissionMode = 'agent';
     if ((this.settings.permissionMode as string) === 'normal') this.settings.permissionMode = 'ask';
@@ -286,6 +299,23 @@ export default class ObsidianCopilotPlugin extends Plugin {
     }
   }
 
+  /**
+   * Rewrite the vault settings file without the credentials, then tell the
+   * student once. The rewrite has to happen — `adoptSecretsFromSettings` only
+   * blanked the in-memory copy, and the token is still on disk until we save.
+   */
+  private async finishSecretMove(): Promise<void> {
+    if (!this.secretsJustMoved) return;
+    this.secretsJustMoved = false;
+    try {
+      await this.saveSettings();
+      const { showSecretMoveNotice } = await import('./ui/modals/SecretMoveNoticeModal');
+      showSecretMoveNotice(this.app);
+    } catch (error) {
+      console.error('[ObsidianCopilot] Failed to complete the secret move:', error);
+    }
+  }
+
   private backfillConversationResponseTimestamps(): Conversation[] {
     const updated: Conversation[] = [];
     for (const conv of this.conversations) {
@@ -307,6 +337,13 @@ export default class ObsidianCopilotPlugin extends Plugin {
   /** Persists settings to storage. */
   async saveSettings() {
     const { slashCommands: _, ...settingsToSave } = this.settings;
+    // Credentials go to device-local storage, never to the vault file.
+    // SettingsStorage.save strips them again as a backstop.
+    const { writeSecrets } = await import('./core/storage/SecretStorage');
+    writeSecrets(this.app, {
+      githubToken: this.settings.githubToken ?? '',
+      environmentVariables: this.settings.environmentVariables ?? '',
+    });
     await this.storage.settings.save(settingsToSave);
 
     await this.storage.saveState({

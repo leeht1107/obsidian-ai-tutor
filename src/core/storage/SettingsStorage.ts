@@ -10,6 +10,7 @@
 
 import type { ObsidianCopilotSettings, PlatformBlockedCommands } from '../types';
 import { DEFAULT_SETTINGS, getDefaultBlockedCommands } from '../types';
+import type { StoredSecrets } from './SecretStorage';
 import type { VaultFileAdapter } from './VaultFileAdapter';
 
 /** Fields that are machine-specific state or loaded separately. */
@@ -84,7 +85,12 @@ export class SettingsStorage {
   /** Save settings to .copilot/settings.json. */
   async save(settings: StoredSettings): Promise<void> {
     try {
-      const content = JSON.stringify(settings, null, 2);
+      // This file is shareable by design, so credentials must not reach it even
+      // if a caller hands them over. SecretStorage owns them instead, in
+      // device-local storage that no sync client copies.
+      const { githubToken: _token, environmentVariables: _env, ...safe } =
+        settings as StoredSettings & Partial<StoredSecrets>;
+      const content = JSON.stringify(safe, null, 2);
       await this.adapter.write(SETTINGS_PATH, content);
     } catch (error) {
       console.error('[ObsidianCopilot] Failed to save settings:', error);

@@ -801,7 +801,9 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(advancedContentEl)
       .setName('GitHub token')
-      .setDesc('Optional. Uses COPILOT_GITHUB_TOKEN, GH_TOKEN, and GITHUB_TOKEN for the Copilot child process when set.')
+      .setDesc('선택 사항입니다. 입력하면 Copilot 실행 시 COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN으로 전달됩니다. '
+        + '토큰은 금고가 아니라 이 컴퓨터 안에만 저장되므로, 금고를 공유하거나 클라우드에 올려도 함께 가지 않습니다. '
+        + '다른 컴퓨터에서는 다시 입력해야 합니다.')
       .addText((text) =>
         text
           .setPlaceholder('github_pat_...')
@@ -817,7 +819,10 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .setDesc('선택한 provider의 CLI에 넘길 환경 변수입니다 (KEY=VALUE, 한 줄에 하나).')
       .addTextArea((text) => {
         text
-          .setPlaceholder('COPILOT_GITHUB_TOKEN=your-token\nGH_TOKEN=your-token')
+          // The old placeholder suggested pasting a token here, into a field that
+          // was then written to the shareable vault settings file. Both halves of
+          // that are fixed — the store moved, and the example no longer invites it.
+          .setPlaceholder('HTTPS_PROXY=http://proxy.school.ac.kr:8080\nLANG=ko_KR.UTF-8')
           .setValue(this.plugin.settings.environmentVariables)
           .onChange(async (value) => {
             await this.plugin.applyEnvironmentVariables(value);
