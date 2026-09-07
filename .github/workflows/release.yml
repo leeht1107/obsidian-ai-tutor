@@ -32,6 +32,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A tag push was reaching students without the suite ever running. The
+      # permission-flag tests are the only check on what these CLIs are allowed
+      # to do, so they gate the release as well as the pull request.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand
+
       - name: Build
         run: npm run build
 

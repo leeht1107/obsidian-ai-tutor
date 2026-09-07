@@ -1,0 +1,44 @@
+name: CI
+
+# The permission flags this plugin passes to four CLIs change meaning with a
+# single argument reordering — `--disallowedTools` is variadic, and a comma does
+# not end it. Those invariants are pinned by the test suite, so the suite has to
+# be a gate rather than something to remember to run.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    # Windows is the platform the authors cannot run, and it is the one where
+    # CLI path resolution, .cmd shims and child-process launching behave
+    # differently. Every Windows claim in this repository has been a claim about
+    # mocked filesystems; this runner is the first thing that can contradict one.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand
+
+      - name: Build
+        run: npm run build
