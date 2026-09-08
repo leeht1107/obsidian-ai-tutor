@@ -1,4 +1,7 @@
+import * as fs from 'fs';
 import { TFile } from 'obsidian';
+import * as os from 'os';
+import * as path from 'path';
 
 import { SlashCommandManager } from '@/core/commands';
 import type { SlashCommand } from '@/core/types';
@@ -217,6 +220,84 @@ describe('SlashCommandManager', () => {
       });
       expect(allowed.expandedPrompt).toBe('OUT');
       expect(bashRunner).toHaveBeenCalled();
+    });
+
+    it('runs commands that merely resemble backgrounding syntax like any other command', async () => {
+      const app = createMockApp({});
+      const bashRunner = jest.fn(async () => 'OUT');
+      const manager = new SlashCommandManager(app, '/vault', { bashRunner });
+
+      const cases = [
+        'echo a && echo b',
+        "grep 'x & y' file",
+        'echo "a & b"',
+        'echo hi 2>&1',
+        'echo hi >&2',
+        'echo hi &>file',
+        'echo nohup',
+      ];
+
+      for (const cmd of cases) {
+        bashRunner.mockClear();
+        const command: SlashCommand = {
+          id: '1',
+          name: 'ordinary',
+          content: `!\`${cmd}\``,
+        };
+
+        const result = await manager.expandCommand(command, '', {
+          bash: { enabled: true },
+        });
+
+        expect(result.expandedPrompt).toBe('OUT');
+        expect(bashRunner).toHaveBeenCalledWith(cmd, '/vault');
+      }
+    });
+  });
+
+  // These use the real default bash runner (no injected mock) to verify the
+  // process-group teardown actually reaps a backgrounded/detached child once
+  // the awaited command settles — the property that replaced the old textual
+  // scanner (see git history: isUntrackableBackgroundCommand et al.).
+  const maybe = process.platform === 'win32' ? describe.skip : describe;
+
+  maybe('defaultBashRunner: process-group teardown of backgrounded children', () => {
+    let dir: string;
+    beforeAll(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inline-bash-'));
+    });
+    afterAll(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    async function expandBash(content: string): Promise<{ expandedPrompt: string; errors: string[] }> {
+      const app = createMockApp({});
+      const manager = new SlashCommandManager(app, dir);
+      const command: SlashCommand = { id: '1', name: 'real', content: `!\`${content}\`` };
+      return manager.expandCommand(command, '', { bash: { enabled: true } });
+    }
+
+    it('reaps a simple `&`-backgrounded child with its group', async () => {
+      // `>/dev/null 2>&1` detaches the background child's stdio from the
+      // wrapper's own stdout/stderr pipes. Without it, Node's `close` event
+      // (which waits for every stdio holder to release the pipe, not just
+      // the awaited process) would already block until the child finishes —
+      // i.e. it would never have been a bypass in the first place.
+      const proofFile = path.join(dir, 'delayed-proof-simple.txt');
+      await expandBash(`sh -c 'sleep 0.3; printf x >> ${proofFile}' >/dev/null 2>&1 &`);
+
+      await new Promise((r) => setTimeout(r, 600));
+      expect(fs.existsSync(proofFile)).toBe(false);
+    });
+
+    it("reaps the reviewer's nested nohup payload that defeated the old textual scanner", async () => {
+      const proofFile = path.join(dir, 'delayed-proof.md');
+      // Everything the old scanner looked for (`&`, `nohup`) is inside the
+      // outer command's single quotes, so it only ever saw the leading `sh`.
+      await expandBash(`sh -c 'nohup sh -c "sleep 0.3; printf x >> ${proofFile}" >/dev/null 2>&1 &'`);
+
+      await new Promise((r) => setTimeout(r, 600));
+      expect(fs.existsSync(proofFile)).toBe(false);
     });
   });
 });

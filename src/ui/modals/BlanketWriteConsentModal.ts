@@ -30,7 +30,16 @@ export class BlanketWriteConsentModal extends Modal {
       text: `${this.providerLabel}는 도구를 하나씩 허용하는 방법이 없습니다. Agent로 두면 파일을 만들고 고치고 지우는 것, 명령을 실행하는 것까지 확인 없이 하고, 그 범위가 이 금고 안으로 제한되지 않습니다 — 이 컴퓨터의 다른 파일에도 닿을 수 있습니다.`,
     });
     contentEl.createEl('p', {
-      text: 'Ask로 두면 읽기만 하고 아무것도 바꾸지 않습니다. 허용한 뒤에도 토글을 Ask로 되돌리면 다시 읽기 전용이 됩니다.',
+      // The unqualified version of this sentence is false, and an adversarial
+      // review kept proving it. What Ask actually guarantees is that no new
+      // write starts. Something Agent already launched can outlive the switch:
+      // on macOS only if it deliberately left its process group, on Windows for
+      // any program that outlives the one that started it, because Windows has
+      // no process group to tear down as a unit. Naming that is the whole point
+      // — a student who is told "nothing" and later sees something is owed the
+      // narrower true sentence instead.
+      text: 'Ask로 두면 새로 파일을 고치거나 명령을 실행하지 않습니다. 허용한 뒤에도 토글을 Ask로 되돌리면 다시 읽기 전용이 됩니다. '
+        + '다만 Agent로 있는 동안 시작된 프로그램은 Ask로 되돌려도 남아 있을 수 있습니다 — Windows에서는 특히 그렇습니다.',
       cls: 'setting-item-description',
     });
 

@@ -4,7 +4,7 @@ import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
 import { defaultModelSource, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption,PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
-import { errorLogPath, formatErrorsForReport, readRecentErrors } from '../../core/storage/ErrorLog';
+import { ERROR_LOG_PATH, formatErrorsForReport, readRecentErrors } from '../../core/storage/ErrorLog';
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
@@ -117,6 +117,15 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       // and disabling here once left copilot and agy users with no route to
       // the login flow at all.
       button.onClick(async () => {
+        // The wizard sets `selectedProvider` to this row's provider unconditionally on
+        // open (see SetupWizardModal#chooseProvider), including for a row that is not
+        // the one currently in use — the same mid-flight provider switch the toolbar
+        // selector guards against, reachable from here too since every provider gets a
+        // row regardless of which one a request is running against.
+        if (this.plugin.isBashExpansionInFlight()) {
+          new Notice('실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.');
+          return;
+        }
         const { SetupWizardModal } = await import('../../ui/modals/SetupWizardModal');
         // Carry the provider this row is about, so the wizard does not ask
         // again for something the settings tab already showed.
@@ -430,6 +439,14 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) => {
         for (const provider of PROVIDERS) dropdown.addOption(provider.id, provider.label);
         dropdown.setValue(this.plugin.settings.selectedProvider).onChange(async (value) => {
+          // Locked the same way the toolbar's provider selector locks itself: switching
+          // mid-request would resolve a second write-capable region against a provider
+          // the write-authority counter's captured permission mode never accounted for.
+          if (this.plugin.isBashExpansionInFlight()) {
+            new Notice('실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.');
+            dropdown.setValue(this.plugin.settings.selectedProvider);
+            return;
+          }
           this.plugin.settings.selectedProvider = value as typeof this.plugin.settings.selectedProvider;
           await this.plugin.saveSettings();
           this.plugin.agentService?.cleanup();
@@ -847,7 +864,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       cls: 'setting-item-description',
       // The failures that matter most are on machines nobody here can reach, and
       // a student cannot be asked to open a terminal to retrieve them.
-      text: `오류가 생기면 자동으로 ${errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)} 에 기록됩니다. `
+      text: `오류가 생기면 자동으로 보관함의 ${ERROR_LOG_PATH} 에 기록됩니다. `
         + '인증 토큰 같은 비밀 값은 가려서 저장합니다.',
     });
 
@@ -858,7 +875,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
         button.setButtonText('복사').onClick(async () => {
           const entries = await readRecentErrors(
             this.plugin.storage.getAdapter(),
-            errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)
+            ERROR_LOG_PATH
           );
           await navigator.clipboard.writeText(formatErrorsForReport(entries));
           new Notice(entries.length > 0

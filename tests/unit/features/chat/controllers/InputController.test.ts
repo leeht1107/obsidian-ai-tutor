@@ -2,8 +2,10 @@
  * Tests for InputController - Message Queue and Input Handling
  */
 
+import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { InputController, type InputControllerDeps } from '@/features/chat/controllers/InputController';
 import { ChatState } from '@/features/chat/state/ChatState';
+import ObsidianCopilotPlugin from '@/main';
 
 // Helper to create mock DOM element
 function createMockElement() {
@@ -100,6 +102,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
         setCurrentPlanFilePath: jest.fn(),
       },
       saveSettings: jest.fn(),
+      recapturePermissionMode: jest.fn(),
       settings: {
         slashCommands: [],
         blockedCommands: { unix: [], windows: [] },
@@ -153,6 +156,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
     getTitleGenerationService: () => null,
     getComponent: () => ({} as any),
     setPlanModeActive: jest.fn(),
+    setBashExpansionActive: jest.fn(),
     getPlanBanner: () => null,
     generateId: () => `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     resetContextMeter: jest.fn(),
@@ -448,6 +452,67 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.messages[0].content).toBe('Auto prompt');
       expect(deps.state.messages[0].hidden).toBe(true);
       expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears the bash-expansion busy flag even when expandCommand throws', async () => {
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'boom', args: [] }),
+        expandCommand: jest.fn().mockRejectedValue(new Error('bash expansion failed')),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [
+        { id: 'boom', name: 'boom', content: '!`sleep 5`' },
+      ];
+
+      await expect(controller.sendMessage({ content: '/boom' })).rejects.toThrow('bash expansion failed');
+
+      expect(deps.setBashExpansionActive).toHaveBeenNthCalledWith(1, true);
+      expect(deps.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
+    });
+
+    it('does not enable inline bash when permissionMode is agent but the selected provider still needs blanket-write consent', async () => {
+      // claude writes without asking, so it needs one-time consent before Agent means
+      // anything; switching providers does not run that consent gate, so raw
+      // permissionMode === 'agent' is not enough on its own.
+      deps.plugin.settings.permissionMode = 'agent';
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = [];
+      (deps.plugin.settings as any).enableInlineBash = true;
+      let seenBashOptions: any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'greet', args: [] }),
+        expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+          seenBashOptions = options.bash;
+          return Promise.resolve({ expandedPrompt: 'expanded', errors: [] });
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{ id: 'greet', name: 'greet', content: 'hi !`echo hi`' }];
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/greet' });
+
+      expect(seenBashOptions.enabled).toBe(false);
+    });
+
+    it('locks the toggle for the whole duration a provider request is streaming, not just inline bash', async () => {
+      let busy = false;
+      let busyMidStream: boolean | null = null;
+      deps.setBashExpansionActive = jest.fn((active: boolean) => { busy = active; });
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'probe' }, { type: 'done' }]));
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation(async (chunk: any) => {
+        if (chunk.type === 'probe') {
+          // Mid-stream: the request is in flight and nothing has settled it yet.
+          busyMidStream = busy;
+        }
+      });
+
+      await controller.sendMessage({ content: 'hello' });
+
+      expect(busyMidStream).toBe(true);
+      expect(busy).toBe(false);
     });
 
     it('infers quiz session state for toolbar-launched quiz prompts', async () => {
@@ -784,6 +849,48 @@ describe('InputController - Message Queue', () => {
       await (controller as any).exitPlanPermissionMode();
 
       expect(deps.plugin.settings.permissionMode).toBe('ask');
+    });
+
+    it('refreshes a stale ask capture on plan approval, so a later inline-bash authorisation and the toggle agree', async () => {
+      // Reproduces the adversarial sequence: a plan region is still draining (having
+      // captured 'ask', since plan always resolves read-only) when its own approval
+      // callback restores 'agent'. The write-authority counter and capture below are the
+      // REAL plugin machinery (src/main.ts), not a mock, so this exercises the actual
+      // interaction between `exitPlanPermissionMode` and `recapturePermissionMode`.
+      const plugin = new ObsidianCopilotPlugin(
+        { workspace: { getLeavesOfType: jest.fn().mockReturnValue([]) } } as any,
+        { id: 'obsidian-ai-tutor', version: '0.0.0' } as any
+      );
+      plugin.settings = {
+        ...DEFAULT_SETTINGS,
+        selectedProvider: 'codex',
+        permissionMode: 'plan',
+        lastNonPlanPermissionMode: 'agent',
+        enableInlineBash: true,
+      };
+      (plugin as any).saveSettings = jest.fn().mockResolvedValue(undefined);
+
+      deps.plugin = plugin as any;
+      deps.setBashExpansionActive = (active: boolean) => plugin.setBashExpansionActive(active);
+      controller = new InputController(deps);
+
+      // The write-authority region this plan request opened is still open.
+      plugin.setBashExpansionActive(true);
+      expect(plugin.getCapturedPermissionMode()).toBe('ask');
+
+      // Plan approval lands while that region is still in flight.
+      await (controller as any).exitPlanPermissionMode();
+
+      expect(plugin.settings.permissionMode).toBe('agent');
+      // The capture must be refreshed to match the just-granted mode — not left as the
+      // stale 'ask' the plan-mode region captured, or a subsequent inline-bash
+      // authorisation would run under 'agent' while the toggle (reading the captured mode
+      // while busy) still shows Ask.
+      expect(plugin.getCapturedPermissionMode()).toBe('agent');
+
+      // The region is still open; draining it clears the capture as normal.
+      plugin.setBashExpansionActive(false);
+      expect(plugin.getCapturedPermissionMode()).toBeNull();
     });
   });
 

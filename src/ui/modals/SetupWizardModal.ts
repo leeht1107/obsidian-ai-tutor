@@ -123,6 +123,17 @@ export class SetupWizardModal extends Modal {
   }
 
   private async chooseProvider(provider: ProviderId) {
+    // Switching provider while a request is in flight flips the effective permission
+    // mode under a child process that is already running, which is how the toolbar
+    // ends up displaying Ask while an Agent-flagged CLI writes. The toolbar popover
+    // and both Settings entry points refuse it too; this guard sits on the assignment
+    // itself so a future caller cannot reintroduce the hole. Re-selecting the SAME
+    // provider changes nothing, so the CLI-not-found wizard and the first-run picker
+    // still work exactly as before.
+    if (provider !== this.plugin.settings.selectedProvider && this.plugin.isBashExpansionInFlight()) {
+      new Notice('실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.');
+      return;
+    }
     this.plugin.settings.selectedProvider = provider;
     await this.plugin.saveSettings();
 

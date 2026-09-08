@@ -1,4 +1,4 @@
-import { type ChildProcess, execFile, spawn } from 'child_process';
+import { type ChildProcess, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -16,16 +16,18 @@ import {
   findProviderCliPath,
   getProviderDescriptor,
   getStaticProviderModels,
+  needsBlanketWriteConsent,
   parseAgyModels,
   parseCodexModels,
   type ProviderId,
   type ProviderModelOption,
+  resolveEffectivePermissionMode,
   resolveNativeSelection,
   supportsReadOnlyMode,
-  writesWithoutAsking,
 } from '../providers/providerRegistry';
+import { isWindows, killTree } from '../setup/processTree';
 import type { RequestOutcome } from '../setup/providerConnection';
-import { appendErrorLog, type ErrorLogEntry, errorLogPath, maskHome } from '../storage/ErrorLog';
+import { appendErrorLog, ERROR_LOG_PATH, type ErrorLogEntry, maskHome } from '../storage/ErrorLog';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -77,6 +79,8 @@ const CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
  */
 const MAX_STDERR_CHARS = 1024 * 1024;
 const MAX_LINE_BUFFER_CHARS = 1024 * 1024;
+/** Same ceiling execFile's own `maxBuffer` used to enforce for listNativeProviderModels. */
+const MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
 
 interface DiffContentEntry {
   filePath: string;
@@ -408,6 +412,14 @@ export class CopilotBridgeService {
    * id must never be handed to --resume. */
   private sessionConfirmedByCli = false;
   private wasInterrupted = false;
+  /**
+   * Which provider handled the previous turn — any provider, not just copilot. Set once
+   * per turn in `buildPromptWithHistory`, the single choke point both the copilot and
+   * native provider paths already call once per turn. Lets a copilot turn tell whether
+   * its own remembered session is stale because a different provider held the turn
+   * just before it (see the comment above `holdsItsOwnSession`).
+   */
+  private lastTurnProvider: ProviderId | null = null;
   private cachedCopilotPath: string | null | undefined = undefined;
   private cachedCapabilities = new Map<string, CopilotCliCapabilities>();
   private capabilityProbePromises = new Map<string, Promise<CopilotCliCapabilities>>();
@@ -486,6 +498,19 @@ export class CopilotBridgeService {
     vaultPath: string,
     queryOptions?: QueryOptions
   ): string {
+    const currentProvider = this.plugin.settings.selectedProvider as ProviderId;
+    // A copilot session is only a valid thing to resume if copilot ALSO held the
+    // previous turn. If a different provider handled the turn right before this one,
+    // copilot's remembered session never saw it — resuming it would silently skip the
+    // middle of the conversation, invisible from both directions at once. Invalidate it
+    // here, before `holdsItsOwnSession` below is read, so the normal replay path runs
+    // and rebuilds the full transcript into a fresh session instead.
+    if (currentProvider === 'copilot' && this.lastTurnProvider !== null && this.lastTurnProvider !== 'copilot') {
+      this.sessionId = null;
+      this.sessionConfirmedByCli = false;
+    }
+    this.lastTurnProvider = currentProvider;
+
     const injectedPrompt = this.injectSystemPrompt(prompt, vaultPath, queryOptions);
 
     if (this.wasInterrupted && conversationHistory && conversationHistory.length > 0) {
@@ -504,6 +529,10 @@ export class CopilotBridgeService {
     // provider meant one copilot turn anywhere in a conversation left the next
     // claude turn with no history and no current note, while the UI still showed
     // the note attached. A fresh conversation looked fine; switching mid-way did not.
+    // The reverse direction (copilot resuming its OWN earlier session after a different
+    // provider's turn in between) is covered above, by invalidating `sessionId` whenever
+    // the previous turn's provider was not copilot — so by the time this flag is read,
+    // a copilot turn only ever "holds its own session" when copilot held the last one too.
     const holdsItsOwnSession = this.plugin.settings.selectedProvider === 'copilot' && Boolean(this.sessionId);
 
     if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
@@ -577,24 +606,36 @@ export class CopilotBridgeService {
       const [probeCmd, probeArgs] = probeEntry
         ? [probeEntry[0], [...probeEntry[1], '--help', 'all']]
         : [copilotPath, ['--help', 'all']];
-      execFile(probeCmd, probeArgs, {
-        encoding: 'utf8',
-        env: this.getCustomEnv(copilotPath),
-        timeout: CLI_CAPABILITY_PROBE_TIMEOUT_MS,
-        windowsHide: true,
-      }, (error, stdout, stderr) => {
-        const helpText = typeof stdout === 'string' && stdout.trim().length > 0
-          ? stdout
-          : typeof stderr === 'string'
-            ? stderr
-            : '';
-        const capabilities = detectCopilotCliCapabilities(helpText);
-        if (error && helpText.length === 0) {
-          resolve(detectCopilotCliCapabilities(''));
-          return;
-        }
-        resolve(capabilities);
-      });
+      // spawn, not execFile: execFile silently drops `detached` (it only forwards
+      // cwd/env/gid/shell/signal/uid/windowsHide to the spawn() it wraps), so a
+      // probe that backgrounds a helper would outlive this probe's own timeout.
+      let child: ChildProcess;
+      try {
+        child = spawn(probeCmd, probeArgs, {
+          env: this.getCustomEnv(copilotPath),
+          windowsHide: true,
+          detached: !isWindows,
+        });
+      } catch {
+        resolve(detectCopilotCliCapabilities(''));
+        return;
+      }
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      const finish = (errored: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        killTree(child);
+        const helpText = stdout.trim().length > 0 ? stdout : stderr;
+        resolve(errored && helpText.length === 0 ? detectCopilotCliCapabilities('') : detectCopilotCliCapabilities(helpText));
+      };
+      const timer = setTimeout(() => finish(true), CLI_CAPABILITY_PROBE_TIMEOUT_MS);
+      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.on('error', () => finish(true));
+      child.on('close', (code) => finish(code !== 0));
     }).then((capabilities) => {
       this.cachedCapabilities.set(copilotPath, capabilities);
       this.capabilityProbePromises.delete(copilotPath);
@@ -651,10 +692,47 @@ export class CopilotBridgeService {
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
     if (!entry) throw new Error(`${provider} CLI could not be run`);
     return new Promise((resolve, reject) => {
-      execFile(entry[0], [...entry[1], ...args], { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
-        if (error) { reject(error); return; }
-        resolve(provider === 'codex' ? parseCodexModels(stdout) : parseAgyModels(stdout));
+      // spawn, not execFile: execFile silently drops `detached` (it only forwards
+      // cwd/env/gid/shell/signal/uid/windowsHide to the spawn() it wraps), so a
+      // CLI that backgrounds a helper here would outlive this listing call.
+      let child: ChildProcess;
+      try {
+        child = spawn(entry[0], [...entry[1], ...args], {
+          cwd: this.getWorkingDirectory(),
+          env: process.env,
+          windowsHide: true,
+          detached: !isWindows,
+        });
+      } catch (spawnErr) {
+        reject(spawnErr instanceof Error ? spawnErr : new Error(String(spawnErr)));
+        return;
+      }
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        killTree(child);
+        fn();
+      };
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString();
+        if (stdout.length > MODEL_LIST_MAX_STDOUT_CHARS) {
+          finish(() => reject(new Error(`${provider} models output exceeded buffer limit`)));
+        }
       });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString()).slice(0, MAX_STDERR_CHARS);
+      });
+      child.on('error', (error) => finish(() => reject(error)));
+      child.on('close', (code) => finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `${provider} models exited with code ${code}`));
+          return;
+        }
+        resolve(provider === 'codex' ? parseCodexModels(stdout) : parseAgyModels(stdout));
+      }));
     });
   }
 
@@ -788,7 +866,7 @@ export class CopilotBridgeService {
       const adapter = this.plugin.storage?.getAdapter?.();
       if (!adapter) return;
       const home = os.homedir();
-      const logPath = errorLogPath(this.plugin.app.vault.configDir, this.plugin.manifest.id);
+      const logPath = ERROR_LOG_PATH;
       void appendErrorLog(adapter, logPath, {
         ...entry,
         cliPath: maskHome(entry.cliPath, home),
@@ -879,11 +957,11 @@ export class CopilotBridgeService {
     // student who never touched the toggle would otherwise reach a blanket-write CLI
     // simply by selecting it. Until they have confirmed, this provider runs read-only.
     const acknowledged = this.plugin.settings.blanketWriteAcknowledged;
-    // A hand-edited settings file can leave anything here, and `undefined.includes`
-    // would take the request down rather than fall back to the safe answer.
-    const needsConsent = writesWithoutAsking(provider)
-      && !(Array.isArray(acknowledged) && acknowledged.includes(provider));
-    const permissionMode = (wantsReadOnly && supportsReadOnlyMode(provider)) || needsConsent ? 'ask' : 'agent';
+    const needsConsent = needsBlanketWriteConsent(provider, acknowledged);
+    // The shared predicate so the toolbar, this dispatch, and both inline-bash gates
+    // agree on what "Agent" means for this provider right now — see its doc comment
+    // in providerRegistry.ts for why `settings.permissionMode` alone is not enough.
+    const permissionMode = resolveEffectivePermissionMode(mode, provider, acknowledged, Boolean(queryOptions?.planMode));
 
     // Both of these change what the CLI is allowed to do, so neither may be silent.
     // A Notice rather than a stream chunk: the conversation is the model's transcript,
@@ -928,6 +1006,11 @@ export class CopilotBridgeService {
       stdio: ['pipe', 'pipe', 'pipe'],
       // No console window should flash on a student's screen per request.
       windowsHide: true,
+      // Own the whole tree: a provider CLI that backgrounds a helper (to keep
+      // a permission it was granted alive past this request, or for any other
+      // reason) inherits this process group and is torn down with it in the
+      // `finally` below via `killTree`, on every settle path, not just a clean exit.
+      detached: !isWindows,
       });
     } catch (error) {
       const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
@@ -1036,8 +1119,12 @@ export class CopilotBridgeService {
       }
       yield { type: 'done' };
     } finally {
-      // Abandoning the iterator must not leave a CLI running with no owner.
-      if (!closed) child.kill('SIGTERM');
+      // Every settle path lands here — normal close, error, cancel(), or the
+      // iterator being abandoned — and each must take the whole process group
+      // with it, not just the direct child, which may already have exited
+      // normally while a helper it backgrounded is still running. Safe to call
+      // even after a clean close: killTree no-ops on an already-gone group.
+      killTree(child);
       if (this.currentProcess === child) this.currentProcess = null;
     }
   }
@@ -1106,6 +1193,8 @@ export class CopilotBridgeService {
         stdio: ['pipe', 'pipe', 'pipe'],
         // No console window should flash on a student's screen per request.
         windowsHide: true,
+        // Own the whole tree, same reasoning as the native provider spawn above.
+        detached: !isWindows,
       });
     } catch (spawnErr) {
       // spawn() throws synchronously for invalid args/cwd (e.g. EINVAL on Windows).
@@ -1210,10 +1299,12 @@ export class CopilotBridgeService {
         }
       }
     } finally {
+      // Every settle path — normal close, error, cancel(), or the iterator
+      // being abandoned — takes the whole process group with it, not just
+      // this direct child. Runs after the while loop above has drained every
+      // real chunk, so a normal answer is never truncated by it.
+      killTree(child);
       if (this.currentProcess === child) {
-        if (!done) {
-          child.kill('SIGTERM');
-        }
         this.currentProcess = null;
       }
     }
@@ -1266,7 +1357,12 @@ export class CopilotBridgeService {
       this.abortController.abort();
     }
     if (this.currentProcess) {
-      this.currentProcess.kill('SIGTERM');
+      // The whole group, not just this direct child — same reasoning as the
+      // `finally` blocks in spawnCopilot and querySelectedProvider, which
+      // this pre-empts: this stop path runs first, and their own killTree
+      // call after the child actually closes is what reaps this same group
+      // a second, harmless time.
+      killTree(this.currentProcess);
       this.currentProcess = null;
     }
   }

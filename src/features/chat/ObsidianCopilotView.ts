@@ -81,6 +81,8 @@ export class ObsidianCopilotView extends ItemView {
   private externalContextSelector: ExternalContextSelector | null = null;
   private webSearchToggle: WebSearchToggle | null = null;
   private permissionToggle: PermissionToggle | null = null;
+  /** Filled by `createProviderSelector` with a `refresh` callback; see that call site. */
+  private providerSelectorHandle: { refresh?: () => void } = {};
   private slashCommandManager: SlashCommandManager | null = null;
   private slashCommandDropdown: SlashCommandDropdown | null = null;
   private instructionModeManager: InstructionModeManager | null = null;
@@ -285,11 +287,23 @@ export class ObsidianCopilotView extends ItemView {
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
       isAgentInitiatedPlanMode: () => this.state.planModeState?.agentInitiated ?? false,
       isPlanModeRequested: () => this.state.planModeRequested,
+      isBashExpansionInFlight: () => this.plugin.isBashExpansionInFlight(),
+      getCapturedPermissionMode: () => this.plugin.getCapturedPermissionMode(),
       confirmBlanketWrite: async (provider) => {
         const accepted = await new Promise<boolean>((resolve) => {
           new BlanketWriteConsentModal(this.app, getProviderDescriptor(provider).label, resolve).open();
         });
         if (!accepted) return false;
+        // The modal await can straddle a write-capable region starting elsewhere (e.g. an
+        // inline-edit bash expansion) and finishing before the student answers. Recording
+        // the acknowledgment now would silently flip `resolveEffectivePermissionMode` for
+        // this provider from 'ask' to 'agent' out from under that already-running work, even
+        // though nothing here touches `permissionMode` itself. Re-check right before the
+        // write, not just at the top of the flow that led here.
+        if (this.plugin.isBashExpansionInFlight()) {
+          new Notice('실행 중인 작업이 끝날 때까지 모드를 바꿀 수 없습니다.');
+          return false;
+        }
         const acknowledged = new Set(this.plugin.settings.blanketWriteAcknowledged ?? []);
         acknowledged.add(provider);
         this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
@@ -434,7 +448,7 @@ export class ObsidianCopilotView extends ItemView {
   private buildProviderSelector(toolbar: HTMLElement, onProviderChange?: () => void) {
     createProviderSelector(toolbar, this.plugin, onProviderChange, (handler) => {
       this.registerDomEvent(document, 'click', handler);
-    });
+    }, this.providerSelectorHandle);
   }
 
   private initializeControllers() {
@@ -517,6 +531,7 @@ export class ObsidianCopilotView extends ItemView {
       setPlanModeActive: () => {
         this.updatePlanModeUiState();
       },
+      setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
       getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);
@@ -722,6 +737,14 @@ export class ObsidianCopilotView extends ItemView {
     return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
 
+  /** Repaints the Ask/Agent toggle and the provider selector so both reflect the
+   * plugin's current bash-expansion busy flag. Called by the plugin, which may be
+   * reacting to a bash expansion that started outside this view (e.g. InlineEditModal). */
+  refreshPermissionToggle(): void {
+    this.permissionToggle?.updateDisplay();
+    this.providerSelectorHandle.refresh?.();
+  }
+
   private updatePlanModeUiState(): void {
     const isPlanMode = this.plugin.settings.permissionMode === 'plan';
     const isPlanModeRequested = this.state.planModeRequested;
@@ -733,7 +756,11 @@ export class ObsidianCopilotView extends ItemView {
  * Open the install/login wizard. Imported lazily so the settings tab and the
  * provider popover can both reach it without pulling the modal into startup.
  */
-type ProviderSelectorPlugin = Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings' | 'app' | 'agentService' | 'providerConnections'>;
+type ProviderSelectorPlugin = Pick<ObsidianCopilotPlugin, 'settings' | 'saveSettings' | 'app' | 'agentService' | 'providerConnections'> & {
+  /** Optional so every existing test-constructed plugin stub keeps working unchanged;
+   * absent reads as "not busy", matching `ToolbarCallbacks.isBashExpansionInFlight`. */
+  isBashExpansionInFlight?: () => boolean;
+};
 
 async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: ProviderId): Promise<void> {
   try {
@@ -763,16 +790,24 @@ export function resolveStoredQuizControl(target: Element | null): StoredQuizCont
   return null;
 }
 
+const PROVIDER_BUSY_NOTICE = '실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.';
+
 export function createProviderSelector(
   toolbar: HTMLElement,
   plugin: ProviderSelectorPlugin,
   onProviderChange?: (provider: ProviderId) => void,
-  registerDocumentClick?: (handler: (event: MouseEvent) => void) => void
+  registerDocumentClick?: (handler: (event: MouseEvent) => void) => void,
+  /** Populated with a `refresh` callback so an owner holding no reference to the
+   * returned container (whose shape existing tests pin) can still repaint the
+   * busy-disabled affordance from an external event — the same edge `main.ts`
+   * already repaints `PermissionToggle` on. */
+  handle?: { refresh?: () => void }
 ): HTMLElement {
   const container = toolbar.createDiv({ cls: 'ocop-provider-selector' });
   const button = container.createEl('button', { cls: 'ocop-provider-btn', attr: { type: 'button', 'aria-label': 'Choose AI provider', 'aria-expanded': 'false' } });
   const popover = container.createDiv({ cls: 'ocop-provider-popover' });
   let setupHint: HTMLElement | null = null;
+  const isBusy = () => plugin.isBashExpansionInFlight?.() ?? false;
   const updateButton = () => {
     const provider = PROVIDERS.find((item) => item.id === plugin.settings.selectedProvider) ?? PROVIDERS[0];
     button.empty();
@@ -780,7 +815,24 @@ export function createProviderSelector(
     mark.innerHTML = PROVIDER_MARKS[provider.id];
     button.createSpan({ cls: 'ocop-provider-btn-label', text: provider.label });
     button.createSpan({ cls: 'ocop-provider-btn-chevron', text: '⌄' });
+
+    // Switching provider while a request is in flight is exactly how the write-authority
+    // capture in main.ts and the live consent resolution diverge: the counter's capture
+    // stays pinned to the FIRST region's provider, but a second overlapping region (an
+    // inline edit, say) resolves against whatever provider is selected NOW. Locked here
+    // the same way PermissionToggle already locks itself while busy, so neither control
+    // can move the effective mode out from under the other mid-flight.
+    if (isBusy()) {
+      container.addClass('is-unavailable');
+      container.setAttribute('aria-disabled', 'true');
+      container.setAttribute('title', PROVIDER_BUSY_NOTICE);
+    } else {
+      container.removeClass('is-unavailable');
+      container.removeAttribute('aria-disabled');
+      container.removeAttribute('title');
+    }
   };
+  if (handle) handle.refresh = updateButton;
   const close = () => { popover.removeClass('is-visible'); button.setAttribute('aria-expanded', 'false'); };
   // This menu spawns nothing. It used to run a login probe per installed CLI on
   // every open — slow, and unanswerable for copilot, which has no status
@@ -810,6 +862,10 @@ export function createProviderSelector(
       if (needsAction) option.createSpan({ cls: 'ocop-provider-option-status', text: needsAction });
       option.addEventListener('click', async (event) => {
         event.stopPropagation();
+        if (isBusy()) {
+          new Notice(PROVIDER_BUSY_NOTICE);
+          return;
+        }
         if (ready) {
           plugin.settings.selectedProvider = provider.id;
           await plugin.saveSettings();
@@ -828,7 +884,14 @@ export function createProviderSelector(
   updateButton(); renderPopover();
   const firstToolbarChild = toolbar.firstElementChild;
   if (firstToolbarChild && firstToolbarChild !== container) toolbar.insertBefore(container, firstToolbarChild);
-  button.addEventListener('click', (event) => { event.stopPropagation(); if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); } });
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (isBusy()) {
+      new Notice(PROVIDER_BUSY_NOTICE);
+      return;
+    }
+    if (popover.hasClass('is-visible')) close(); else { renderPopover(); popover.addClass('is-visible'); button.setAttribute('aria-expanded', 'true'); }
+  });
   registerDocumentClick?.((event) => { if (!container.contains(event.target as Node)) close(); });
   return container;
 }

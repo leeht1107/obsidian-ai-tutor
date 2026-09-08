@@ -5,12 +5,13 @@
  * Supports $ARGUMENTS, $1/$2, @file references, and !`bash` execution.
  */
 
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import type { App } from 'obsidian';
 import type { TFile } from 'obsidian';
 
 import { getEnhancedPath } from '../../utils/env';
 import { parseSlashCommandContent } from '../../utils/slashCommand';
+import { isWindows, killTree } from '../setup/processTree';
 import type { CopilotModel, SlashCommand } from '../types';
 
 function isVaultFileCandidate(value: unknown): value is TFile {
@@ -366,24 +367,64 @@ function shellEscapeArgIfNeeded(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
+const INLINE_BASH_TIMEOUT_MS = 10000;
+const INLINE_BASH_MAX_BUFFER = 1024 * 1024;
+
 function defaultBashRunner(command: string, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    exec(
-      command,
-      {
-        cwd,
-        timeout: 10000,
-        maxBuffer: 1024 * 1024,
-        // Enhance PATH for GUI apps (Obsidian has minimal PATH)
-        env: { ...process.env, PATH: getEnhancedPath() },
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr || error.message));
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      // Own the whole tree: a command that backgrounds or detaches a child
+      // (`nohup ... &`, `setsid ...`, or a nested `sh -c '... &'` that hides
+      // the operator from any textual scan) inherits this process group and
+      // is torn down with it below. Only a process that explicitly leaves
+      // the group (a second `setsid`/double-fork) escapes — the same bounded
+      // residual a textual scanner could never close off in the first place.
+      detached: !isWindows,
+      // Enhance PATH for GUI apps (Obsidian has minimal PATH)
+      env: { ...process.env, PATH: getEnhancedPath() },
+    });
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killTree(child);
+      fn();
+    };
+
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`Command timed out after ${INLINE_BASH_TIMEOUT_MS}ms: ${command}`)));
+    }, INLINE_BASH_TIMEOUT_MS);
+
+    const onChunk = (isStdout: boolean) => (chunk: string) => {
+      if (isStdout) stdout += chunk; else stderr += chunk;
+      if (stdout.length + stderr.length > INLINE_BASH_MAX_BUFFER) {
+        finish(() => reject(new Error(`stdout maxBuffer length exceeded: ${command}`)));
+      }
+    };
+    child.stdout?.on('data', onChunk(true));
+    child.stderr?.on('data', onChunk(false));
+
+    child.on('error', (error) => {
+      finish(() => reject(error));
+    });
+
+    child.on('close', (code) => {
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr || `Command failed: ${command}`));
         } else {
           resolve(stdout);
         }
-      }
-    );
+      });
+    });
   });
 }

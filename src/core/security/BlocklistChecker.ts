@@ -9,7 +9,7 @@
  * Normalize a command string for blocklist matching.
  * Collapses whitespace and strips backslash escapes to defeat trivial bypasses.
  */
-function normalizeCommand(command: string): string {
+export function normalizeCommand(command: string): string {
   // Strip backslash escapes: remove standalone backslashes that escape next char
   let result = command.replace(/\\(.)/g, '$1');
   // Collapse consecutive whitespace to single space

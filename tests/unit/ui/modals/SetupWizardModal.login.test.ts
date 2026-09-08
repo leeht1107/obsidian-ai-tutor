@@ -70,6 +70,7 @@ describe('SetupWizardModal — install and login are actually driven', () => {
       settings: { ...DEFAULT_SETTINGS, providerCliPaths: {} },
       saveSettings: jest.fn().mockResolvedValue(undefined),
       agentService: { invalidatePathCache: jest.fn(), prewarmCapabilities: jest.fn() },
+      isBashExpansionInFlight: jest.fn(() => false),
     } as any;
     const wizard: any = new SetupWizardModal(new App(), plugin);
     return wizard;
@@ -179,6 +180,7 @@ describe('SetupWizardModal — review regressions', () => {
       settings: { ...DEFAULT_SETTINGS, providerCliPaths: {} },
       saveSettings: jest.fn().mockResolvedValue(undefined),
       agentService: { invalidatePathCache: jest.fn(), prewarmCapabilities: jest.fn() },
+      isBashExpansionInFlight: jest.fn(() => false),
     } as any;
     return new SetupWizardModal(new App(), plugin);
   }

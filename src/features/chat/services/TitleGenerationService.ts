@@ -56,6 +56,10 @@ ${truncatedAssistant}
 
 Generate a title for this conversation:`;
 
+    // Same busy signal as the chat and inline-edit streams: the CLI child already
+    // spawned with whatever permission mode was current, so the toggle must stay
+    // locked for as long as that child can still write.
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = '';
       const titleModel = this.plugin.settings.titleGenerationModel?.trim();
@@ -93,6 +97,7 @@ Generate a title for this conversation:`;
       await this.safeCallback(callback, conversationId, { success: false, error: msg });
     } finally {
       this.activeGenerations.delete(conversationId);
+      this.plugin.setBashExpansionActive(false);
     }
   }
 

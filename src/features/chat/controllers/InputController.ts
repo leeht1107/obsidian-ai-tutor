@@ -17,6 +17,7 @@ import {
   parseQuizDisplayContent,
   type QuizQuestionContext,
 } from '../../../core/learning';
+import { resolveEffectivePermissionMode } from '../../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
 import type { AskUserQuestionInput, ChatMessage, ExitPlanModeDecision, ImageAttachment } from '../../../core/types';
 import { getBashToolBlockedCommands } from '../../../core/types';
@@ -81,6 +82,14 @@ export interface InputControllerDeps {
   getTitleGenerationService: () => TitleGenerationService | null;
   getComponent: () => Component;
   setPlanModeActive: (active: boolean) => void;
+  /**
+   * Marks one write-capable action — a slash command's inline bash expanding, or a
+   * provider request streaming — as started or settled, so the toolbar can lock the
+   * Ask/Agent toggle for as long as anything it already authorized is still running.
+   * Backed by a counter on the plugin: pair every `true` with exactly one `finally`
+   * that calls `false`, since two such actions can overlap.
+   */
+  setBashExpansionActive: (active: boolean) => void;
   getPlanBanner: () => PlanBanner | null;
   showSocraticBanner?: (scopeLabel: string, focusText?: string, onHint?: () => void, onStuck?: () => void) => void;
   hideSocraticBanner?: () => void;
@@ -459,31 +468,44 @@ export class InputController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          const result = await slashCommandManager.expandCommand(cmd, detected.args, {
-            bash: {
-              // ASK/PLAN mode is read-only: inline bash never executes and never prompts
-              // for approval there, it is replaced with the same placeholder used when
-              // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
-              enabled: plugin.settings.enableInlineBash && plugin.settings.permissionMode === 'agent',
-              shouldBlockCommand: (bashCommand) =>
-                isCommandBlocked(
-                  bashCommand,
-                  getBashToolBlockedCommands(plugin.settings.blockedCommands),
-                  plugin.settings.enableBlocklist
-                ),
-            },
-          });
-          content = result.expandedPrompt;
+          this.deps.setBashExpansionActive(true);
+          try {
+            const result = await slashCommandManager.expandCommand(cmd, detected.args, {
+              bash: {
+                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                // for approval there, it is replaced with the same placeholder used when
+                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+                // The raw setting is not enough: a provider still awaiting blanket-write
+                // consent (reachable by switching providers while in Agent) must also keep
+                // bash read-only, or it runs with full authority while the toggle shows Ask.
+                enabled: plugin.settings.enableInlineBash
+                  && resolveEffectivePermissionMode(
+                    plugin.settings.permissionMode,
+                    plugin.settings.selectedProvider,
+                    plugin.settings.blanketWriteAcknowledged
+                  ) === 'agent',
+                shouldBlockCommand: (bashCommand) =>
+                  isCommandBlocked(
+                    bashCommand,
+                    getBashToolBlockedCommands(plugin.settings.blockedCommands),
+                    plugin.settings.enableBlocklist
+                  ),
+              },
+            });
+            content = result.expandedPrompt;
 
-          if (result.errors.length > 0) {
-            new Notice(formatSlashCommandWarnings(result.errors));
-          }
+            if (result.errors.length > 0) {
+              new Notice(formatSlashCommandWarnings(result.errors));
+            }
 
-          if (result.allowedTools || result.model) {
-            queryOptions = {
-              allowedTools: result.allowedTools,
-              model: result.model,
-            };
+            if (result.allowedTools || result.model) {
+              queryOptions = {
+                allowedTools: result.allowedTools,
+                model: result.model,
+              };
+            }
+          } finally {
+            this.deps.setBashExpansionActive(false);
           }
         }
       }
@@ -733,6 +755,15 @@ ${promptToSend}`;
 
     state.planModeActivationPending = false;
 
+    // Reachable while a write-authority region opened by a DIFFERENT concurrent flow
+    // (e.g. an inline-edit expansion) is still open — this runs from the streaming
+    // region's own `finally`, after that region's own counter contribution already
+    // dropped. No guard or re-capture is needed here, unlike `exitPlanPermissionMode`
+    // below: this only narrows to 'plan' (always read-only, see
+    // `resolveEffectivePermissionMode`), never widens. It cannot make the toggle lie in
+    // the dangerous direction (showing Ask while Agent-authority work runs or can start),
+    // and it does not touch `capturedPermissionMode` — whatever an already-open region was
+    // captured as stays true regardless of what a later, unrelated region sets.
     if (plugin.settings.permissionMode !== 'plan') {
       plugin.settings.lastNonPlanPermissionMode = plugin.settings.permissionMode;
       plugin.settings.permissionMode = 'plan';
@@ -751,6 +782,16 @@ ${promptToSend}`;
     if (plugin.settings.permissionMode === 'plan') {
       plugin.settings.permissionMode = restored;
       plugin.settings.lastNonPlanPermissionMode = restored;
+      // This can land while the write-authority region this very plan request opened
+      // (captured 'ask', since plan resolves read-only) is still draining — plan approval
+      // is awaited from inside the streaming loop that region wraps. That is not a stale
+      // write to refuse: the user just explicitly approved leaving read-only plan mode, so
+      // it is a deliberate, legitimate grant of authority happening right now. Refresh the
+      // capture immediately so the toggle reflects the grant instead of the read-only mode
+      // plan mode captured, and so a write dispatched later in this same in-flight region
+      // (e.g. an inline-bash expansion still to come) resolves against the restored mode
+      // rather than a stale 'ask'.
+      plugin.recapturePermissionMode();
       await plugin.saveSettings();
     }
     state.resetPlanModeState();
@@ -1128,6 +1169,11 @@ ${content}
   ): Promise<boolean> {
     const { plugin, state, streamController } = this.deps;
     let wasInterrupted = false;
+    // A running provider request can still write for as long as it streams — the CLI's
+    // argv already captured the mode it was authorized under, same as inline bash — so
+    // it shares the same busy signal the toggle reads. `finally` covers the interrupted
+    // (stop button) path too, since breaking out of the loop below still runs it.
+    this.deps.setBashExpansionActive(true);
     try {
       for await (const chunk of plugin.agentService.query(prompt, images, state.messages, queryOptions)) {
         if (state.cancelRequested) {
@@ -1140,6 +1186,8 @@ ${content}
       console.error('[Copilot] Stream error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       await streamController.appendText(`\n\n**Error:** ${errorMsg}`);
+    } finally {
+      this.deps.setBashExpansionActive(false);
     }
     return wasInterrupted;
   }

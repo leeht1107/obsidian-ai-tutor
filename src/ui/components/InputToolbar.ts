@@ -6,12 +6,14 @@ import {
   type EffortLevel,
   getProviderEffortLevels,
   getStaticProviderModels,
+  type NativePermissionMode,
+  needsBlanketWriteConsent,
   type ProviderId,
   type ProviderModelOption,
+  resolveEffectivePermissionMode,
   supportsEffortSelection,
   supportsReadOnlyMode,
   writesOutsideVault,
-  writesWithoutAsking,
 } from '../../core/providers/providerRegistry';
 import type {
   CopilotModel,
@@ -79,6 +81,22 @@ export interface ToolbarCallbacks {
   isPlanModeRequested?: () => boolean;
   /** Ask the student, in a dialog they must answer, before a blanket-write provider may write. */
   confirmBlanketWrite?: (provider: ProviderId) => Promise<boolean>;
+  /**
+   * True while a slash command's inline bash is expanding (child process spawned and not
+   * yet resolved). The toggle must not flip mid-flight: the running command already
+   * captured the mode it will act under, so a flip here would just make the label lie
+   * about what is about to happen.
+   */
+  isBashExpansionInFlight?: () => boolean;
+  /**
+   * The mode ('ask' | 'agent') captured when the currently in-flight work started, or
+   * null when nothing is in flight. While busy, the toggle must paint THIS instead of a
+   * fresh resolution from current settings/provider — the provider can change mid-flight
+   * (switching providers stays enabled during streaming), and a fresh resolution would
+   * describe a different, later decision than the one that actually authorized the
+   * running work.
+   */
+  getCapturedPermissionMode?: () => NativePermissionMode | null;
 }
 
 type CostBucket = 'best' | '0x' | '0.33x' | '1x' | '3x';
@@ -539,17 +557,44 @@ export class PermissionToggle {
       return;
     }
     this.container.removeAttribute('aria-disabled');
-    const provider = this.callbacks.getSettings().selectedProvider as ProviderId;
-    const blocked = this.needsBlanketWriteConsent(provider);
+    const settings = this.callbacks.getSettings();
+    const provider = settings.selectedProvider as ProviderId;
+
+    // Something the plugin already authorized or started — a slash command's inline
+    // bash, or a provider request that is still streaming — cannot be stopped or
+    // redirected by flipping the toggle now; that would only make the label lie about
+    // it. Decide this BEFORE painting from current settings below: settings and the
+    // selected provider can both change while the request is still running (provider
+    // switching stays enabled during streaming), so the label must show the mode
+    // CAPTURED when the running work started, not a fresh resolution from whatever
+    // settings/provider are current now — otherwise an Agent-authorized process can be
+    // left running while the toggle reads "Ask".
+    if (this.callbacks.isBashExpansionInFlight?.()) {
+      const capturedMode = this.callbacks.getCapturedPermissionMode?.()
+        ?? resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
+      if (capturedMode === 'agent') {
+        this.toggleEl.addClass('active');
+        this.labelEl.setText('Agent');
+      } else {
+        this.toggleEl.removeClass('active');
+        this.labelEl.setText('Ask');
+      }
+      this.container.addClass('is-unavailable');
+      this.container.setAttribute('aria-disabled', 'true');
+      this.container.setAttribute('title', '실행 중인 작업이 끝날 때까지 모드를 바꿀 수 없습니다.');
+      return;
+    }
 
     // Plan was a third label for the same read-only restriction and is no longer
     // offered. A setting saved as 'plan' reads and behaves as Ask, so it can never
     // present as one thing and become another on the next click.
     //
-    // A provider awaiting consent dispatches read-only whatever the stored mode is,
-    // so it must READ as Ask. Showing Agent there was the same class of lie as the
-    // rows that did nothing: the label promised what the request would not do.
-    const mode = blocked ? 'ask' : this.callbacks.getSettings().permissionMode;
+    // The shared predicate, not the raw setting: a provider awaiting consent — reachable
+    // just by switching providers while in Agent — dispatches read-only whatever
+    // `permissionMode` says, so the label must READ as Ask. Showing Agent there was the
+    // same class of lie as the rows that did nothing: the label promised what the
+    // request would not do.
+    const mode = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     if (mode === 'agent') {
       this.toggleEl.addClass('active');
       this.labelEl.setText('Agent');
@@ -565,10 +610,14 @@ export class PermissionToggle {
       ? (writesOutsideVault(provider)
         ? 'Agent: 금고 밖 파일까지 고칠 수 있습니다.'
         : 'Agent: 금고 폴더 안의 파일만 고칩니다.')
-      : 'Ask: 이 CLI는 파일을 고치지 않습니다.');
+      : 'Ask: 이 CLI는 파일을 새로 고치지 않습니다. Agent로 있는 동안 시작된 프로그램은 남아 있을 수 있습니다.');
   }
 
   private async toggle() {
+    if (this.callbacks.isBashExpansionInFlight?.()) {
+      new Notice('실행 중인 작업이 끝날 때까지 모드를 바꿀 수 없습니다.');
+      return;
+    }
     const settings = this.callbacks.getSettings();
     const provider = settings.selectedProvider as ProviderId;
     if (!supportsReadOnlyMode(provider)) {
@@ -579,12 +628,12 @@ export class PermissionToggle {
     // the same read-only restriction and is normalised to Ask when settings load.
     // The click acts on the state the student can SEE, so a provider awaiting
     // consent moves toward Agent on the first click rather than the second.
-    const shown: PermissionMode = this.needsBlanketWriteConsent(provider) ? 'ask' : settings.permissionMode;
+    const shown = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     const next: PermissionMode = shown === 'agent' ? 'ask' : 'agent';
 
     // A provider with no per-tool permission is asked about once, in a dialog the
     // student has to answer. A tooltip they may never hover is not consent.
-    if (next === 'agent' && this.needsBlanketWriteConsent(provider)) {
+    if (next === 'agent' && needsBlanketWriteConsent(provider, settings.blanketWriteAcknowledged)) {
       const accepted = await this.callbacks.confirmBlanketWrite?.(provider);
       if (!accepted) {
         this.updateDisplay();
@@ -592,14 +641,26 @@ export class PermissionToggle {
       }
     }
 
-    await this.callbacks.onPermissionModeChange(next);
-    this.updateDisplay();
-  }
+    // The consent modal above is an await: a write-capable region (bash expansion or a
+    // streaming provider request) can start and even finish while the student is still
+    // looking at the dialog. The guard at the top of this method already went stale by
+    // the time that await returned, so re-check right before the mode write below rather
+    // than trusting the pre-await read.
+    if (this.callbacks.isBashExpansionInFlight?.()) {
+      new Notice('실행 중인 작업이 끝날 때까지 모드를 바꿀 수 없습니다.');
+      this.updateDisplay();
+      return;
+    }
 
-  private needsBlanketWriteConsent(provider: ProviderId): boolean {
-    if (!writesWithoutAsking(provider)) return false;
-    const acknowledged = this.callbacks.getSettings().blanketWriteAcknowledged;
-    return !(Array.isArray(acknowledged) && acknowledged.includes(provider));
+    // `onPermissionModeChange` mutates `settings.permissionMode` synchronously before it
+    // awaits persisting it to disk, so repaint right away rather than only after that
+    // await resolves — otherwise there is a window where the setting already grants
+    // Agent and the label still reads Ask. Repaint again once the save settles in case
+    // the callback changed anything else `updateDisplay()` reads.
+    const applied = this.callbacks.onPermissionModeChange(next);
+    this.updateDisplay();
+    await applied;
+    this.updateDisplay();
   }
 
   async togglePlanMode() {

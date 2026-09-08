@@ -11,6 +11,7 @@ import { MarkdownView, Notice } from 'obsidian';
 import * as path from 'path';
 
 import { SlashCommandManager } from '../../core/commands';
+import { resolveEffectivePermissionMode } from '../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../core/security/BlocklistChecker';
 import { getBashToolBlockedCommands } from '../../core/types';
 import { type InlineEditMode, InlineEditService } from '../../features/inline-edit/InlineEditService';
@@ -255,7 +256,9 @@ export class InlineEditModal {
   }
 }
 
-class InlineEditController {
+/** Exported only so tests can construct it directly and exercise `generate()` without
+ * going through the CodeMirror widget lifecycle that `InlineEditModal.openAndWait()` needs. */
+export class InlineEditController {
   private inputEl: HTMLInputElement | null = null;
   private spinnerEl: HTMLElement | null = null;
   private agentReplyEl: HTMLElement | null = null;
@@ -486,24 +489,37 @@ class InlineEditController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
-            bash: {
-              // ASK/PLAN mode is read-only: inline bash never executes and never prompts
-              // for approval there, it is replaced with the same placeholder used when
-              // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
-              enabled: this.plugin.settings.enableInlineBash && this.plugin.settings.permissionMode === 'agent',
-              shouldBlockCommand: (bashCommand) =>
-                isCommandBlocked(
-                  bashCommand,
-                  getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
-                  this.plugin.settings.enableBlocklist
-                ),
-            },
-          });
-          userMessage = expansion.expandedPrompt;
+          this.plugin.setBashExpansionActive(true);
+          try {
+            const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
+              bash: {
+                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                // for approval there, it is replaced with the same placeholder used when
+                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+                // The raw setting is not enough: a provider still awaiting blanket-write
+                // consent (reachable by switching providers while in Agent) must also keep
+                // bash read-only, or it runs with full authority while the toggle shows Ask.
+                enabled: this.plugin.settings.enableInlineBash
+                  && resolveEffectivePermissionMode(
+                    this.plugin.settings.permissionMode,
+                    this.plugin.settings.selectedProvider,
+                    this.plugin.settings.blanketWriteAcknowledged
+                  ) === 'agent',
+                shouldBlockCommand: (bashCommand) =>
+                  isCommandBlocked(
+                    bashCommand,
+                    getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
+                    this.plugin.settings.enableBlocklist
+                  ),
+              },
+            });
+            userMessage = expansion.expandedPrompt;
 
-          if (expansion.errors.length > 0) {
-            new Notice(formatSlashCommandWarnings(expansion.errors));
+            if (expansion.errors.length > 0) {
+              new Notice(formatSlashCommandWarnings(expansion.errors));
+            }
+          } finally {
+            this.plugin.setBashExpansionActive(false);
           }
         }
       }

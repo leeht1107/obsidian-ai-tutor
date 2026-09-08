@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 
+import { type InlineEditContext,InlineEditController } from '@/ui/modals/InlineEditModal';
 import { escapeHtml, normalizeInsertionText } from '@/utils/inlineEdit';
 import { isPathWithinVault, normalizePathForFilesystem } from '@/utils/path';
 
@@ -502,5 +503,67 @@ describe('normalizePathForVault edge cases', () => {
     const filePath = '/home/user/vault/notes/file.md';
     const result = normalizePathForVault(filePath, vaultPath);
     expect(result).toBe('notes/file.md');
+  });
+});
+
+describe('InlineEditController - bash expansion busy flag', () => {
+  /**
+   * Builds an InlineEditController with just enough of app/plugin/editorView/editor to
+   * survive the constructor (cursor mode skips Editor.getSelection/getCursor entirely),
+   * then reaches past `createInputDOM()` / `show()` — which need a real CodeMirror DOM
+   * this test suite has no jsdom for — by setting the private inputEl/spinnerEl/
+   * slashCommandManager fields directly before calling the private `generate()`.
+   */
+  function buildController(overrides: { slashCommands?: any[] } = {}) {
+    const plugin: any = {
+      settings: {
+        slashCommands: overrides.slashCommands ?? [],
+        blockedCommands: { unix: [], windows: [] },
+        enableBlocklist: true,
+        enableInlineBash: true,
+        permissionMode: 'agent',
+      },
+      setBashExpansionActive: jest.fn(),
+    };
+    const editorView: any = {
+      state: { doc: { line: jest.fn().mockReturnValue({ from: 0 }) } },
+    };
+    const editor: any = {};
+    const editContext: InlineEditContext = { mode: 'cursor', cursorContext: { line: 0, column: 0 } as any };
+
+    const controller = new InlineEditController(
+      {} as any,
+      plugin,
+      editorView,
+      editor,
+      editContext,
+      'notes/file.md',
+      jest.fn()
+    );
+
+    const inputEl: any = { value: '', disabled: false, placeholder: '', focus: jest.fn() };
+    const spinnerEl: any = { style: { display: '' } };
+    (controller as any).inputEl = inputEl;
+    (controller as any).spinnerEl = spinnerEl;
+
+    return { controller, plugin, inputEl };
+  }
+
+  it('sets the busy flag during expandCommand and clears it even when expandCommand throws', async () => {
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'boom', args: [] }),
+      expandCommand: jest.fn().mockRejectedValue(new Error('bash expansion failed')),
+    };
+    const { controller, plugin, inputEl } = buildController({
+      slashCommands: [{ id: 'boom', name: 'boom', content: '!`sleep 5`' }],
+    });
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/boom';
+
+    await expect((controller as any).generate()).rejects.toThrow('bash expansion failed');
+
+    expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(1, true);
+    expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
   });
 });

@@ -56,6 +56,10 @@ export class InstructionRefineService {
     const systemPrompt = buildRefineSystemPrompt(this.existingInstructions);
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
 
+    // Same busy signal as the chat and inline-edit streams: the CLI child already
+    // spawned with whatever permission mode was current, so the toggle must stay
+    // locked for as long as that child can still write.
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = '';
 
@@ -76,6 +80,7 @@ export class InstructionRefineService {
       return { success: false, error: msg };
     } finally {
       this.abortController = null;
+      this.plugin.setBashExpansionActive(false);
     }
   }
 

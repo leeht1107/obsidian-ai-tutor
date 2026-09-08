@@ -9,9 +9,16 @@
  * So every error the student is shown is also written here, one JSON object per
  * line. It is meant to be read by a person later, not by this plugin.
  *
- * It lives in the plugin's own folder under `.obsidian/plugins/`, not in
- * `.copilot/`. That folder is the student's — settings and slash commands they
- * are meant to open and share — and a diagnostic file does not belong in it.
+ * It lives in `.ai-tutor/logs/`, beside the settings and slash commands the
+ * student already opens. That is a deliberate reversal: the log used to sit in
+ * the plugin's own folder under `.obsidian/plugins/`, which is tidier but
+ * unreachable for the one person who has to send it. On Windows that folder is
+ * hidden, and a student who cannot find the file sends nothing at all. A log
+ * nobody can hand over is not a log.
+ *
+ * Putting it in the vault does not make it trusted input. Nothing in this
+ * plugin reads it back as configuration — the only reader is the settings tab's
+ * copy button, which formats it for a human.
  *
  * Two rules this file exists to keep:
  * - Nothing here may throw. A logger that breaks a request is worse than no log.
@@ -22,17 +29,13 @@
 import type { VaultFileAdapter } from './VaultFileAdapter';
 
 /**
- * Vault-relative path to the log, inside the plugin's own folder.
+ * Vault-relative path to the log.
  *
- * `configDir` rather than a hardcoded `.obsidian`: a vault can be configured to
- * keep its settings elsewhere, and hardcoding would write the log into a folder
- * that does not exist on those machines. Both arguments come from Obsidian
- * itself (`app.vault.configDir`, `plugin.manifest.id`), so this stays correct on
- * macOS and Windows alike.
+ * One fixed path on every platform, so the instruction to a student is the same
+ * sentence on macOS and Windows: open `.ai-tutor/logs/errors.jsonl` in your
+ * vault. `VaultFileAdapter.write` creates the folder on first use.
  */
-export function errorLogPath(configDir: string, pluginId: string): string {
-  return `${configDir}/plugins/${pluginId}/logs/errors.jsonl`;
-}
+export const ERROR_LOG_PATH = '.ai-tutor/logs/errors.jsonl';
 
 /** Keep the tail. An old failure is rarely what the student is asking about. */
 const MAX_ENTRIES = 300;

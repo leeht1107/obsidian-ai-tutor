@@ -10,6 +10,7 @@
 import * as providerRegistry from '@/core/providers/providerRegistry';
 import * as readiness from '@/core/setup/providerReadiness';
 import { createProviderSelector } from '@/features/chat/ObsidianCopilotView';
+import { PermissionToggle } from '@/ui/components/InputToolbar';
 
 const openSetupWizard = jest.fn();
 const wizardTarget = jest.fn();
@@ -36,6 +37,102 @@ describe('provider popover click on an unusable provider', () => {
     // The student clicked a specific provider; making them choose again in the
     // wizard loses what they just told us.
     expect(wizardTarget).toHaveBeenCalledWith('agy');
+    findPath.mockRestore();
+  });
+});
+
+/**
+ * The write-authority counter in main.ts captures the permission mode on its 0 -> 1
+ * edge and holds it until every overlapping write-capable region settles back to 0.
+ * Provider switching used to stay enabled through that whole window: a second region
+ * starting mid-stream would resolve against whichever provider was selected BY THEN,
+ * not the one the capture was taken against. Locked here the same way
+ * PermissionToggle already locks itself while busy.
+ */
+describe('provider selector — locked while a write-capable region is in flight', () => {
+  it('refuses a switch to a ready, different provider while busy; selectedProvider is unchanged', async () => {
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const toolbar = makeToolbarElement();
+    const plugin = {
+      app: {},
+      settings: { selectedProvider: 'claude' as const },
+      saveSettings: jest.fn(),
+      isBashExpansionInFlight: () => true,
+    };
+    createProviderSelector(toolbar, plugin as never);
+    const popover = toolbar.children[0].children[1];
+    const codexOption = popover.children.filter((c: any) => c.elementOptions?.cls === 'ocop-provider-option')[2];
+    await codexOption.listeners.click({ stopPropagation: jest.fn() });
+
+    expect(plugin.settings.selectedProvider).toBe('claude');
+    expect(plugin.saveSettings).not.toHaveBeenCalled();
+    findPath.mockRestore();
+  });
+
+  it('switches normally once nothing is in flight', async () => {
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const toolbar = makeToolbarElement();
+    const plugin = {
+      app: {},
+      settings: { selectedProvider: 'claude' as const },
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+      isBashExpansionInFlight: () => false,
+    };
+    createProviderSelector(toolbar, plugin as never);
+    const popover = toolbar.children[0].children[1];
+    const codexOption = popover.children.filter((c: any) => c.elementOptions?.cls === 'ocop-provider-option')[2];
+    await codexOption.listeners.click({ stopPropagation: jest.fn() });
+
+    expect(plugin.settings.selectedProvider).toBe('codex');
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
+    findPath.mockRestore();
+  });
+
+  it("reproduces the reviewer's mixed-authority sequence: a captured Ask cannot be undercut by switching to a provider that would resolve to Agent", async () => {
+    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+
+    // Shared state: one counter, one settings object, read by both controls exactly as
+    // main.ts and the toolbar wire them in the real view.
+    let inFlight = false;
+    const settings: any = { selectedProvider: 'claude', permissionMode: 'ask' };
+    const plugin = {
+      app: {},
+      settings,
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+      isBashExpansionInFlight: () => inFlight,
+    };
+
+    // Step 1: a Claude request starts. writeAuthorityCount goes 0 -> 1 and main.ts
+    // captures 'ask' (Claude, not blanket-write-acknowledged, resolves to ask).
+    inFlight = true;
+    const capturedPermissionMode: 'ask' | 'agent' = 'ask';
+
+    const toolbarParent = makeToolbarElement();
+    const toggle = new PermissionToggle(toolbarParent, {
+      getSettings: () => settings,
+      onPermissionModeChange: jest.fn(),
+      isBashExpansionInFlight: () => inFlight,
+      getCapturedPermissionMode: () => capturedPermissionMode,
+    } as never);
+    const toggleLabelEl = toolbarParent.children[0].children[0];
+    expect(toggleLabelEl.setText).toHaveBeenCalledWith('Ask');
+
+    // Step 2: while it streams, attempt to switch the provider to Codex, which needs
+    // no consent and would resolve to 'agent' if the switch were allowed through.
+    const providerToolbar = makeToolbarElement();
+    createProviderSelector(providerToolbar, plugin as never);
+    const popover = providerToolbar.children[0].children[1];
+    const codexOption = popover.children.filter((c: any) => c.elementOptions?.cls === 'ocop-provider-option')[2];
+    await codexOption.listeners.click({ stopPropagation: jest.fn() });
+
+    // The switch never happened, so a second region cannot resolve against Codex.
+    expect(settings.selectedProvider).toBe('claude');
+    expect(plugin.saveSettings).not.toHaveBeenCalled();
+
+    // And the toggle, repainted, still reads the mode captured at step 1.
+    toggle.updateDisplay();
+    expect(toggleLabelEl.setText).toHaveBeenLastCalledWith('Ask');
+
     findPath.mockRestore();
   });
 });

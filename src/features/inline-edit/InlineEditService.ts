@@ -70,6 +70,11 @@ export class InlineEditService {
     const systemPrompt = getInlineEditSystemPrompt();
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
 
+    // The CLI child spawns with whatever permission mode was current when the stream
+    // started; flipping the toggle mid-stream must not let it read "Ask" while that
+    // child can still write. Same busy signal InputController's executeStream uses
+    // for the chat path.
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = '';
 
@@ -87,6 +92,7 @@ export class InlineEditService {
       return { success: false, error: msg };
     } finally {
       this.abortController = null;
+      this.plugin.setBashExpansionActive(false);
     }
   }
 

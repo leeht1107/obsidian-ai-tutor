@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { getEnhancedPath } from '../../utils/env';
 import { expandHomePath } from '../../utils/path';
+import type { PermissionMode } from '../types';
 
 export type ProviderId = 'copilot' | 'claude' | 'codex' | 'agy';
 export type ProviderStatus = 'ready' | 'not-installed' | 'manual-setup' | 'unsupported';
@@ -263,6 +264,42 @@ export function writesWithoutAsking(id: ProviderId): boolean { return writesOuts
 
 /** What the chat toolbar's Ask / Agent choice means to a CLI. */
 export type NativePermissionMode = 'ask' | 'agent';
+
+/**
+ * Whether this provider still needs one-time consent before it may write without asking.
+ * A hand-edited settings file can leave anything in `blanketWriteAcknowledged`, so this
+ * checks `Array.isArray` rather than trusting the field — `undefined.includes` would take
+ * the request down instead of falling back to the safe answer.
+ */
+export function needsBlanketWriteConsent(id: ProviderId, blanketWriteAcknowledged?: string[]): boolean {
+  if (!writesWithoutAsking(id)) return false;
+  return !(Array.isArray(blanketWriteAcknowledged) && blanketWriteAcknowledged.includes(id));
+}
+
+/**
+ * The mode a provider actually runs under, once a read-only request and pending
+ * blanket-write consent are folded in. `settings.permissionMode` alone is not enough:
+ * a provider still awaiting consent — reachable simply by switching providers while in
+ * Agent, since the switch does not re-run the consent gate — must run read-only even
+ * while the raw setting still reads 'agent'. Every consumer of "is this provider allowed
+ * to write right now" (the toolbar display, native CLI dispatch, and both inline-bash
+ * gates) must read this instead of `settings.permissionMode` directly, or the toggle can
+ * show "Ask" while something it authorized keeps writing.
+ *
+ * `forcedReadOnly` is for a caller-specific reason to demand read-only beyond the stored
+ * mode (e.g. a plan-mode request) — every current call site except CLI dispatch leaves it
+ * at the default.
+ */
+export function resolveEffectivePermissionMode(
+  mode: PermissionMode,
+  provider: ProviderId,
+  blanketWriteAcknowledged?: string[],
+  forcedReadOnly = false
+): NativePermissionMode {
+  const wantsReadOnly = mode === 'ask' || mode === 'plan' || forcedReadOnly;
+  const needsConsent = needsBlanketWriteConsent(provider, blanketWriteAcknowledged);
+  return (wantsReadOnly && supportsReadOnlyMode(provider)) || needsConsent ? 'ask' : 'agent';
+}
 
 export function buildNativeProviderCommand(
   id: ProviderId,

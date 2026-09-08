@@ -10,7 +10,13 @@ import { addIcon, Notice, Plugin } from 'obsidian';
 import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
-import { findProviderCliPath, migrateProviderModels, type ProviderId } from './core/providers/providerRegistry';
+import {
+  findProviderCliPath,
+  migrateProviderModels,
+  type NativePermissionMode,
+  type ProviderId,
+  resolveEffectivePermissionMode,
+} from './core/providers/providerRegistry';
 import { applyRequestOutcome, type ConnectionState, type ProviderConnections } from './core/setup/providerConnection';
 import { StorageService } from './core/storage';
 import type {
@@ -47,6 +53,26 @@ export default class ObsidianCopilotPlugin extends Plugin {
   /** True when this launch moved credentials out of the vault settings file.
    * Only then does the student get the one-time explanation. */
   private secretsJustMoved = false;
+  /**
+   * Count of in-flight actions that can still write: slash-command inline bash
+   * expansions (chat input or inline edit) and a streaming provider request. A counter,
+   * not a boolean — two of these can overlap (e.g. a chat reply streaming while an
+   * inline-edit bash expansion runs), and whichever finishes first must not unlock the
+   * toggle while the other is still going. Read only through `isBashExpansionInFlight()`;
+   * mutated only through `setBashExpansionActive()`, whose name predates provider
+   * streaming joining the same counter but is kept so none of its call sites changed.
+   */
+  private writeAuthorityCount = 0;
+  /**
+   * The effective permission mode ('ask' | 'agent') resolved at the moment
+   * `writeAuthorityCount` went 0 -> 1, kept until it drains back to 0. Settings and the
+   * selected provider can both change while a request is in flight — provider switching
+   * in particular stays enabled during streaming — so re-resolving the mode from CURRENT
+   * settings while something is still running would describe a different, later decision
+   * than the one that actually authorized the in-flight work. The toggle must show what
+   * the running work was authorized under, not what a fresh resolution would say now.
+   */
+  private capturedPermissionMode: NativePermissionMode | null = null;
 
   async onload() {
     try {
@@ -592,5 +618,80 @@ export default class ObsidianCopilotPlugin extends Plugin {
       return leaves[0].view as ObsidianCopilotView;
     }
     return null;
+  }
+
+  /**
+   * Returns every mounted ObsidianCode view, not just the first. Obsidian permits more
+   * than one leaf of the same view type (a restored layout, a user-arranged split), and
+   * `activateView()` only reuses leaf [0] — it does not prevent a second one existing.
+   * State that must be visible in every open chat view (like the permission toggle)
+   * has to be pushed to all of them, not just the one `getView()` happens to pick.
+   */
+  private getAllViews(): ObsidianCopilotView[] {
+    return this.app.workspace
+      .getLeavesOfType(VIEW_TYPE_OBSIDIAN_COPILOT)
+      .map((leaf) => leaf.view as ObsidianCopilotView);
+  }
+
+  /**
+   * Marks one write-capable action (a bash expansion or a streaming provider request)
+   * as started (`true`) or settled (`false`). Callers must pair every `true` with exactly
+   * one later `false`, normally via `try { ... } finally { setBashExpansionActive(false) }`
+   * around the action, so an overlapping second action is not unlocked by the first one
+   * finishing. Repaints EVERY mounted chat view's permission toggle immediately (a
+   * workspace can have more than one leaf of this view type open at once, and all of them
+   * are showing state gated by this same counter); if none are mounted (e.g. an
+   * inline-edit expansion with the chat view closed) there is nothing to repaint, and any
+   * toggle that opens later picks up the current count when it renders anyway.
+   */
+  setBashExpansionActive(active: boolean): void {
+    const wasInFlight = this.writeAuthorityCount > 0;
+    this.writeAuthorityCount = Math.max(0, this.writeAuthorityCount + (active ? 1 : -1));
+    const isInFlight = this.writeAuthorityCount > 0;
+    // Capture only on the 0 -> 1 edge, so a second overlapping region (e.g. an inline-edit
+    // bash expansion starting while a chat reply is still streaming) does not overwrite the
+    // mode the FIRST region captured. Clear only on the edge back to 0, once every
+    // overlapping region has settled.
+    if (!wasInFlight && isInFlight) {
+      this.capturedPermissionMode = resolveEffectivePermissionMode(
+        this.settings.permissionMode,
+        this.settings.selectedProvider as ProviderId,
+        this.settings.blanketWriteAcknowledged
+      );
+    } else if (wasInFlight && !isInFlight) {
+      this.capturedPermissionMode = null;
+    }
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+
+  isBashExpansionInFlight(): boolean {
+    return this.writeAuthorityCount > 0;
+  }
+
+  /** The mode captured at the 0 -> 1 edge above; null when nothing is in flight. */
+  getCapturedPermissionMode(): NativePermissionMode | null {
+    return this.capturedPermissionMode;
+  }
+
+  /**
+   * Refreshes the captured mode from CURRENT settings without waiting for the counter to
+   * drain. The capture above exists to freeze the toggle against a change that would let
+   * it lie about work already running — but not every mid-flight `permissionMode` write is
+   * that kind of change. Some (plan approval restoring the prior mode) are the user
+   * deliberately granting authority right now, and the stale capture, not the write, is
+   * what would be wrong: the toggle would keep showing the read-only mode a plan-mode
+   * region captured, while the approved work is about to run with real authority. Callers
+   * that land a legitimate mid-flight grant call this immediately after the write so the
+   * label catches up to what just became true. A no-op while settled — there is no capture
+   * to correct.
+   */
+  recapturePermissionMode(): void {
+    if (this.writeAuthorityCount === 0) return;
+    this.capturedPermissionMode = resolveEffectivePermissionMode(
+      this.settings.permissionMode,
+      this.settings.selectedProvider as ProviderId,
+      this.settings.blanketWriteAcknowledged
+    );
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 }

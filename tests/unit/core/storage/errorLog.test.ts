@@ -8,15 +8,15 @@
  */
 import {
   appendErrorLog,
+  ERROR_LOG_PATH,
   type ErrorLogEntry,
-  errorLogPath,
   formatErrorsForReport,
   maskHome,
   readRecentErrors,
 } from '@/core/storage/ErrorLog';
 import type { VaultFileAdapter } from '@/core/storage/VaultFileAdapter';
 
-const LOG_PATH = errorLogPath('.obsidian', 'obsidian-ai-tutor');
+const LOG_PATH = ERROR_LOG_PATH;
 
 /** An in-memory vault. */
 function fakeAdapter(seed: Record<string, string> = {}) {
@@ -42,21 +42,19 @@ function entry(overrides: Partial<ErrorLogEntry> = {}): ErrorLogEntry {
 }
 
 describe('ErrorLog', () => {
-  it('writes one JSON object per line inside the plugin folder', async () => {
-    // Not `.copilot/` — that folder is the student's, holding settings and slash
-    // commands they are meant to open and share. A diagnostic file is ours.
+  it('lives in the vault so a student can find it on any platform', () => {
+    // It used to sit under `.obsidian/plugins/<id>/logs/`, which is correct but
+    // unreachable for the person who has to send it: on Windows that folder is
+    // hidden, and asking a student to open it by hand is how the evidence gets
+    // lost. `.ai-tutor/` is the folder they already know.
+    expect(ERROR_LOG_PATH).toBe('.ai-tutor/logs/errors.jsonl');
+  });
+
+  it('writes one JSON object per line', async () => {
     const { adapter, files } = fakeAdapter();
     await appendErrorLog(adapter, LOG_PATH, entry());
 
-    expect(LOG_PATH).toBe('.obsidian/plugins/obsidian-ai-tutor/logs/errors.jsonl');
     expect(JSON.parse((files.get(LOG_PATH) ?? '').trim())).toMatchObject({ provider: 'claude', stage: 'exit' });
-  });
-
-  it('follows a vault that keeps its config somewhere other than .obsidian', () => {
-    // Obsidian allows a custom config directory; hardcoding `.obsidian` would
-    // write the log into a folder that does not exist on those vaults.
-    expect(errorLogPath('.my-config', 'obsidian-ai-tutor'))
-      .toBe('.my-config/plugins/obsidian-ai-tutor/logs/errors.jsonl');
   });
 
   it('keeps the tail rather than growing without limit', async () => {

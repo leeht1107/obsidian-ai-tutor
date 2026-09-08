@@ -5,9 +5,10 @@
  *    written to `.copilot/sessions/*.jsonl` inside the vault. Any CLI that
  *    echoes an inherited environment variable in a stack trace would put the
  *    credential back into the synced folder we just took it out of.
- * 2. Model discovery hands the raw CLI path to execFile. On Windows a `.cmd`
- *    cannot be launched that way at all — this predates the security work, but
- *    the resolver built for it is the fix.
+ * 2. Model discovery hands the raw CLI path to the process launcher (spawn,
+ *    formerly execFile). On Windows a `.cmd` cannot be launched that way at
+ *    all — this predates the security work, but the resolver built for it is
+ *    the fix.
  */
 import * as childProcess from 'child_process';
 import { EventEmitter } from 'events';
@@ -113,7 +114,7 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     jest.restoreAllMocks();
   });
 
-  it('never hands a Windows .cmd straight to execFile', async () => {
+  it('never hands a Windows .cmd straight to spawn', async () => {
     // CreateProcessW cannot launch a batch shim, and there is no shell here to
     // do it — so an unresolved .cmd is an immediate EINVAL, not a slow failure.
     Object.defineProperty(process, 'platform', { value: 'win32' });
@@ -135,15 +136,21 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
       return files[String(p)];
     }) as unknown as typeof fs.readFileSync);
 
-    const execFileSpy = jest.spyOn(childProcess, 'execFile').mockImplementation(((
+    // listNativeProviderModels spawns rather than execFiles (see
+    // nativeProviderExecFileTeardown.test.ts for why: execFile silently drops
+    // `detached`, so a backgrounded helper would survive the call).
+    const spawnSpy = jest.spyOn(childProcess, 'spawn').mockImplementation(((
       _cmd: string,
       _args: string[],
-      _opts: unknown,
-      cb: (e: Error | null, out: string) => void
+      _opts: unknown
     ) => {
-      cb(null, '');
-      return new EventEmitter() as unknown as childProcess.ChildProcess;
-    }) as unknown as typeof childProcess.execFile);
+      const child = new EventEmitter() as unknown as childProcess.ChildProcess;
+      const out = new EventEmitter();
+      const err = new EventEmitter();
+      Object.assign(child, { stdout: out, stderr: err, kill: jest.fn() });
+      setImmediate(() => (child as unknown as EventEmitter).emit('close', 0, null));
+      return child;
+    }) as unknown as typeof childProcess.spawn);
 
     const service = makeService({
       selectedProvider: 'codex',
@@ -151,9 +158,9 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     });
     await service.listNativeProviderModels('codex');
 
-    expect(execFileSpy).toHaveBeenCalled();
-    const command = execFileSpy.mock.calls[0][0] as string;
-    const args = execFileSpy.mock.calls[0][1] as string[];
+    expect(spawnSpy).toHaveBeenCalled();
+    const command = spawnSpy.mock.calls[0][0] as string;
+    const args = spawnSpy.mock.calls[0][1] as string[];
     expect(command).not.toMatch(/\.cmd$/i);
     expect(args[0]).toBe(`${pkgRoot}\\cli.js`);
     // The discovery arguments still follow the resolved entry point.
