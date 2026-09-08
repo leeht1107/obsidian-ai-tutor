@@ -11,12 +11,16 @@
  * root pid, so it reaps descendants only while the root is still alive. On the
  * ordinary settle path the service waits for the root's `close` before calling
  * this, and by then a grandchild the root left behind has no ownership boundary
- * left to walk — no deliberate escape needed, which is not true on POSIX, where
- * a process group outlives its leader and the negative-pid signal still reaches
- * it. Closing this properly needs a per-request Job Object, which this plugin
- * cannot create without a native dependency. Until then the limit is stated to
- * the student in the Ask/Agent wording rather than hidden here. The real
- * descendant-reaping tests skip win32, so CI does not cover this either.
+ * left to walk. Escaping is not free, though: measurement shows it takes
+ * `detached: true` on the descendant *and* a dead intermediate parent. A direct
+ * child of the exited root is still reaped, because Windows never reparents and
+ * `/T` walks the stale parent link while Node keeps the root pid resolvable.
+ * POSIX has no such precondition — a process group outlives its leader and the
+ * negative-pid signal still reaches it. Closing this properly needs a
+ * per-request Job Object, which this plugin cannot create without a native
+ * dependency. Until then the limit is stated to the student in the Ask/Agent
+ * wording rather than hidden here. CI covers it on windows-latest:
+ * tests/unit/core/agent/win32TeardownLimit.test.ts.
  */
 
 import type { ChildProcess } from 'child_process';
