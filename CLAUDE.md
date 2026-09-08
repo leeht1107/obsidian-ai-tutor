@@ -17,7 +17,7 @@
   pid, so removing the `killTree` call cannot leave it green. Escape requires `detached: true` on
   the descendant AND a dead intermediate parent (DEC-14); the shipped "정지" wording stays as is.
 - Next likely action: Mark updates via BRAT and confirms 0.1.14 — "nothing changed" is the expected
-  result. Collect student error logs (`<configDir>/plugins/obsidian-ai-tutor/logs/errors.jsonl`) on
+  result. Collect student error logs (vault `.ai-tutor/logs/errors.jsonl`, or the settings tab's 최근 오류 복사 button) on
   Windows. Standing asks remain: PowerShell/cmd hardening, Settings/UI UX, quiz/socratic
   improvements.
 
