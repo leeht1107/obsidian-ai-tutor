@@ -1,3 +1,4 @@
+import * as childProcess from 'child_process';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -33,6 +34,11 @@ import type ObsidianCopilotPlugin from '@/main';
  * descendant-reaping suites skip win32, so `windows-latest` had never verified
  * the property in either direction. It asserts the *weak* behaviour on purpose.
  *
+ * Survival alone would not be enough evidence, though: a regression that
+ * removed the `killTree` call entirely would leave this suite green for the
+ * exact opposite of the reason it exists. So the teardown seam is asserted
+ * too, by pid, through the same `spawn` spy directProcessDispatch.test.ts uses.
+ *
  * How to read a result:
  * - Survival observed -> the limitation reproduces on this runner. That is all
  *   it establishes: not reliability across locked-down student laptops, and not
@@ -42,6 +48,8 @@ import type ObsidianCopilotPlugin from '@/main';
  *   behavioural improvement each explain it. Diagnose which before concluding.
  *   If teardown really did start reaping, promote this to a regression test
  *   asserting successful teardown instead of deleting it.
+ * - Teardown assertion red while survival is green -> the seam is gone. That is
+ *   a product regression, not a test problem.
  */
 
 const HEARTBEAT_MS = 100;
@@ -71,12 +79,19 @@ const HEARTBEAT_COUNT = 200;
  * what severs the link `/T` would otherwise walk. That pairing is the moral
  * equivalent of the POSIX suite's `sh -c '...' &`, which also escapes through a
  * grandchild.
+ *
+ * The root waits on the middle's `exit` *event*, not on a done-marker file. A
+ * file write is flushed before the kernel finishes tearing the process down, so
+ * a marker would let the root exit while the middle was still a walkable link
+ * in the tree — on a loaded runner `/T` would then reap the grandchild and this
+ * suite would flake red for a reason that has nothing to do with the product.
+ * A live child handle also keeps the root alive with no polling at all.
  */
 function writeOrphanFixture(
   dir: string,
   readyPath: string,
   beatPath: string,
-  middleDonePath: string
+  grandchildPidPath: string
 ): string {
   const grandchildPath = path.join(dir, 'orphan-grandchild.js');
   fs.writeFileSync(
@@ -101,31 +116,33 @@ function writeOrphanFixture(
   const sleepSrc =
     'const sleep = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);';
 
-  // No shell and nothing evasive; `detached` is the one flag that matters, and
-  // only the grandchild gets it (see the docblock — without it the grandchild
-  // dies with its middle parent and the limitation never shows).
-  const spawnSrc = (target: string, args: string[], detached: boolean) =>
-    [
-      `const child = spawn(process.execPath, [${[target, ...args].map((a) => JSON.stringify(a)).join(', ')}], {`,
-      "  stdio: 'ignore',",
-      '  windowsHide: true,',
-      `  detached: ${detached},`,
-      '});',
-      'child.unref();',
-    ].join('\n');
-
   const middlePath = path.join(dir, 'orphan-middle.js');
   fs.writeFileSync(
     middlePath,
     [
       "const fs = require('fs');",
       "const { spawn } = require('child_process');",
-      spawnSrc(grandchildPath, [readyPath, beatPath], true),
+      // No shell and nothing evasive; `detached` is the one flag that matters,
+      // and only the grandchild gets it (see the docblock — without it the
+      // grandchild dies with its middle parent and the limitation never shows).
+      `const child = spawn(process.execPath, [${[grandchildPath, readyPath, beatPath].map((a) => JSON.stringify(a)).join(', ')}], {`,
+      "  stdio: 'ignore',",
+      '  windowsHide: true,',
+      '  detached: true,',
+      '});',
+      // Cleanup handle, written before anything can block. afterEach needs a pid
+      // even when the grandchild never reaches its own readiness write.
+      // Residual window, deliberately left open: if the middle dies between
+      // spawn() returning and this line, afterEach cannot reach the grandchild.
+      // HEARTBEAT_COUNT bounds that orphan to ~20s, which is why it stays.
+      `fs.writeFileSync(${JSON.stringify(grandchildPidPath)}, String(child.pid));`,
+      'child.unref();',
       sleepSrc,
       // Do not exit until the grandchild is provably up, then leave. From here
       // on the grandchild has no live parent between it and the root.
+      // Polling a file is right here: this waits on another process's side
+      // effect, not on a child of its own whose exit it could listen for.
       `for (let i = 0; i < 200 && !fs.existsSync(${JSON.stringify(readyPath)}); i++) sleep();`,
-      `fs.writeFileSync(${JSON.stringify(middleDonePath)}, 'done');`,
       'process.exit(0);',
     ].join('\n')
   );
@@ -134,16 +151,18 @@ function writeOrphanFixture(
   fs.writeFileSync(
     rootPath,
     [
-      "const fs = require('fs');",
       "const { spawn } = require('child_process');",
-      spawnSrc(middlePath, [], false),
-      sleepSrc,
-      // Block until the middle parent has exited, so the root cannot exit
-      // first and turn "never started" into a false negative.
-      `for (let i = 0; i < 200 && !fs.existsSync(${JSON.stringify(middleDonePath)}); i++) sleep();`,
+      `const child = spawn(process.execPath, [${JSON.stringify(middlePath)}], {`,
+      "  stdio: 'ignore',",
+      '  windowsHide: true,',
+      '  detached: false,',
+      '});',
+      // No unref: the live handle keeps the root alive until libuv reports the
+      // middle's real termination, so the root cannot exit first and turn
+      // "never started" into a false negative.
       // agy is the raw-passthrough provider: whatever is printed becomes the
       // chunk text unchanged.
-      "process.stdout.write('orphan-fixture-ok\\n');",
+      "child.on('exit', () => { process.stdout.write('orphan-fixture-ok\\n'); });",
     ].join('\n')
   );
 
@@ -164,6 +183,30 @@ const makeService = (cliPath: string, vault: string) =>
     } as unknown as ObsidianCopilotPlugin
   );
 
+type SpawnSpy = jest.SpyInstance<childProcess.ChildProcess, Parameters<typeof childProcess.spawn>>;
+
+const isTaskkill = (call: Parameters<typeof childProcess.spawn>): boolean =>
+  String(call[0]).toLowerCase().includes('taskkill');
+
+/**
+ * The teardown spawns only — the exact complement of `providerSpawnCalls` in
+ * directProcessDispatch.test.ts, which filters `taskkill` *out* because it
+ * belongs to the teardown path and not the dispatch path. Here the teardown
+ * path is the thing under test, so the same split is kept and the other half
+ * taken. The filter is not shared because it is not exported, and importing it
+ * from that `.test.ts` would execute that suite as a side effect.
+ */
+function teardownSpawnCalls(spy: SpawnSpy): Parameters<typeof childProcess.spawn>[] {
+  return spy.mock.calls.filter(isTaskkill);
+}
+
+/** The pid of the provider root — the first non-teardown spawn of the request. */
+function providerRootPid(spy: SpawnSpy): number | undefined {
+  const index = spy.mock.calls.findIndex((call) => !isTaskkill(call));
+  if (index < 0) return undefined;
+  return (spy.mock.results[index]?.value as childProcess.ChildProcess | undefined)?.pid;
+}
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const beats = (beatPath: string): number =>
@@ -175,31 +218,43 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
   let dir: string;
   let readyPath: string;
   let beatPath: string;
-  let middleDonePath: string;
+  let grandchildPidPath: string;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'win32-teardown-limit-'));
     readyPath = path.join(dir, 'grandchild-ready.txt');
     beatPath = path.join(dir, 'grandchild-beats.txt');
-    middleDonePath = path.join(dir, 'middle-exited.txt');
+    grandchildPidPath = path.join(dir, 'grandchild-pid.txt');
   });
 
-  // Cleanup runs independently of the assertion: a red test must not leave
-  // processes on the runner.
+  // Cleanup runs independently of the assertion *and* of the fixture getting
+  // as far as its readiness signal: a red test must not leave processes on the
+  // runner. The middle records the pid the moment spawn() returns, so a
+  // grandchild that died or hung before writing readyPath is still reachable
+  // here. Both sources are read and both are killed when they disagree — a
+  // stale-pid kill is harmless, a missed kill is not.
   afterEach(() => {
-    if (fs.existsSync(readyPath)) {
-      const pid = fs.readFileSync(readyPath, 'utf8').trim();
-      if (/^\d+$/.test(pid)) {
-        spawnSync('taskkill', ['/PID', pid, '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-      }
+    const pids = new Set<string>();
+    for (const source of [grandchildPidPath, readyPath]) {
+      if (!fs.existsSync(source)) continue;
+      const pid = fs.readFileSync(source, 'utf8').trim();
+      if (/^\d+$/.test(pid)) pids.add(pid);
+    }
+    for (const pid of pids) {
+      spawnSync('taskkill', ['/PID', pid, '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     }
     fs.rmSync(dir, { recursive: true, force: true });
+    jest.restoreAllMocks();
   });
 
   it(
     'known limitation (win32): a detached grandchild whose middle parent exited survives killTree',
     async () => {
-      const cli = writeOrphanFixture(dir, readyPath, beatPath, middleDonePath);
+      const cli = writeOrphanFixture(dir, readyPath, beatPath, grandchildPidPath);
+      // No mockImplementation: real spawns pass through, the spy only records.
+      // `killTree` calls `spawn` through a named import, which ts-jest compiles
+      // to a call-time property access, so this sees the teardown too.
+      const spawnSpy = jest.spyOn(childProcess, 'spawn');
       const service = makeService(cli, dir);
 
       for await (const chunk of service.query('hello')) {
@@ -211,7 +266,6 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
       // middle parent had exited before the root did. Without this the
       // assertion below could pass on a fixture that never started.
       expect(fs.existsSync(readyPath)).toBe(true);
-      expect(fs.existsSync(middleDonePath)).toBe(true);
 
       // Bounded wait for fresh heartbeats. A pid check would only prove an
       // entry exists (and pids are reused); a growing heartbeat file proves the
@@ -226,6 +280,24 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
       }
 
       expect(after).toBeGreaterThan(before);
+
+      // Teardown really ran, and ran against *this* request's root. Matching
+      // the pid is what makes this a proof rather than "some taskkill fired".
+      // If this is the only red assertion here, the seam is gone and the
+      // survival above is green for the wrong reason.
+      const rootPid = providerRootPid(spawnSpy);
+      expect(typeof rootPid).toBe('number');
+      expect(
+        teardownSpawnCalls(spawnSpy).some((call) => {
+          const args = (call[1] as string[] | undefined) ?? [];
+          return (
+            args.includes('/PID') &&
+            args.includes(String(rootPid)) &&
+            args.includes('/T') &&
+            args.includes('/F')
+          );
+        })
+      ).toBe(true);
     },
     30_000
   );
