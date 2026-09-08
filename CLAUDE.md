@@ -8,18 +8,27 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Released `0.1.14`. `main` == `origin/main` at `25e9336`; 89 suites / 1231 tests; tree
-  clean; CI green on both `ubuntu-latest` and `windows-latest`, Release workflow green. 0.1.14 is
-  version metadata only — the only source change since 0.1.13 was a comment, so `main.js` and
-  `styles.css` rebuild byte-identical and a BRAT update delivers no behavioural change. The work
-  behind it is `tests/unit/core/agent/win32TeardownLimit.test.ts`, which now reproduces the win32
-  `killTree` orphan limit on `windows-latest` (PASS, not skipped) and asserts the teardown seam by
-  pid, so removing the `killTree` call cannot leave it green. Escape requires `detached: true` on
-  the descendant AND a dead intermediate parent (DEC-14); the shipped "정지" wording stays as is.
-- Next likely action: Mark updates via BRAT and confirms 0.1.14 — "nothing changed" is the expected
-  result. Collect student error logs (vault `.ai-tutor/logs/errors.jsonl`, or the settings tab's 최근 오류 복사 button) on
-  Windows. Standing asks remain: PowerShell/cmd hardening, Settings/UI UX, quiz/socratic
-  improvements.
+- Status: Released `0.1.15`. `main` == `origin/main` at `e2f0af0`; 91 suites / 1250 tests; tree
+  clean; CI green on both `ubuntu-latest` and `windows-latest`. Unlike 0.1.14 the bundle really
+  changed: the student error log now records the failures the student is actually shown. Every
+  setup failure (Node install, CLI install, login, re-check) is logged from `SetupWizardModal` —
+  the seam, because the setup services also run background probes nobody sees — and the copilot
+  path lost its three gaps (no CLI configured, synchronous `spawn` throw, the outer `query` catch).
+  A cancel is deliberately never logged, so an empty log still means "the student was never shown a
+  failure". `ErrorLog.ts` also gained a shared `recordError` export, a serialised append (one
+  service writes from chat, titles, inline edit and refine, and two failures in a tick used to lose
+  one), a path-boundary `maskHome`, home masking inside the message, and `scrubCredentialPatterns`
+  for credential-shaped text the plugin never configured — upstream redaction only knows configured
+  values. Five advisor-sol rounds drove that list; each finding landed with a test that failed
+  first. One pre-existing flake, unrelated and not introduced here: `native provider streaming ›
+  delivers each chunk as it is produced` fails under parallel `npx jest` and passes under the
+  project's `--runInBand` (verified 3/3 on a clean tree).
+- Next likely action: Mark updates via BRAT to 0.1.15, then the manual Windows check this release
+  exists for — hide or uninstall the CLI, run the setup wizard to failure, close it, and confirm
+  the install failure appears under Settings → 문제 기록 → 최근 오류 복사. macOS green proves nothing
+  about the Windows shim paths. Then collect student error logs (vault
+  `.ai-tutor/logs/errors.jsonl`) on Windows. Standing asks remain: PowerShell/cmd hardening,
+  Settings/UI UX, quiz/socratic improvements.
 
 ## Current Sources of Truth
 
