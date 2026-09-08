@@ -20,12 +20,15 @@ import type ObsidianCopilotPlugin from '@/main';
  * gone and there is no tree left to walk. `detached: !isWindows` at every
  * provider launch makes the group mechanism POSIX-only by construction.
  *
- * The result: on win32 a provider can start a second process with an ordinary
- * `CreateProcess` and exit, and that process survives the toggle returning to
- * Ask — no `setsid`, no double-fork, no deliberate escape. 0.1.13 shipped with
- * this limit *named* in the Ask/Agent toggle and the consent dialog rather than
- * closed; closing it needs a per-request Job Object, which this plugin cannot
- * create without a native dependency.
+ * The result: on win32 a provider can start a short-lived helper that itself
+ * starts a second process and exits, and that grandchild survives the toggle
+ * returning to Ask — no `setsid`, no double-fork, no deliberate escape. (A
+ * *direct* child of the exited root does not escape: Windows never reparents,
+ * so its stale parent link still points at the root pid, which Node keeps
+ * resolvable, and `/T` walks it. Measured on windows-latest, run 34190351905.)
+ * 0.1.13 shipped with this limit *named* in the Ask/Agent toggle and the
+ * consent dialog rather than closed; closing it needs a per-request Job
+ * Object, which this plugin cannot create without a native dependency.
  *
  * This test exists because CI could not see the limit at all: both real
  * descendant-reaping suites skip win32, so `windows-latest` had never verified
@@ -51,15 +54,32 @@ const HEARTBEAT_COUNT = 200;
  * A shim/.js pair in the shape the Windows dispatch path actually resolves —
  * the same layout `writeFixtureCli` in directProcessDispatch.test.ts writes,
  * because dispatch no longer uses a shell and cannot launch a bare `.cmd`.
+ *
+ * Three levels deep on purpose. A *direct* child of the exited root is not the
+ * limitation: Windows never reparents, so the orphan's recorded parent pid
+ * still points at the root, and while Node holds the root's process handle
+ * that pid stays resolvable — `taskkill /T` walks the stale link and reaps it.
+ * CI observed exactly that (run 34190351905, windows-latest: the depth-2
+ * descendant was killed before its first heartbeat). The limitation needs the
+ * *middle* parent gone, which severs the link `/T` would have walked while
+ * leaving the grandchild running.
  */
-function writeOrphanFixture(dir: string, readyPath: string, beatPath: string): string {
-  const descendantPath = path.join(dir, 'orphan-descendant.js');
+function writeOrphanFixture(
+  dir: string,
+  readyPath: string,
+  beatPath: string,
+  middleDonePath: string
+): string {
+  const grandchildPath = path.join(dir, 'orphan-grandchild.js');
   fs.writeFileSync(
-    descendantPath,
+    grandchildPath,
     [
       "const fs = require('fs');",
       'const [readyPath, beatPath] = process.argv.slice(2);',
-      // Readiness signal: the descendant announces its own pid once it is
+      // One beat before the readiness signal, so "ready exists but zero beats"
+      // is impossible and a zero count can only mean the fixture never ran.
+      "fs.appendFileSync(beatPath, 'x');",
+      // Readiness signal: the grandchild announces its own pid once it is
       // actually running. Liveness is never inferred from a sleep.
       'fs.writeFileSync(readyPath, String(process.pid));',
       'let n = 0;',
@@ -70,25 +90,47 @@ function writeOrphanFixture(dir: string, readyPath: string, beatPath: string): s
     ].join('\n')
   );
 
+  const sleepSrc =
+    'const sleep = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);';
+
+  // Ordinary CreateProcess. No detach, no shell, nothing evasive — this is the
+  // point: the plain case already escapes.
+  const spawnSrc = (target: string, args: string[]) =>
+    [
+      `const child = spawn(process.execPath, [${[target, ...args].map((a) => JSON.stringify(a)).join(', ')}], {`,
+      "  stdio: 'ignore',",
+      '  windowsHide: true,',
+      '});',
+      'child.unref();',
+    ].join('\n');
+
+  const middlePath = path.join(dir, 'orphan-middle.js');
+  fs.writeFileSync(
+    middlePath,
+    [
+      "const fs = require('fs');",
+      "const { spawn } = require('child_process');",
+      spawnSrc(grandchildPath, [readyPath, beatPath]),
+      sleepSrc,
+      // Do not exit until the grandchild is provably up, then leave. From here
+      // on the grandchild has no live parent between it and the root.
+      `for (let i = 0; i < 200 && !fs.existsSync(${JSON.stringify(readyPath)}); i++) sleep();`,
+      `fs.writeFileSync(${JSON.stringify(middleDonePath)}, 'done');`,
+      'process.exit(0);',
+    ].join('\n')
+  );
+
   const rootPath = path.join(dir, 'fake-orphan-cli.js');
   fs.writeFileSync(
     rootPath,
     [
       "const fs = require('fs');",
       "const { spawn } = require('child_process');",
-      `const readyPath = ${JSON.stringify(readyPath)};`,
-      `const beatPath = ${JSON.stringify(beatPath)};`,
-      // Ordinary CreateProcess. No detach, no shell, nothing evasive — this is
-      // the point: the plain case already escapes.
-      `const child = spawn(process.execPath, [${JSON.stringify(descendantPath)}, readyPath, beatPath], {`,
-      "  stdio: 'ignore',",
-      '  windowsHide: true,',
-      '});',
-      'child.unref();',
-      // Block until the descendant proves it started, so the root cannot exit
+      spawnSrc(middlePath, []),
+      sleepSrc,
+      // Block until the middle parent has exited, so the root cannot exit
       // first and turn "never started" into a false negative.
-      'const sleep = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);',
-      'for (let i = 0; i < 200 && !fs.existsSync(readyPath); i++) sleep();',
+      `for (let i = 0; i < 200 && !fs.existsSync(${JSON.stringify(middleDonePath)}); i++) sleep();`,
       // agy is the raw-passthrough provider: whatever is printed becomes the
       // chunk text unchanged.
       "process.stdout.write('orphan-fixture-ok\\n');",
@@ -123,11 +165,13 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
   let dir: string;
   let readyPath: string;
   let beatPath: string;
+  let middleDonePath: string;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'win32-teardown-limit-'));
-    readyPath = path.join(dir, 'descendant-ready.txt');
-    beatPath = path.join(dir, 'descendant-beats.txt');
+    readyPath = path.join(dir, 'grandchild-ready.txt');
+    beatPath = path.join(dir, 'grandchild-beats.txt');
+    middleDonePath = path.join(dir, 'middle-exited.txt');
   });
 
   // Cleanup runs independently of the assertion: a red test must not leave
@@ -143,9 +187,9 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
   });
 
   it(
-    'known limitation (win32): a descendant orphaned before teardown survives killTree',
+    'known limitation (win32): a grandchild whose middle parent already exited survives killTree',
     async () => {
-      const cli = writeOrphanFixture(dir, readyPath, beatPath);
+      const cli = writeOrphanFixture(dir, readyPath, beatPath, middleDonePath);
       const service = makeService(cli, dir);
 
       for await (const chunk of service.query('hello')) {
@@ -153,15 +197,18 @@ maybe('killTree on win32 (characterization of a known, shipped limitation)', () 
       }
       // The iterator has settled, so the `finally` that calls killTree has run.
 
-      // Readiness, not timing: the descendant told us it was alive before the
-      // root exited. Without this the assertion below could pass on a fixture
-      // that never started.
+      // Readiness, not timing: the grandchild told us it was alive and its
+      // middle parent had exited before the root did. Without this the
+      // assertion below could pass on a fixture that never started.
       expect(fs.existsSync(readyPath)).toBe(true);
+      expect(fs.existsSync(middleDonePath)).toBe(true);
 
       // Bounded wait for fresh heartbeats. A pid check would only prove an
       // entry exists (and pids are reused); a growing heartbeat file proves the
-      // orphan is still executing after teardown.
+      // orphan is still executing after teardown. `before >= 1` separates
+      // "started, then killed" from "never ran" when this goes red.
       const before = beats(beatPath);
+      expect(before).toBeGreaterThanOrEqual(1);
       let after = before;
       for (let i = 0; i < 20 && after <= before; i++) {
         await wait(HEARTBEAT_MS);
