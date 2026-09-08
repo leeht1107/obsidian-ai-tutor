@@ -13,6 +13,7 @@
  */
 
 import { type App, Modal, Notice } from 'obsidian';
+import * as os from 'os';
 
 import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../../core/providers/providerRegistry';
 import {
@@ -36,6 +37,7 @@ import {
   startProviderLogin,
 } from '../../core/setup/providerLogin';
 import { hasLoginCheck } from '../../core/setup/providerReadiness';
+import { type ErrorLogEntry, recordError } from '../../core/storage/ErrorLog';
 import type ObsidianCopilotPlugin from '../../main';
 
 /**
@@ -47,6 +49,9 @@ import type ObsidianCopilotPlugin from '../../main';
 type Phase = 'choose' | 'node' | 'installing' | 'login' | 'done' | 'unverified' | 'manual' | 'error';
 
 const MAX_LOG_LINES = 6;
+
+/** How much of the on-screen install log travels with a logged failure. */
+const LOG_TAIL_LINES = 6;
 
 export class SetupWizardModal extends Modal {
   private phase: Phase = 'choose';
@@ -219,6 +224,7 @@ export class SetupWizardModal extends Modal {
 
     if (!result.success) {
       this.errorDetail = result.error ?? 'Node.js 설치에 실패했습니다.';
+      this.logSetupFailure('node', 'install', this.errorDetail, this.nodeLog);
       this.phase = 'error';
       this.render();
       return;
@@ -277,6 +283,7 @@ export class SetupWizardModal extends Modal {
       this.phase = 'login';
     } else {
       this.errorDetail = result.error ?? '알 수 없는 오류';
+      this.logSetupFailure(this.provider, 'install', this.errorDetail, this.installLog);
       this.phase = 'error';
     }
     this.render();
@@ -421,6 +428,11 @@ export class SetupWizardModal extends Modal {
     } else {
       this.loginFailure = outcome.error
         ?? (state === 'not-connected' ? '아직 로그인되지 않았습니다. 다시 시도해 주세요.' : '로그인을 확인하지 못했습니다.');
+      // The login log is deliberately not attached. A device-auth login prints a
+      // verification code and a session-bearing URL, and neither was ever
+      // configured anywhere, so redaction cannot see them. The summary says what
+      // failed; the CLI's own output is not worth handing to a third party.
+      this.logSetupFailure(this.provider, 'login', this.loginFailure);
     }
     this.render();
   }
@@ -523,7 +535,9 @@ export class SetupWizardModal extends Modal {
 
   private async recheck() {
     if (!this.hasSelectedProviderCli()) {
-      new Notice('CLI를 아직 찾을 수 없습니다. 설치 후 다시 확인해 주세요.');
+      const message = 'CLI를 아직 찾을 수 없습니다. 설치 후 다시 확인해 주세요.';
+      this.logSetupFailure(this.provider, 'resolve', message);
+      new Notice(message);
       return;
     }
     const state = await this.readConnectionState();
@@ -534,6 +548,47 @@ export class SetupWizardModal extends Modal {
     else if (state === 'not-connected') this.phase = 'login';
     else this.phase = 'unverified';
     this.render();
+  }
+
+  /**
+   * Write down a setup failure the student was just shown.
+   *
+   * This is the seam, rather than the setup services themselves, because those
+   * also run background probes whose failures nobody sees. Logging inside them
+   * would fill the file with noise and cost the log its meaning: today, an entry
+   * here means the student hit a wall on screen, and an empty file means they
+   * did not. A cancel is not a failure and is deliberately not logged.
+   *
+   * npm and winget put the real cause in their last few lines, so the tail of the
+   * on-screen log is carried along with the summary sentence.
+   */
+  private logSetupFailure(
+    provider: string,
+    stage: ErrorLogEntry['stage'],
+    summary: string,
+    log: readonly string[] = []
+  ): void {
+    // Everything is inside the guard, including the arguments: they are
+    // evaluated before recordError's own try is entered, and a wizard that
+    // crashes while recording an install failure is worse than one that
+    // records nothing.
+    try {
+      // Redaction is the log's contract, not an optimisation. The bridge owns the
+      // pattern; with no bridge to ask, skip the entry rather than risk the text.
+      const redact = this.plugin.agentService?.redactForLog?.bind(this.plugin.agentService);
+      if (!redact) return;
+      const tail = log.slice(-LOG_TAIL_LINES).join('\n');
+      recordError(
+        this.plugin.storage?.getAdapter?.(),
+        {
+          provider,
+          stage,
+          message: redact(tail ? `${summary}\n${tail}` : summary),
+          cliPath: this.configuredCliPath(),
+        },
+        { home: os.homedir(), pluginVersion: this.plugin.manifest?.version ?? 'unknown' }
+      );
+    } catch { /* never break the wizard to write a log line */ }
   }
 
   private configuredCliPath(): string | undefined {

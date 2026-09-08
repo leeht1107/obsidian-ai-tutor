@@ -27,7 +27,7 @@ import {
 } from '../providers/providerRegistry';
 import { isWindows, killTree } from '../setup/processTree';
 import type { RequestOutcome } from '../setup/providerConnection';
-import { appendErrorLog, ERROR_LOG_PATH, type ErrorLogEntry, maskHome } from '../storage/ErrorLog';
+import { type ErrorLogEntry, recordError } from '../storage/ErrorLog';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -748,11 +748,12 @@ export class CopilotBridgeService {
     }
     const copilotPath = this.getCopilotPath();
     if (!copilotPath) {
-      yield {
-        type: 'error',
-        content:
-          'Copilot CLI not configured. Please set the path in settings or install @github/copilot globally.',
-      };
+      const message =
+        'Copilot CLI not configured. Please set the path in settings or install @github/copilot globally.';
+      // The likeliest real failure of all: a student with neither Node nor the CLI
+      // sends their first message. The native providers already log this case.
+      this.logError({ provider: 'copilot', stage: 'resolve', message });
+      yield { type: 'error', content: message };
       return;
     }
 
@@ -848,7 +849,10 @@ export class CopilotBridgeService {
         }
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
+      // Anything thrown on the plugin's own side of the request. Without this the
+      // student sees one sentence and nothing survives to say where it came from.
+      const msg = this.redactSecrets(error instanceof Error ? error.message : 'Unknown error');
+      this.logError({ provider: this.plugin.settings.selectedProvider, stage: 'internal', message: msg });
       yield { type: 'error', content: msg };
     } finally {
       this.abortController = null;
@@ -862,27 +866,33 @@ export class CopilotBridgeService {
    * no logger. Messages must arrive already redacted — this does not scrub.
    */
   private logError(entry: Omit<ErrorLogEntry, 'at' | 'platform' | 'pluginVersion'>): void {
+    // The guard is here, not only inside recordError: arguments are evaluated
+    // before the callee is entered, so a vault that is not ready yet would throw
+    // out of `getAdapter()` and take the student's request with it.
     try {
-      const adapter = this.plugin.storage?.getAdapter?.();
-      if (!adapter) return;
-      const home = os.homedir();
-      const logPath = ERROR_LOG_PATH;
-      void appendErrorLog(adapter, logPath, {
-        ...entry,
-        cliPath: maskHome(entry.cliPath, home),
-        resolved: maskHome(entry.resolved, home),
-        at: new Date().toISOString(),
-        platform: `${process.platform} ${process.arch}`,
+      recordError(this.plugin.storage?.getAdapter?.(), entry, {
+        home: os.homedir(),
         pluginVersion: this.plugin.manifest?.version ?? 'unknown',
       });
     } catch { /* never break a request to write a log line */ }
   }
 
   /**
+   * Redaction for a caller outside this class.
+   *
+   * The setup wizard logs npm and winget output, which is exactly the kind of
+   * text that can echo a configured credential. It has no business owning a
+   * second copy of the pattern, so it borrows this one.
+   */
+  redactForLog(text: string): string {
+    return this.redactSecrets(text);
+  }
+
+  /**
    * Strip configured credentials out of anything shown to the student.
    *
    * A failing CLI's stderr goes into the chat, and the chat is written to
-   * `.copilot/sessions/` inside the vault — the same synced folder the token
+   * `.ai-tutor/sessions/` inside the vault — the same synced folder the token
    * was just moved out of. One stack trace that echoes GH_TOKEN would put it
    * straight back.
    *
@@ -1013,7 +1023,7 @@ export class CopilotBridgeService {
       detached: !isWindows,
       });
     } catch (error) {
-      const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
+      const message = this.redactSecrets(`Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`);
       this.logError({ provider, stage: 'launch', message, cliPath, resolved: `${command} ${entry[1].join(' ')}`.trim() });
       yield { type: 'error', content: message };
       return;
@@ -1199,12 +1209,12 @@ export class CopilotBridgeService {
     } catch (spawnErr) {
       // spawn() throws synchronously for invalid args/cwd (e.g. EINVAL on Windows).
       // child.on('error') would never fire in this case.
-      yield {
-        type: 'error',
-        content:
-          `Failed to start Copilot CLI: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}` +
-          `\n(command: ${command}, cwd: ${cwd})`,
-      };
+      const message = this.redactSecrets(
+        `Failed to start Copilot CLI: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}` +
+        `\n(command: ${command}, cwd: ${cwd})`
+      );
+      this.logError({ provider: 'copilot', stage: 'launch', message, cliPath: command, resolved: spawnCmd });
+      yield { type: 'error', content: message };
       return;
     }
 
