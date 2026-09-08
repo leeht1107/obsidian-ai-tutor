@@ -997,6 +997,102 @@ var init_processTree = __esm({
   }
 });
 
+// src/core/storage/ErrorLog.ts
+function maskHome(value, home) {
+  if (!value) return value;
+  if (!home) return value;
+  const normalized = value.replace(/\//g, "\\");
+  const normalizedHome = home.replace(/\//g, "\\");
+  if (!normalized.toLowerCase().startsWith(normalizedHome.toLowerCase())) return value;
+  const next = normalized.charAt(normalizedHome.length);
+  if (next !== "" && next !== "\\") return value;
+  return "~" + value.slice(home.length);
+}
+function maskHomeInText(text, home) {
+  if (!text || !home) return text;
+  const slashed = home.replace(/\\/g, "/");
+  const variants = /* @__PURE__ */ new Set([home, home.replace(/\//g, "\\"), slashed, slashed.replace(/\//g, "\\\\")]);
+  let out = text;
+  for (const variant of variants) {
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`${escaped}(?![A-Za-z0-9._-])`, "gi"), "~");
+  }
+  return out;
+}
+function scrubCredentialPatterns(text) {
+  if (!text) return text;
+  return text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@").replace(/\b(authorization)(\s*[=:]\s*).*/gi, "$1$2[redacted]").replace(/\b(bearer\s+)\S+/gi, "$1[redacted]").replace(/\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|auth)[\w-]*)(\s*[=:]\s*)\S+/gi, "$1$2[redacted]").replace(/\b(?:gh[pousr]_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}/g, "[redacted]");
+}
+function appendErrorLog(adapter, logPath, entry) {
+  const write = appendQueue.then(() => writeOneEntry(adapter, logPath, entry));
+  appendQueue = write.catch(() => void 0);
+  return write;
+}
+async function writeOneEntry(adapter, logPath, entry) {
+  try {
+    const line = JSON.stringify(entry);
+    const existing = await adapter.exists(logPath) ? await adapter.read(logPath) : "";
+    const lines = existing.split("\n").filter((l) => l.trim().length > 0);
+    lines.push(line);
+    await adapter.write(logPath, lines.slice(-MAX_ENTRIES).join("\n") + "\n");
+  } catch (error) {
+    console.warn("[ObsidianCopilot] Failed to write the error log:", error);
+  }
+}
+function recordError(adapter, entry, meta) {
+  try {
+    if (!adapter) return;
+    void appendErrorLog(adapter, ERROR_LOG_PATH, {
+      ...entry,
+      // The message is masked and scrubbed here, at the one boundary every
+      // caller passes through, rather than at each call site that could forget.
+      message: scrubCredentialPatterns(maskHomeInText(entry.message, meta.home)),
+      cliPath: maskHome(entry.cliPath, meta.home),
+      resolved: maskHome(entry.resolved, meta.home),
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      platform: `${process.platform} ${process.arch}`,
+      pluginVersion: meta.pluginVersion
+    });
+  } catch (e) {
+  }
+}
+async function readRecentErrors(adapter, logPath, limit = 50) {
+  try {
+    if (!await adapter.exists(logPath)) return [];
+    const raw = await adapter.read(logPath);
+    return raw.split("\n").filter((l) => l.trim().length > 0).slice(-limit).map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch (e) {
+        return null;
+      }
+    }).filter((e) => e !== null);
+  } catch (e) {
+    return [];
+  }
+}
+function formatErrorsForReport(entries) {
+  if (entries.length === 0) return "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
+  return entries.map((e) => {
+    const head = `[${e.at}] ${e.provider} / ${e.stage}`;
+    const where = [e.cliPath && `cli: ${e.cliPath}`, e.resolved && `run: ${e.resolved}`].filter(Boolean).join(" | ");
+    const how = [
+      e.exitCode !== void 0 && e.exitCode !== null ? `exit ${e.exitCode}` : "",
+      e.signal ? `signal ${e.signal}` : "",
+      `${e.platform} / plugin ${e.pluginVersion}`
+    ].filter(Boolean).join(" | ");
+    return [head, where, how, e.message].filter(Boolean).join("\n");
+  }).join("\n\n");
+}
+var ERROR_LOG_PATH, MAX_ENTRIES, appendQueue;
+var init_ErrorLog = __esm({
+  "src/core/storage/ErrorLog.ts"() {
+    ERROR_LOG_PATH = ".ai-tutor/logs/errors.jsonl";
+    MAX_ENTRIES = 300;
+    appendQueue = Promise.resolve();
+  }
+});
+
 // src/core/types/models.ts
 var THINKING_BUDGETS, DEFAULT_THINKING_BUDGET, COPILOT_MODELS, DEFAULT_MODEL;
 var init_models = __esm({
@@ -1737,17 +1833,20 @@ var SetupWizardModal_exports = {};
 __export(SetupWizardModal_exports, {
   SetupWizardModal: () => SetupWizardModal
 });
-var import_obsidian, MAX_LOG_LINES, SetupWizardModal;
+var import_obsidian, os3, MAX_LOG_LINES, LOG_TAIL_LINES, SetupWizardModal;
 var init_SetupWizardModal = __esm({
   "src/ui/modals/SetupWizardModal.ts"() {
     import_obsidian = require("obsidian");
+    os3 = __toESM(require("os"));
     init_providerRegistry();
     init_AutoSetupService();
     init_nodeInstall();
     init_providerConnection();
     init_providerLogin();
     init_providerReadiness();
+    init_ErrorLog();
     MAX_LOG_LINES = 6;
+    LOG_TAIL_LINES = 6;
     SetupWizardModal = class extends import_obsidian.Modal {
       /**
        * @param target Provider the student just clicked. Without it the wizard
@@ -1903,6 +2002,7 @@ var init_SetupWizardModal = __esm({
         this.nodeSession = null;
         if (!result.success) {
           this.errorDetail = (_a = result.error) != null ? _a : "Node.js \uC124\uCE58\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+          this.logSetupFailure("node", "install", this.errorDetail, this.nodeLog);
           this.phase = "error";
           this.render();
           return;
@@ -1954,6 +2054,7 @@ var init_SetupWizardModal = __esm({
           this.phase = "login";
         } else {
           this.errorDetail = (_a = result.error) != null ? _a : "\uC54C \uC218 \uC5C6\uB294 \uC624\uB958";
+          this.logSetupFailure(this.provider, "install", this.errorDetail, this.installLog);
           this.phase = "error";
         }
         this.render();
@@ -2082,6 +2183,7 @@ var init_SetupWizardModal = __esm({
           this.phase = "unverified";
         } else {
           this.loginFailure = (_a = outcome.error) != null ? _a : state === "not-connected" ? "\uC544\uC9C1 \uB85C\uADF8\uC778\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694." : "\uB85C\uADF8\uC778\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+          this.logSetupFailure(this.provider, "login", this.loginFailure);
         }
         this.render();
       }
@@ -2170,7 +2272,9 @@ var init_SetupWizardModal = __esm({
       }
       async recheck() {
         if (!this.hasSelectedProviderCli()) {
-          new import_obsidian.Notice("CLI\uB97C \uC544\uC9C1 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uCE58 \uD6C4 \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+          const message = "CLI\uB97C \uC544\uC9C1 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uCE58 \uD6C4 \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
+          this.logSetupFailure(this.provider, "resolve", message);
+          new import_obsidian.Notice(message);
           return;
         }
         const state = await this.readConnectionState();
@@ -2179,6 +2283,38 @@ var init_SetupWizardModal = __esm({
         else if (state === "not-connected") this.phase = "login";
         else this.phase = "unverified";
         this.render();
+      }
+      /**
+       * Write down a setup failure the student was just shown.
+       *
+       * This is the seam, rather than the setup services themselves, because those
+       * also run background probes whose failures nobody sees. Logging inside them
+       * would fill the file with noise and cost the log its meaning: today, an entry
+       * here means the student hit a wall on screen, and an empty file means they
+       * did not. A cancel is not a failure and is deliberately not logged.
+       *
+       * npm and winget put the real cause in their last few lines, so the tail of the
+       * on-screen log is carried along with the summary sentence.
+       */
+      logSetupFailure(provider, stage, summary, log = []) {
+        var _a, _b, _c, _d, _e, _f;
+        try {
+          const redact = (_b = (_a = this.plugin.agentService) == null ? void 0 : _a.redactForLog) == null ? void 0 : _b.bind(this.plugin.agentService);
+          if (!redact) return;
+          const tail = log.slice(-LOG_TAIL_LINES).join("\n");
+          recordError(
+            (_d = (_c = this.plugin.storage) == null ? void 0 : _c.getAdapter) == null ? void 0 : _d.call(_c),
+            {
+              provider,
+              stage,
+              message: redact(tail ? `${summary}
+${tail}` : summary),
+              cliPath: this.configuredCliPath()
+            },
+            { home: os3.homedir(), pluginVersion: (_f = (_e = this.plugin.manifest) == null ? void 0 : _e.version) != null ? _f : "unknown" }
+          );
+        } catch (e) {
+        }
       }
       configuredCliPath() {
         var _a;
@@ -2410,7 +2546,7 @@ function providerSkillsRoot(vaultPath, providerId) {
     case "agy":
       return path15.join(vaultPath, ".agents", "skills");
     case "codex":
-      return path15.join(process.env.CODEX_HOME || path15.join(os6.homedir(), ".codex"), "skills");
+      return path15.join(process.env.CODEX_HOME || path15.join(os7.homedir(), ".codex"), "skills");
   }
 }
 function isMachineWideSkillsRoot(providerId) {
@@ -2419,11 +2555,11 @@ function isMachineWideSkillsRoot(providerId) {
 function providerGlobalSkillsRoot(providerId) {
   switch (providerId) {
     case "copilot":
-      return path15.join(os6.homedir(), ".copilot", "skills");
+      return path15.join(os7.homedir(), ".copilot", "skills");
     case "claude":
-      return path15.join(os6.homedir(), ".claude", "skills");
+      return path15.join(os7.homedir(), ".claude", "skills");
     case "agy":
-      return path15.join(os6.homedir(), ".gemini", "config", "skills");
+      return path15.join(os7.homedir(), ".gemini", "config", "skills");
     case "codex":
       return null;
   }
@@ -2819,12 +2955,12 @@ async function installSkillFromUrl(app, url, providerId) {
     return false;
   }
 }
-var fs12, import_obsidian28, os6, path15, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
+var fs12, import_obsidian28, os7, path15, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
 var init_ObsidianSkillsInstaller = __esm({
   "src/features/skills/ObsidianSkillsInstaller.ts"() {
     fs12 = __toESM(require("fs"));
     import_obsidian28 = require("obsidian");
-    os6 = __toESM(require("os"));
+    os7 = __toESM(require("os"));
     path15 = __toESM(require("path"));
     init_path();
     OBSIDIAN_MARKDOWN_SKILL = `---
@@ -3191,7 +3327,7 @@ var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100
 var import_child_process6 = require("child_process");
 var import_crypto = require("crypto");
 var fs7 = __toESM(require("fs"));
-var os3 = __toESM(require("os"));
+var os4 = __toESM(require("os"));
 var path7 = __toESM(require("path"));
 
 // src/utils/context.ts
@@ -3649,56 +3785,7 @@ function buildSystemPrompt(settings = {}) {
 // src/core/agent/CopilotBridgeService.ts
 init_providerRegistry();
 init_processTree();
-
-// src/core/storage/ErrorLog.ts
-var ERROR_LOG_PATH = ".ai-tutor/logs/errors.jsonl";
-var MAX_ENTRIES = 300;
-function maskHome(value, home) {
-  if (!value) return value;
-  if (!home) return value;
-  const normalized = value.replace(/\//g, "\\");
-  const normalizedHome = home.replace(/\//g, "\\");
-  return normalized.toLowerCase().startsWith(normalizedHome.toLowerCase()) ? "~" + value.slice(home.length) : value;
-}
-async function appendErrorLog(adapter, logPath, entry) {
-  try {
-    const line = JSON.stringify(entry);
-    const existing = await adapter.exists(logPath) ? await adapter.read(logPath) : "";
-    const lines = existing.split("\n").filter((l) => l.trim().length > 0);
-    lines.push(line);
-    await adapter.write(logPath, lines.slice(-MAX_ENTRIES).join("\n") + "\n");
-  } catch (error) {
-    console.warn("[ObsidianCopilot] Failed to write the error log:", error);
-  }
-}
-async function readRecentErrors(adapter, logPath, limit = 50) {
-  try {
-    if (!await adapter.exists(logPath)) return [];
-    const raw = await adapter.read(logPath);
-    return raw.split("\n").filter((l) => l.trim().length > 0).slice(-limit).map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch (e) {
-        return null;
-      }
-    }).filter((e) => e !== null);
-  } catch (e) {
-    return [];
-  }
-}
-function formatErrorsForReport(entries) {
-  if (entries.length === 0) return "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
-  return entries.map((e) => {
-    const head = `[${e.at}] ${e.provider} / ${e.stage}`;
-    const where = [e.cliPath && `cli: ${e.cliPath}`, e.resolved && `run: ${e.resolved}`].filter(Boolean).join(" | ");
-    const how = [
-      e.exitCode !== void 0 && e.exitCode !== null ? `exit ${e.exitCode}` : "",
-      e.signal ? `signal ${e.signal}` : "",
-      `${e.platform} / plugin ${e.pluginVersion}`
-    ].filter(Boolean).join(" | ");
-    return [head, where, how, e.message].filter(Boolean).join("\n");
-  }).join("\n\n");
-}
+init_ErrorLog();
 
 // src/core/tools/toolNames.ts
 var TOOL_AGENT_OUTPUT = "AgentOutputTool";
@@ -4233,10 +4320,9 @@ User: ${injectedPrompt}` : historyContext;
     }
     const copilotPath = this.getCopilotPath();
     if (!copilotPath) {
-      yield {
-        type: "error",
-        content: "Copilot CLI not configured. Please set the path in settings or install @github/copilot globally."
-      };
+      const message = "Copilot CLI not configured. Please set the path in settings or install @github/copilot globally.";
+      this.logError({ provider: "copilot", stage: "resolve", message });
+      yield { type: "error", content: message };
       return;
     }
     const cwd = this.getWorkingDirectory();
@@ -4315,7 +4401,8 @@ User: ${injectedPrompt}` : historyContext;
         }
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
+      const msg = this.redactSecrets(error instanceof Error ? error.message : "Unknown error");
+      this.logError({ provider: this.plugin.settings.selectedProvider, stage: "internal", message: msg });
       yield { type: "error", content: msg };
     } finally {
       this.abortController = null;
@@ -4330,26 +4417,28 @@ User: ${injectedPrompt}` : historyContext;
   logError(entry) {
     var _a, _b, _c, _d;
     try {
-      const adapter = (_b = (_a = this.plugin.storage) == null ? void 0 : _a.getAdapter) == null ? void 0 : _b.call(_a);
-      if (!adapter) return;
-      const home = os3.homedir();
-      const logPath = ERROR_LOG_PATH;
-      void appendErrorLog(adapter, logPath, {
-        ...entry,
-        cliPath: maskHome(entry.cliPath, home),
-        resolved: maskHome(entry.resolved, home),
-        at: (/* @__PURE__ */ new Date()).toISOString(),
-        platform: `${process.platform} ${process.arch}`,
+      recordError((_b = (_a = this.plugin.storage) == null ? void 0 : _a.getAdapter) == null ? void 0 : _b.call(_a), entry, {
+        home: os4.homedir(),
         pluginVersion: (_d = (_c = this.plugin.manifest) == null ? void 0 : _c.version) != null ? _d : "unknown"
       });
     } catch (e) {
     }
   }
   /**
+   * Redaction for a caller outside this class.
+   *
+   * The setup wizard logs npm and winget output, which is exactly the kind of
+   * text that can echo a configured credential. It has no business owning a
+   * second copy of the pattern, so it borrows this one.
+   */
+  redactForLog(text) {
+    return this.redactSecrets(text);
+  }
+  /**
    * Strip configured credentials out of anything shown to the student.
    *
    * A failing CLI's stderr goes into the chat, and the chat is written to
-   * `.copilot/sessions/` inside the vault — the same synced folder the token
+   * `.ai-tutor/sessions/` inside the vault — the same synced folder the token
    * was just moved out of. One stack trace that echoes GH_TOKEN would put it
    * straight back.
    *
@@ -4446,7 +4535,7 @@ ${remedy}`;
         detached: !isWindows2
       });
     } catch (error) {
-      const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
+      const message = this.redactSecrets(`Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`);
       this.logError({ provider, stage: "launch", message, cliPath, resolved: `${command} ${entry[1].join(" ")}`.trim() });
       yield { type: "error", content: message };
       return;
@@ -4597,11 +4686,12 @@ ${remedy}`;
         detached: !isWindows2
       });
     } catch (spawnErr) {
-      yield {
-        type: "error",
-        content: `Failed to start Copilot CLI: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}
+      const message = this.redactSecrets(
+        `Failed to start Copilot CLI: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}
 (command: ${command}, cwd: ${cwd})`
-      };
+      );
+      this.logError({ provider: "copilot", stage: "launch", message, cliPath: command, resolved: spawnCmd });
+      yield { type: "error", content: message };
       return;
     }
     this.currentProcess = child;
@@ -5272,7 +5362,7 @@ var SettingsStorage = class {
 
 // src/core/storage/SlashCommandStorage.ts
 var fs9 = __toESM(require("fs"));
-var os4 = __toESM(require("os"));
+var os5 = __toESM(require("os"));
 var path9 = __toESM(require("path"));
 
 // src/utils/slashCommand.ts
@@ -5359,8 +5449,8 @@ function unquoteYamlString(value) {
 
 // src/core/storage/SlashCommandStorage.ts
 var COMMANDS_PATH = ".ai-tutor/commands";
-var GLOBAL_COMMANDS_PATH = path9.join(os4.homedir(), ".copilot", "commands");
-var INSTALLED_PLUGINS_PATH = path9.join(os4.homedir(), ".copilot", "plugins", "installed_plugins.json");
+var GLOBAL_COMMANDS_PATH = path9.join(os5.homedir(), ".copilot", "commands");
+var INSTALLED_PLUGINS_PATH = path9.join(os5.homedir(), ".copilot", "plugins", "installed_plugins.json");
 var SlashCommandStorage = class {
   constructor(adapter) {
     this.adapter = adapter;
@@ -8695,7 +8785,7 @@ var ImageContextManager = class {
 
 // src/ui/components/InputToolbar.ts
 var import_obsidian8 = require("obsidian");
-var os5 = __toESM(require("os"));
+var os6 = __toESM(require("os"));
 init_providerRegistry();
 
 // src/utils/folderDialog.ts
@@ -9372,7 +9462,7 @@ var ExternalContextSelector = class {
   }
   shortenPath(fullPath) {
     try {
-      const homeDir = os5.homedir();
+      const homeDir = os6.homedir();
       const normalize2 = (value) => value.replace(/\\/g, "/");
       const normalizedFull = normalize2(fullPath);
       const normalizedHome = normalize2(homeDir);
@@ -19845,6 +19935,7 @@ var fs13 = __toESM(require("fs"));
 var import_obsidian29 = require("obsidian");
 init_providerRegistry();
 init_providerConnection();
+init_ErrorLog();
 init_models();
 init_path();
 init_ObsidianSkillsInstaller();
