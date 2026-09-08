@@ -2985,13 +2985,6 @@
   font-size: 11px;
 }
 
-/* Same dimmed/inert treatment as .ocop-permission-toggle.is-unavailable: a request is
-   in flight, so switching provider is refused rather than removed from view. */
-.ocop-provider-selector.is-unavailable {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .ocop-provider-btn,
 .ocop-send-btn {
   display: inline-flex;

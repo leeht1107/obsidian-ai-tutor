@@ -834,7 +834,16 @@ function writesOutsideVault(id) {
 function writesWithoutAsking(id) {
   return writesOutsideVault(id);
 }
-function buildNativeProviderCommand(id, prompt, model = "", effort = "", permissionMode = "agent") {
+function needsBlanketWriteConsent(id, blanketWriteAcknowledged) {
+  if (!writesWithoutAsking(id)) return false;
+  return !(Array.isArray(blanketWriteAcknowledged) && blanketWriteAcknowledged.includes(id));
+}
+function resolveEffectivePermissionMode(mode, provider, blanketWriteAcknowledged, forcedReadOnly = false) {
+  const wantsReadOnly = mode === "ask" || mode === "plan" || forcedReadOnly;
+  const needsConsent = needsBlanketWriteConsent(provider, blanketWriteAcknowledged);
+  return wantsReadOnly && supportsReadOnlyMode(provider) || needsConsent ? "ask" : "agent";
+}
+function buildNativeProviderCommand(id, prompt, model = "", effort = "", permissionMode = "ask") {
   const selectedModel = model.trim();
   let selectedEffort = getProviderEffortLevels(id).includes(effort.trim()) ? effort.trim() : "";
   if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = "";
@@ -950,6 +959,41 @@ var init_providerRegistry = __esm({
     RETIRED_PROVIDER_MODELS = {
       codex: ["o3"]
     };
+  }
+});
+
+// src/core/setup/processTree.ts
+function killTree(child, signal = "SIGKILL") {
+  const { pid } = child;
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return;
+  const killDirect = () => {
+    try {
+      child.kill(signal);
+    } catch (e) {
+    }
+  };
+  if (isWindows2) {
+    try {
+      (0, import_child_process.spawn)("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", killDirect);
+      return;
+    } catch (e) {
+      killDirect();
+      return;
+    }
+  } else {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch (e) {
+    }
+  }
+  killDirect();
+}
+var import_child_process, isWindows2;
+var init_processTree = __esm({
+  "src/core/setup/processTree.ts"() {
+    import_child_process = require("child_process");
+    isWindows2 = process.platform === "win32";
   }
 });
 
@@ -1084,8 +1128,8 @@ var init_settings = __esm({
       titleGenerationModel: "",
       lastEnvHash: "",
       thinkingBudget: "off",
-      permissionMode: "agent",
-      lastNonPlanPermissionMode: "agent",
+      permissionMode: "ask",
+      lastNonPlanPermissionMode: "ask",
       blanketWriteAcknowledged: [],
       permissions: [],
       excludedTags: [],
@@ -1107,41 +1151,6 @@ var init_settings = __esm({
       githubToken: ""
       // Empty = use stored auth
     };
-  }
-});
-
-// src/core/setup/processTree.ts
-function killTree(child, signal = "SIGKILL") {
-  const { pid } = child;
-  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return;
-  const killDirect = () => {
-    try {
-      child.kill(signal);
-    } catch (e) {
-    }
-  };
-  if (isWindows2) {
-    try {
-      (0, import_child_process.spawn)("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", killDirect);
-      return;
-    } catch (e) {
-      killDirect();
-      return;
-    }
-  } else {
-    try {
-      process.kill(-pid, signal);
-      return;
-    } catch (e) {
-    }
-  }
-  killDirect();
-}
-var import_child_process, isWindows2;
-var init_processTree = __esm({
-  "src/core/setup/processTree.ts"() {
-    import_child_process = require("child_process");
-    isWindows2 = process.platform === "win32";
   }
 });
 
@@ -1825,6 +1834,10 @@ var init_SetupWizardModal = __esm({
         }
       }
       async chooseProvider(provider) {
+        if (provider !== this.plugin.settings.selectedProvider && this.plugin.isBashExpansionInFlight()) {
+          new import_obsidian.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          return;
+        }
         this.plugin.settings.selectedProvider = provider;
         await this.plugin.saveSettings();
         const { cliFound, npmFound } = checkProviderSetupStatus(provider);
@@ -2275,7 +2288,7 @@ function isPermissionMode(v) {
 }
 function getDefaultTrust() {
   return {
-    permissionMode: "agent",
+    permissionMode: "ask",
     blanketWriteAcknowledged: [],
     permissions: [],
     enableInlineBash: false,
@@ -3303,10 +3316,47 @@ function getTodayDate() {
 }
 
 // src/core/prompts/mainAgent.ts
-function getBaseSystemPrompt(vaultPath) {
+function getSubagentInstructions() {
+  return `
+### Task (Subagents)
+
+Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`description\`, \`subagent_type\`, \`run_in_background\`.
+
+**CRITICAL - Subagent Path Rules:**
+- Subagents inherit the vault as their working directory.
+- Reference files using **RELATIVE** paths.
+- NEVER use absolute paths in subagent prompts.
+
+**When to use:**
+- Parallelizable work (main + subagent or multiple subagents)
+- Preserve main context budget for sub-tasks
+- Offload contained tasks while continuing other work
+
+**Sync Mode (Default - \`run_in_background=false\`)**:
+- Runs inline, result returned directly.
+- **DEFAULT** to this unless explicitly asked or the task is very long-running.
+
+**Async Mode (\`run_in_background=true\`)**:
+- Use ONLY when explicitly requested or task is clearly long-running.
+- Returns \`agent_id\` immediately.
+- **Must retrieve result** with \`AgentOutputTool\` (poll with block=false, then block=true).
+- Never end response without retrieving async results.
+
+**Async workflow:**
+1. Launch: \`Task prompt="..." run_in_background=true\` \u2192 get \`agent_id\`
+2. Check immediately: \`AgentOutputTool agentId="..." block=false\`
+3. Poll while working: \`AgentOutputTool agentId="..." block=false\`
+4. When idle: \`AgentOutputTool agentId="..." block=true\` (wait for completion)
+5. Report result to user
+
+**Critical:** Never end response without retrieving async task results.
+`;
+}
+function getBaseSystemPrompt(vaultPath, permissionMode) {
   const vaultInfo = vaultPath ? `
 
 Vault absolute path: ${vaultPath}` : "";
+  const subagentInstructions = permissionMode === "agent" ? getSubagentInstructions() : "";
   return `## Time Context
 
 - **Current Date**: ${getTodayDate()}
@@ -3418,40 +3468,7 @@ Use WebSearch strictly according to the following logic:
     - Volatile data (prices, weather).
 3.  **Date Awareness**: If user says "yesterday", calculate the date relative to **Current Date**.
 4.  **Ambiguity**: If unsure if knowledge is outdated, SEARCH.
-
-### Task (Subagents)
-
-Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`description\`, \`subagent_type\`, \`run_in_background\`.
-
-**CRITICAL - Subagent Path Rules:**
-- Subagents inherit the vault as their working directory.
-- Reference files using **RELATIVE** paths.
-- NEVER use absolute paths in subagent prompts.
-
-**When to use:**
-- Parallelizable work (main + subagent or multiple subagents)
-- Preserve main context budget for sub-tasks
-- Offload contained tasks while continuing other work
-
-**Sync Mode (Default - \`run_in_background=false\`)**:
-- Runs inline, result returned directly.
-- **DEFAULT** to this unless explicitly asked or the task is very long-running.
-
-**Async Mode (\`run_in_background=true\`)**:
-- Use ONLY when explicitly requested or task is clearly long-running.
-- Returns \`agent_id\` immediately.
-- **Must retrieve result** with \`AgentOutputTool\` (poll with block=false, then block=true).
-- Never end response without retrieving async results.
-
-**Async workflow:**
-1. Launch: \`Task prompt="..." run_in_background=true\` \u2192 get \`agent_id\`
-2. Check immediately: \`AgentOutputTool agentId="..." block=false\`
-3. Poll while working: \`AgentOutputTool agentId="..." block=false\`
-4. When idle: \`AgentOutputTool agentId="..." block=true\` (wait for completion)
-5. Report result to user
-
-**Critical:** Never end response without retrieving async task results.
-
+${subagentInstructions}
 ### TodoWrite
 
 Track task progress. Parameter: \`todos\` (array of {content, status, activeForm}).
@@ -3523,7 +3540,7 @@ function getExportInstructions(allowedExportPaths) {
 
 ## Allowed Export Paths
 
-Write-only destinations outside the vault:
+Guidance only \u2014 the plugin does not enforce this list; the CLI process can write anywhere the OS permits. Export outside the vault only to these destinations:
 
 ${formattedPaths}
 
@@ -3605,7 +3622,7 @@ You are in **plan mode** - a read-only exploration phase before implementation.
 }
 function buildSystemPrompt(settings = {}) {
   var _a, _b;
-  let prompt = getBaseSystemPrompt(settings.vaultPath);
+  let prompt = getBaseSystemPrompt(settings.vaultPath, settings.permissionMode);
   prompt += getImageInstructions(settings.mediaFolder || "");
   prompt += getExportInstructions(settings.allowedExportPaths || []);
   prompt += getExternalContextInstructions(settings.externalContextPaths || []);
@@ -3631,11 +3648,10 @@ function buildSystemPrompt(settings = {}) {
 
 // src/core/agent/CopilotBridgeService.ts
 init_providerRegistry();
+init_processTree();
 
 // src/core/storage/ErrorLog.ts
-function errorLogPath(configDir, pluginId) {
-  return `${configDir}/plugins/${pluginId}/logs/errors.jsonl`;
-}
+var ERROR_LOG_PATH = ".ai-tutor/logs/errors.jsonl";
 var MAX_ENTRIES = 300;
 function maskHome(value, home) {
   if (!value) return value;
@@ -3744,17 +3760,14 @@ var ALLOWED_TOOLS = [
   "view",
   "grep",
   "glob",
-  "ls",
-  "task",
-  "agent_output",
-  "report_intent",
-  "webfetch",
-  "websearch"
+  "web_fetch",
+  "web_search"
 ];
 var MAX_DIFF_SIZE = 100 * 1024;
 var CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 var MAX_STDERR_CHARS = 1024 * 1024;
 var MAX_LINE_BUFFER_CHARS = 1024 * 1024;
+var MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map((tool) => tool.trim()).filter(Boolean)) != null ? _a : [];
@@ -3762,7 +3775,7 @@ function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, en
   const guardrailSet = guardrailTools ? new Set(guardrailTools) : null;
   let effectiveTools = requested.length > 0 ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
   if (!enableWebSearch) {
-    const webTools = /* @__PURE__ */ new Set(["websearch", "webfetch"]);
+    const webTools = /* @__PURE__ */ new Set(["web_search", "web_fetch"]);
     effectiveTools = effectiveTools.filter((tool) => !webTools.has(tool));
   }
   return guardrailSet && effectiveTools.length === 0 ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
@@ -3947,6 +3960,14 @@ var CopilotBridgeService = class {
      * id must never be handed to --resume. */
     this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
+    /**
+     * Which provider handled the previous turn — any provider, not just copilot. Set once
+     * per turn in `buildPromptWithHistory`, the single choke point both the copilot and
+     * native provider paths already call once per turn. Lets a copilot turn tell whether
+     * its own remembered session is stale because a different provider held the turn
+     * just before it (see the comment above `holdsItsOwnSession`).
+     */
+    this.lastTurnProvider = null;
     this.cachedCopilotPath = void 0;
     this.cachedCapabilities = /* @__PURE__ */ new Map();
     this.capabilityProbePromises = /* @__PURE__ */ new Map();
@@ -3999,7 +4020,8 @@ var CopilotBridgeService = class {
       vaultPath,
       hasEditorContext,
       planMode: queryOptions == null ? void 0 : queryOptions.planMode,
-      appendedPlan: (_a = this.approvedPlanContent) != null ? _a : void 0
+      appendedPlan: (_a = this.approvedPlanContent) != null ? _a : void 0,
+      permissionMode: this.plugin.settings.permissionMode
     });
   }
   injectSystemPrompt(prompt, vaultPath, queryOptions) {
@@ -4011,6 +4033,12 @@ ${systemPrompt}
 ${prompt}`;
   }
   buildPromptWithHistory(prompt, conversationHistory, vaultPath, queryOptions) {
+    const currentProvider = this.plugin.settings.selectedProvider;
+    if (currentProvider === "copilot" && this.lastTurnProvider !== null && this.lastTurnProvider !== "copilot") {
+      this.sessionId = null;
+      this.sessionConfirmedByCli = false;
+    }
+    this.lastTurnProvider = currentProvider;
     const injectedPrompt = this.injectSystemPrompt(prompt, vaultPath, queryOptions);
     if (this.wasInterrupted && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
@@ -4078,22 +4106,40 @@ User: ${injectedPrompt}` : historyContext;
       return pending;
     }
     const probePromise = new Promise((resolve6) => {
+      var _a, _b;
       const probeEntry = resolveProviderEntry(copilotPath, getProviderDescriptor("copilot").npmPackage);
       const [probeCmd, probeArgs] = probeEntry ? [probeEntry[0], [...probeEntry[1], "--help", "all"]] : [copilotPath, ["--help", "all"]];
-      (0, import_child_process6.execFile)(probeCmd, probeArgs, {
-        encoding: "utf8",
-        env: this.getCustomEnv(copilotPath),
-        timeout: CLI_CAPABILITY_PROBE_TIMEOUT_MS,
-        windowsHide: true
-      }, (error, stdout, stderr) => {
-        const helpText = typeof stdout === "string" && stdout.trim().length > 0 ? stdout : typeof stderr === "string" ? stderr : "";
-        const capabilities = detectCopilotCliCapabilities(helpText);
-        if (error && helpText.length === 0) {
-          resolve6(detectCopilotCliCapabilities(""));
-          return;
-        }
-        resolve6(capabilities);
+      let child;
+      try {
+        child = (0, import_child_process6.spawn)(probeCmd, probeArgs, {
+          env: this.getCustomEnv(copilotPath),
+          windowsHide: true,
+          detached: !isWindows2
+        });
+      } catch (e) {
+        resolve6(detectCopilotCliCapabilities(""));
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (errored) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        killTree(child);
+        const helpText = stdout.trim().length > 0 ? stdout : stderr;
+        resolve6(errored && helpText.length === 0 ? detectCopilotCliCapabilities("") : detectCopilotCliCapabilities(helpText));
+      };
+      const timer = setTimeout(() => finish(true), CLI_CAPABILITY_PROBE_TIMEOUT_MS);
+      (_a = child.stdout) == null ? void 0 : _a.on("data", (chunk) => {
+        stdout += chunk.toString();
       });
+      (_b = child.stderr) == null ? void 0 : _b.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on("error", () => finish(true));
+      child.on("close", (code) => finish(code !== 0));
     }).then((capabilities) => {
       this.cachedCapabilities.set(copilotPath, capabilities);
       this.capabilityProbePromises.delete(copilotPath);
@@ -4138,13 +4184,45 @@ User: ${injectedPrompt}` : historyContext;
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
     if (!entry) throw new Error(`${provider} CLI could not be run`);
     return new Promise((resolve6, reject) => {
-      (0, import_child_process6.execFile)(entry[0], [...entry[1], ...args], { cwd: this.getWorkingDirectory(), env: process.env, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
-        if (error) {
-          reject(error);
+      var _a, _b;
+      let child;
+      try {
+        child = (0, import_child_process6.spawn)(entry[0], [...entry[1], ...args], {
+          cwd: this.getWorkingDirectory(),
+          env: process.env,
+          windowsHide: true,
+          detached: !isWindows2
+        });
+      } catch (spawnErr) {
+        reject(spawnErr instanceof Error ? spawnErr : new Error(String(spawnErr)));
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        killTree(child);
+        fn();
+      };
+      (_a = child.stdout) == null ? void 0 : _a.on("data", (chunk) => {
+        stdout += chunk.toString();
+        if (stdout.length > MODEL_LIST_MAX_STDOUT_CHARS) {
+          finish(() => reject(new Error(`${provider} models output exceeded buffer limit`)));
+        }
+      });
+      (_b = child.stderr) == null ? void 0 : _b.on("data", (chunk) => {
+        stderr = (stderr + chunk.toString()).slice(0, MAX_STDERR_CHARS);
+      });
+      child.on("error", (error) => finish(() => reject(error)));
+      child.on("close", (code) => finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `${provider} models exited with code ${code}`));
           return;
         }
         resolve6(provider === "codex" ? parseCodexModels(stdout) : parseAgyModels(stdout));
-      });
+      }));
     });
   }
   async *query(prompt, _images, conversationHistory, queryOptions) {
@@ -4255,7 +4333,7 @@ User: ${injectedPrompt}` : historyContext;
       const adapter = (_b = (_a = this.plugin.storage) == null ? void 0 : _a.getAdapter) == null ? void 0 : _b.call(_a);
       if (!adapter) return;
       const home = os3.homedir();
-      const logPath = errorLogPath(this.plugin.app.vault.configDir, this.plugin.manifest.id);
+      const logPath = ERROR_LOG_PATH;
       void appendErrorLog(adapter, logPath, {
         ...entry,
         cliPath: maskHome(entry.cliPath, home),
@@ -4329,8 +4407,8 @@ ${remedy}`;
     const mode = this.plugin.settings.permissionMode;
     const wantsReadOnly = mode === "ask" || mode === "plan" || Boolean(queryOptions == null ? void 0 : queryOptions.planMode);
     const acknowledged = this.plugin.settings.blanketWriteAcknowledged;
-    const needsConsent = writesWithoutAsking(provider) && !(Array.isArray(acknowledged) && acknowledged.includes(provider));
-    const permissionMode = wantsReadOnly && supportsReadOnlyMode(provider) || needsConsent ? "ask" : "agent";
+    const needsConsent = needsBlanketWriteConsent(provider, acknowledged);
+    const permissionMode = resolveEffectivePermissionMode(mode, provider, acknowledged, Boolean(queryOptions == null ? void 0 : queryOptions.planMode));
     const notice = needsConsent && !wantsReadOnly ? `${provider}\uC5D0 \uD30C\uC77C\uC744 \uACE0\uCE60 \uAD8C\uD55C\uC744 \uC8FC\uB824\uBA74 Ask/Agent \uD1A0\uAE00\uC744 \uB20C\uB7EC \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uC740 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : wantsReadOnly && !supportsReadOnlyMode(provider) ? `${provider}\uB294 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC81C\uD55C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uACE0\uCE60 \uC218 \uC788\uB294 \uC0C1\uD0DC\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : "";
     if (notice && this.shownPermissionNotices.get(provider) !== notice) {
       this.shownPermissionNotices.set(provider, notice);
@@ -4360,7 +4438,12 @@ ${remedy}`;
         })(),
         stdio: ["pipe", "pipe", "pipe"],
         // No console window should flash on a student's screen per request.
-        windowsHide: true
+        windowsHide: true,
+        // Own the whole tree: a provider CLI that backgrounds a helper (to keep
+        // a permission it was granted alive past this request, or for any other
+        // reason) inherits this process group and is torn down with it in the
+        // `finally` below via `killTree`, on every settle path, not just a clean exit.
+        detached: !isWindows2
       });
     } catch (error) {
       const message = `Failed to start ${provider} CLI: ${error instanceof Error ? error.message : String(error)}`;
@@ -4459,7 +4542,7 @@ ${remedy}`;
       }
       yield { type: "done" };
     } finally {
-      if (!closed) child.kill("SIGTERM");
+      killTree(child);
       if (this.currentProcess === child) this.currentProcess = null;
     }
   }
@@ -4509,7 +4592,9 @@ ${remedy}`;
         env,
         stdio: ["pipe", "pipe", "pipe"],
         // No console window should flash on a student's screen per request.
-        windowsHide: true
+        windowsHide: true,
+        // Own the whole tree, same reasoning as the native provider spawn above.
+        detached: !isWindows2
       });
     } catch (spawnErr) {
       yield {
@@ -4600,10 +4685,8 @@ ${remedy}`;
         }
       }
     } finally {
+      killTree(child);
       if (this.currentProcess === child) {
-        if (!done) {
-          child.kill("SIGTERM");
-        }
         this.currentProcess = null;
       }
     }
@@ -4649,7 +4732,7 @@ ${remedy}`;
       this.abortController.abort();
     }
     if (this.currentProcess) {
-      this.currentProcess.kill("SIGTERM");
+      killTree(this.currentProcess);
       this.currentProcess = null;
     }
   }
@@ -5882,6 +5965,7 @@ var import_obsidian27 = require("obsidian");
 // src/core/commands/SlashCommandManager.ts
 var import_child_process7 = require("child_process");
 init_env();
+init_processTree();
 function isVaultFileCandidate(value) {
   return !!value && typeof value === "object" && "path" in value;
 }
@@ -6131,25 +6215,60 @@ function shellEscapeArgIfNeeded(arg) {
   if (/^[\w./:-]+$/.test(arg)) return arg;
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
+var INLINE_BASH_TIMEOUT_MS = 1e4;
+var INLINE_BASH_MAX_BUFFER = 1024 * 1024;
 function defaultBashRunner(command, cwd) {
   return new Promise((resolve6, reject) => {
-    (0, import_child_process7.exec)(
-      command,
-      {
-        cwd,
-        timeout: 1e4,
-        maxBuffer: 1024 * 1024,
-        // Enhance PATH for GUI apps (Obsidian has minimal PATH)
-        env: { ...process.env, PATH: getEnhancedPath() }
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr || error.message));
+    var _a, _b, _c, _d;
+    const child = (0, import_child_process7.spawn)(command, {
+      cwd,
+      shell: true,
+      // Own the whole tree: a command that backgrounds or detaches a child
+      // (`nohup ... &`, `setsid ...`, or a nested `sh -c '... &'` that hides
+      // the operator from any textual scan) inherits this process group and
+      // is torn down with it below. Only a process that explicitly leaves
+      // the group (a second `setsid`/double-fork) escapes — the same bounded
+      // residual a textual scanner could never close off in the first place.
+      detached: !isWindows2,
+      // Enhance PATH for GUI apps (Obsidian has minimal PATH)
+      env: { ...process.env, PATH: getEnhancedPath() }
+    });
+    (_a = child.stdout) == null ? void 0 : _a.setEncoding("utf8");
+    (_b = child.stderr) == null ? void 0 : _b.setEncoding("utf8");
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killTree(child);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`Command timed out after ${INLINE_BASH_TIMEOUT_MS}ms: ${command}`)));
+    }, INLINE_BASH_TIMEOUT_MS);
+    const onChunk = (isStdout) => (chunk) => {
+      if (isStdout) stdout += chunk;
+      else stderr += chunk;
+      if (stdout.length + stderr.length > INLINE_BASH_MAX_BUFFER) {
+        finish(() => reject(new Error(`stdout maxBuffer length exceeded: ${command}`)));
+      }
+    };
+    (_c = child.stdout) == null ? void 0 : _c.on("data", onChunk(true));
+    (_d = child.stderr) == null ? void 0 : _d.on("data", onChunk(false));
+    child.on("error", (error) => {
+      finish(() => reject(error));
+    });
+    child.on("close", (code) => {
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr || `Command failed: ${command}`));
         } else {
           resolve6(stdout);
         }
-      }
-    );
+      });
+    });
   });
 }
 
@@ -9010,6 +9129,7 @@ var PermissionToggle = class {
     return (_c = (_b = (_a = this.callbacks).isPlanModeRequested) == null ? void 0 : _b.call(_a)) != null ? _c : false;
   }
   updateDisplay() {
+    var _a, _b, _c, _d, _e;
     if (!this.toggleEl || !this.labelEl) return;
     this.container.removeClass("plan-mode");
     this.container.removeClass("is-unavailable");
@@ -9023,9 +9143,23 @@ var PermissionToggle = class {
       return;
     }
     this.container.removeAttribute("aria-disabled");
-    const provider = this.callbacks.getSettings().selectedProvider;
-    const blocked = this.needsBlanketWriteConsent(provider);
-    const mode = blocked ? "ask" : this.callbacks.getSettings().permissionMode;
+    const settings = this.callbacks.getSettings();
+    const provider = settings.selectedProvider;
+    if ((_b = (_a = this.callbacks).isBashExpansionInFlight) == null ? void 0 : _b.call(_a)) {
+      const capturedMode = (_e = (_d = (_c = this.callbacks).getCapturedPermissionMode) == null ? void 0 : _d.call(_c)) != null ? _e : resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
+      if (capturedMode === "agent") {
+        this.toggleEl.addClass("active");
+        this.labelEl.setText("Agent");
+      } else {
+        this.toggleEl.removeClass("active");
+        this.labelEl.setText("Ask");
+      }
+      this.container.addClass("is-unavailable");
+      this.container.setAttribute("aria-disabled", "true");
+      this.container.setAttribute("title", "\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    const mode = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     if (mode === "agent") {
       this.toggleEl.addClass("active");
       this.labelEl.setText("Agent");
@@ -9033,32 +9167,38 @@ var PermissionToggle = class {
       this.toggleEl.removeClass("active");
       this.labelEl.setText("Ask");
     }
-    this.container.setAttribute("title", mode === "agent" ? writesOutsideVault(provider) ? "Agent: \uAE08\uACE0 \uBC16 \uD30C\uC77C\uAE4C\uC9C0 \uACE0\uCE60 \uC218 \uC788\uC2B5\uB2C8\uB2E4." : "Agent: \uAE08\uACE0 \uD3F4\uB354 \uC548\uC758 \uD30C\uC77C\uB9CC \uACE0\uCE69\uB2C8\uB2E4." : "Ask: \uC774 CLI\uB294 \uD30C\uC77C\uC744 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    this.container.setAttribute("title", mode === "agent" ? writesOutsideVault(provider) ? "Agent: \uAE08\uACE0 \uBC16 \uD30C\uC77C\uAE4C\uC9C0 \uACE0\uCE60 \uC218 \uC788\uC2B5\uB2C8\uB2E4." : "Agent: \uAE08\uACE0 \uD3F4\uB354 \uC548\uC758 \uD30C\uC77C\uB9CC \uACE0\uCE69\uB2C8\uB2E4." : "Ask: \uC774 CLI\uB294 \uD30C\uC77C\uC744 \uC0C8\uB85C \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. Agent\uB85C \uC788\uB294 \uB3D9\uC548 \uC2DC\uC791\uB41C \uD504\uB85C\uADF8\uB7A8\uC740 \uB0A8\uC544 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
   }
   async toggle() {
-    var _a, _b;
+    var _a, _b, _c, _d, _e, _f;
+    if ((_b = (_a = this.callbacks).isBashExpansionInFlight) == null ? void 0 : _b.call(_a)) {
+      new import_obsidian8.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
     const settings = this.callbacks.getSettings();
     const provider = settings.selectedProvider;
     if (!supportsReadOnlyMode(provider)) {
       new import_obsidian8.Notice("\uC774 CLI\uB294 \uC77D\uAE30 \uC804\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC77D\uAE30\uB9CC \uC2DC\uD0A4\uB824\uBA74 \uB2E4\uB978 provider\uB97C \uACE0\uB974\uC138\uC694.");
       return;
     }
-    const shown = this.needsBlanketWriteConsent(provider) ? "ask" : settings.permissionMode;
+    const shown = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     const next = shown === "agent" ? "ask" : "agent";
-    if (next === "agent" && this.needsBlanketWriteConsent(provider)) {
-      const accepted = await ((_b = (_a = this.callbacks).confirmBlanketWrite) == null ? void 0 : _b.call(_a, provider));
+    if (next === "agent" && needsBlanketWriteConsent(provider, settings.blanketWriteAcknowledged)) {
+      const accepted = await ((_d = (_c = this.callbacks).confirmBlanketWrite) == null ? void 0 : _d.call(_c, provider));
       if (!accepted) {
         this.updateDisplay();
         return;
       }
     }
-    await this.callbacks.onPermissionModeChange(next);
+    if ((_f = (_e = this.callbacks).isBashExpansionInFlight) == null ? void 0 : _f.call(_e)) {
+      new import_obsidian8.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      this.updateDisplay();
+      return;
+    }
+    const applied = this.callbacks.onPermissionModeChange(next);
     this.updateDisplay();
-  }
-  needsBlanketWriteConsent(provider) {
-    if (!writesWithoutAsking(provider)) return false;
-    const acknowledged = this.callbacks.getSettings().blanketWriteAcknowledged;
-    return !(Array.isArray(acknowledged) && acknowledged.includes(provider));
+    await applied;
+    this.updateDisplay();
   }
   async togglePlanMode() {
     var _a;
@@ -11080,7 +11220,15 @@ var BlanketWriteConsentModal = class extends import_obsidian12.Modal {
       text: `${this.providerLabel}\uB294 \uB3C4\uAD6C\uB97C \uD558\uB098\uC529 \uD5C8\uC6A9\uD558\uB294 \uBC29\uBC95\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. Agent\uB85C \uB450\uBA74 \uD30C\uC77C\uC744 \uB9CC\uB4E4\uACE0 \uACE0\uCE58\uACE0 \uC9C0\uC6B0\uB294 \uAC83, \uBA85\uB839\uC744 \uC2E4\uD589\uD558\uB294 \uAC83\uAE4C\uC9C0 \uD655\uC778 \uC5C6\uC774 \uD558\uACE0, \uADF8 \uBC94\uC704\uAC00 \uC774 \uAE08\uACE0 \uC548\uC73C\uB85C \uC81C\uD55C\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 \u2014 \uC774 \uCEF4\uD4E8\uD130\uC758 \uB2E4\uB978 \uD30C\uC77C\uC5D0\uB3C4 \uB2FF\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
     });
     contentEl.createEl("p", {
-      text: "Ask\uB85C \uB450\uBA74 \uC77D\uAE30\uB9CC \uD558\uACE0 \uC544\uBB34\uAC83\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD5C8\uC6A9\uD55C \uB4A4\uC5D0\uB3C4 \uD1A0\uAE00\uC744 Ask\uB85C \uB418\uB3CC\uB9AC\uBA74 \uB2E4\uC2DC \uC77D\uAE30 \uC804\uC6A9\uC774 \uB429\uB2C8\uB2E4.",
+      // The unqualified version of this sentence is false, and an adversarial
+      // review kept proving it. What Ask actually guarantees is that no new
+      // write starts. Something Agent already launched can outlive the switch:
+      // on macOS only if it deliberately left its process group, on Windows for
+      // any program that outlives the one that started it, because Windows has
+      // no process group to tear down as a unit. Naming that is the whole point
+      // — a student who is told "nothing" and later sees something is owed the
+      // narrower true sentence instead.
+      text: "Ask\uB85C \uB450\uBA74 \uC0C8\uB85C \uD30C\uC77C\uC744 \uACE0\uCE58\uAC70\uB098 \uBA85\uB839\uC744 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD5C8\uC6A9\uD55C \uB4A4\uC5D0\uB3C4 \uD1A0\uAE00\uC744 Ask\uB85C \uB418\uB3CC\uB9AC\uBA74 \uB2E4\uC2DC \uC77D\uAE30 \uC804\uC6A9\uC774 \uB429\uB2C8\uB2E4. \uB2E4\uB9CC Agent\uB85C \uC788\uB294 \uB3D9\uC548 \uC2DC\uC791\uB41C \uD504\uB85C\uADF8\uB7A8\uC740 Ask\uB85C \uB418\uB3CC\uB824\uB3C4 \uB0A8\uC544 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4 \u2014 Windows\uC5D0\uC11C\uB294 \uD2B9\uD788 \uADF8\uB807\uC2B5\uB2C8\uB2E4.",
       cls: "setting-item-description"
     });
     new import_obsidian12.Setting(contentEl).addButton((button) => button.setButtonText("Ask\uB85C \uB450\uAE30").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC4F0\uAE30 \uD5C8\uC6A9").setCta().onClick(() => this.finish(true)));
@@ -11099,6 +11247,7 @@ var BlanketWriteConsentModal = class extends import_obsidian12.Modal {
 // src/ui/modals/InlineEditModal.ts
 var import_obsidian13 = require("obsidian");
 var path13 = __toESM(require("path"));
+init_providerRegistry();
 
 // src/core/security/BlocklistChecker.ts
 function normalizeCommand(command) {
@@ -11332,6 +11481,7 @@ var InlineEditService = class {
     const fullPrompt = `${systemPrompt}
 
 ${prompt}`;
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = "";
       for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt)) {
@@ -11347,6 +11497,7 @@ ${prompt}`;
       return { success: false, error: msg };
     } finally {
       this.abortController = null;
+      this.plugin.setBashExpansionActive(false);
     }
   }
   parseResponse(responseText) {
@@ -11794,20 +11945,34 @@ var InlineEditController = class {
           (c) => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
-            bash: {
-              enabled: this.plugin.settings.enableInlineBash,
-              shouldBlockCommand: (bashCommand) => isCommandBlocked(
-                bashCommand,
-                getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
-                this.plugin.settings.enableBlocklist
-              ),
-              requestApproval: this.plugin.settings.permissionMode !== "agent" ? (bashCommand) => this.requestInlineBashApproval(bashCommand) : void 0
+          this.plugin.setBashExpansionActive(true);
+          try {
+            const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
+              bash: {
+                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                // for approval there, it is replaced with the same placeholder used when
+                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+                // The raw setting is not enough: a provider still awaiting blanket-write
+                // consent (reachable by switching providers while in Agent) must also keep
+                // bash read-only, or it runs with full authority while the toggle shows Ask.
+                enabled: this.plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
+                  this.plugin.settings.permissionMode,
+                  this.plugin.settings.selectedProvider,
+                  this.plugin.settings.blanketWriteAcknowledged
+                ) === "agent",
+                shouldBlockCommand: (bashCommand) => isCommandBlocked(
+                  bashCommand,
+                  getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
+                  this.plugin.settings.enableBlocklist
+                )
+              }
+            });
+            userMessage = expansion.expandedPrompt;
+            if (expansion.errors.length > 0) {
+              new import_obsidian13.Notice(formatSlashCommandWarnings(expansion.errors));
             }
-          });
-          userMessage = expansion.expandedPrompt;
-          if (expansion.errors.length > 0) {
-            new import_obsidian13.Notice(formatSlashCommandWarnings(expansion.errors));
+          } finally {
+            this.plugin.setBashExpansionActive(false);
           }
         }
       }
@@ -12022,21 +12187,6 @@ var InlineEditController = class {
       new import_obsidian13.Notice("Failed to attach file: invalid path");
       return null;
     }
-  }
-  async requestInlineBashApproval(command) {
-    const description = `Execute inline bash command:
-${command}`;
-    return new Promise((resolve6) => {
-      const modal = new ApprovalModal(
-        this.app,
-        TOOL_BASH,
-        { command },
-        description,
-        (decision) => resolve6(decision === "allow" || decision === "allow-always"),
-        { showAlwaysAllow: false, title: "Inline bash execution" }
-      );
-      modal.open();
-    });
   }
 };
 
@@ -15316,6 +15466,7 @@ var ConversationController = class {
 
 // src/features/chat/controllers/InputController.ts
 var import_obsidian24 = require("obsidian");
+init_providerRegistry();
 
 // src/utils/editor.ts
 function findNearestNonEmptyLine(getLine, lineCount, startLine, direction) {
@@ -15675,26 +15826,40 @@ var InputController = class {
           (c) => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          const result = await slashCommandManager.expandCommand(cmd, detected.args, {
-            bash: {
-              enabled: plugin.settings.enableInlineBash,
-              shouldBlockCommand: (bashCommand) => isCommandBlocked(
-                bashCommand,
-                getBashToolBlockedCommands(plugin.settings.blockedCommands),
-                plugin.settings.enableBlocklist
-              ),
-              requestApproval: plugin.settings.permissionMode !== "agent" ? (bashCommand) => this.requestInlineBashApproval(bashCommand) : void 0
+          this.deps.setBashExpansionActive(true);
+          try {
+            const result = await slashCommandManager.expandCommand(cmd, detected.args, {
+              bash: {
+                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                // for approval there, it is replaced with the same placeholder used when
+                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
+                // The raw setting is not enough: a provider still awaiting blanket-write
+                // consent (reachable by switching providers while in Agent) must also keep
+                // bash read-only, or it runs with full authority while the toggle shows Ask.
+                enabled: plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
+                  plugin.settings.permissionMode,
+                  plugin.settings.selectedProvider,
+                  plugin.settings.blanketWriteAcknowledged
+                ) === "agent",
+                shouldBlockCommand: (bashCommand) => isCommandBlocked(
+                  bashCommand,
+                  getBashToolBlockedCommands(plugin.settings.blockedCommands),
+                  plugin.settings.enableBlocklist
+                )
+              }
+            });
+            content = result.expandedPrompt;
+            if (result.errors.length > 0) {
+              new import_obsidian24.Notice(formatSlashCommandWarnings(result.errors));
             }
-          });
-          content = result.expandedPrompt;
-          if (result.errors.length > 0) {
-            new import_obsidian24.Notice(formatSlashCommandWarnings(result.errors));
-          }
-          if (result.allowedTools || result.model) {
-            queryOptions = {
-              allowedTools: result.allowedTools,
-              model: result.model
-            };
+            if (result.allowedTools || result.model) {
+              queryOptions = {
+                allowedTools: result.allowedTools,
+                model: result.model
+              };
+            }
+          } finally {
+            this.deps.setBashExpansionActive(false);
           }
         }
       }
@@ -15917,10 +16082,11 @@ ${promptToSend}`;
   async exitPlanPermissionMode() {
     var _a;
     const { plugin, state } = this.deps;
-    const restored = (_a = plugin.settings.lastNonPlanPermissionMode) != null ? _a : "agent";
+    const restored = (_a = plugin.settings.lastNonPlanPermissionMode) != null ? _a : "ask";
     if (plugin.settings.permissionMode === "plan") {
       plugin.settings.permissionMode = restored;
       plugin.settings.lastNonPlanPermissionMode = restored;
+      plugin.recapturePermissionMode();
       await plugin.saveSettings();
     }
     state.resetPlanModeState();
@@ -16210,6 +16376,7 @@ ${content}
   async executeStream(prompt, images, assistantMsg, queryOptions) {
     const { plugin, state, streamController } = this.deps;
     let wasInterrupted = false;
+    this.deps.setBashExpansionActive(true);
     try {
       for await (const chunk of plugin.agentService.query(prompt, images, state.messages, queryOptions)) {
         if (state.cancelRequested) {
@@ -16224,6 +16391,8 @@ ${content}
       await streamController.appendText(`
 
 **Error:** ${errorMsg}`);
+    } finally {
+      this.deps.setBashExpansionActive(false);
     }
     return wasInterrupted;
   }
@@ -16329,23 +16498,6 @@ ${content}
     const { plugin } = this.deps;
     return new Promise((resolve6) => {
       const modal = new ApprovalModal(plugin.app, toolName, input, description, resolve6);
-      modal.open();
-    });
-  }
-  /** Requests approval for inline bash commands. */
-  async requestInlineBashApproval(command) {
-    const { plugin } = this.deps;
-    const description = `Execute inline bash command:
-${command}`;
-    return new Promise((resolve6) => {
-      const modal = new ApprovalModal(
-        plugin.app,
-        TOOL_BASH,
-        { command },
-        description,
-        (decision) => resolve6(decision === "allow" || decision === "allow-always"),
-        { showAlwaysAllow: false, title: "Inline bash execution" }
-      );
       modal.open();
     });
   }
@@ -18463,6 +18615,7 @@ var InstructionRefineService = class {
     const fullPrompt = `${systemPrompt}
 
 ${prompt}`;
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = "";
       for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt)) {
@@ -18481,6 +18634,7 @@ ${prompt}`;
       return { success: false, error: msg };
     } finally {
       this.abortController = null;
+      this.plugin.setBashExpansionActive(false);
     }
   }
   parseResponse(responseText) {
@@ -18538,6 +18692,7 @@ ${truncatedAssistant}
 """
 
 Generate a title for this conversation:`;
+    this.plugin.setBashExpansionActive(true);
     try {
       let responseText = "";
       const titleModel = (_a = this.plugin.settings.titleGenerationModel) == null ? void 0 : _a.trim();
@@ -18573,6 +18728,7 @@ Generate a title for this conversation:`;
       await this.safeCallback(callback, conversationId, { success: false, error: msg });
     } finally {
       this.activeGenerations.delete(conversationId);
+      this.plugin.setBashExpansionActive(false);
     }
   }
   cancel() {
@@ -18913,6 +19069,8 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
     this.externalContextSelector = null;
     this.webSearchToggle = null;
     this.permissionToggle = null;
+    /** Filled by `createProviderSelector` with a `refresh` callback; see that call site. */
+    this.providerSelectorHandle = {};
     this.slashCommandManager = null;
     this.slashCommandDropdown = null;
     this.instructionModeManager = null;
@@ -19102,12 +19260,18 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
         return (_b = (_a = this.state.planModeState) == null ? void 0 : _a.agentInitiated) != null ? _b : false;
       },
       isPlanModeRequested: () => this.state.planModeRequested,
+      isBashExpansionInFlight: () => this.plugin.isBashExpansionInFlight(),
+      getCapturedPermissionMode: () => this.plugin.getCapturedPermissionMode(),
       confirmBlanketWrite: async (provider) => {
         var _a;
         const accepted = await new Promise((resolve6) => {
           new BlanketWriteConsentModal(this.app, getProviderDescriptor(provider).label, resolve6).open();
         });
         if (!accepted) return false;
+        if (this.plugin.isBashExpansionInFlight()) {
+          new import_obsidian27.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          return false;
+        }
         const acknowledged = new Set((_a = this.plugin.settings.blanketWriteAcknowledged) != null ? _a : []);
         acknowledged.add(provider);
         this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
@@ -19251,7 +19415,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
   buildProviderSelector(toolbar, onProviderChange) {
     createProviderSelector(toolbar, this.plugin, onProviderChange, (handler) => {
       this.registerDomEvent(document, "click", handler);
-    });
+    }, this.providerSelectorHandle);
   }
   initializeControllers() {
     var _a;
@@ -19345,6 +19509,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
       setPlanModeActive: () => {
         this.updatePlanModeUiState();
       },
+      setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
       getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         var _a2, _b;
@@ -19555,6 +19720,14 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
   generateId() {
     return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
+  /** Repaints the Ask/Agent toggle and the provider selector so both reflect the
+   * plugin's current bash-expansion busy flag. Called by the plugin, which may be
+   * reacting to a bash expansion that started outside this view (e.g. InlineEditModal). */
+  refreshPermissionToggle() {
+    var _a, _b, _c;
+    (_a = this.permissionToggle) == null ? void 0 : _a.updateDisplay();
+    (_c = (_b = this.providerSelectorHandle).refresh) == null ? void 0 : _c.call(_b);
+  }
   updatePlanModeUiState() {
     var _a;
     const isPlanMode = this.plugin.settings.permissionMode === "plan";
@@ -19575,11 +19748,16 @@ function resolveStoredQuizControl(target) {
   if (target == null ? void 0 : target.closest(".ocop-quiz-stuck-btn")) return { kind: "answer", content: QUIZ_STUCK_ANSWER };
   return null;
 }
-function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick) {
+var PROVIDER_BUSY_NOTICE = "\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick, handle) {
   const container = toolbar.createDiv({ cls: "ocop-provider-selector" });
   const button = container.createEl("button", { cls: "ocop-provider-btn", attr: { type: "button", "aria-label": "Choose AI provider", "aria-expanded": "false" } });
   const popover = container.createDiv({ cls: "ocop-provider-popover" });
   let setupHint = null;
+  const isBusy = () => {
+    var _a, _b;
+    return (_b = (_a = plugin.isBashExpansionInFlight) == null ? void 0 : _a.call(plugin)) != null ? _b : false;
+  };
   const updateButton = () => {
     var _a;
     const provider = (_a = PROVIDERS.find((item) => item.id === plugin.settings.selectedProvider)) != null ? _a : PROVIDERS[0];
@@ -19588,7 +19766,17 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
     mark.innerHTML = PROVIDER_MARKS[provider.id];
     button.createSpan({ cls: "ocop-provider-btn-label", text: provider.label });
     button.createSpan({ cls: "ocop-provider-btn-chevron", text: "\u2304" });
+    if (isBusy()) {
+      container.addClass("is-unavailable");
+      container.setAttribute("aria-disabled", "true");
+      container.setAttribute("title", PROVIDER_BUSY_NOTICE);
+    } else {
+      container.removeClass("is-unavailable");
+      container.removeAttribute("aria-disabled");
+      container.removeAttribute("title");
+    }
   };
+  if (handle) handle.refresh = updateButton;
   const close = () => {
     popover.removeClass("is-visible");
     button.setAttribute("aria-expanded", "false");
@@ -19610,6 +19798,10 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
       if (needsAction) option.createSpan({ cls: "ocop-provider-option-status", text: needsAction });
       option.addEventListener("click", async (event) => {
         event.stopPropagation();
+        if (isBusy()) {
+          new import_obsidian27.Notice(PROVIDER_BUSY_NOTICE);
+          return;
+        }
         if (ready) {
           plugin.settings.selectedProvider = provider.id;
           await plugin.saveSettings();
@@ -19631,6 +19823,10 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
   if (firstToolbarChild && firstToolbarChild !== container) toolbar.insertBefore(container, firstToolbarChild);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
+    if (isBusy()) {
+      new import_obsidian27.Notice(PROVIDER_BUSY_NOTICE);
+      return;
+    }
     if (popover.hasClass("is-visible")) close();
     else {
       renderPopover();
@@ -19759,6 +19955,10 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       const label = (state) => state === "connected" ? "\uB2E4\uC2DC \uC5F0\uACB0" : "\uC5F0\uACB0";
       button.setButtonText(label(stored));
       button.onClick(async () => {
+        if (this.plugin.isBashExpansionInFlight()) {
+          new import_obsidian29.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          return;
+        }
         const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
         const modal = new SetupWizardModal2(this.app, this.plugin, providerId);
         const close = modal.onClose.bind(modal);
@@ -20010,6 +20210,11 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       for (const provider of PROVIDERS) dropdown.addOption(provider.id, provider.label);
       dropdown.setValue(this.plugin.settings.selectedProvider).onChange(async (value) => {
         var _a2;
+        if (this.plugin.isBashExpansionInFlight()) {
+          new import_obsidian29.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          dropdown.setValue(this.plugin.settings.selectedProvider);
+          return;
+        }
         this.plugin.settings.selectedProvider = value;
         await this.plugin.saveSettings();
         (_a2 = this.plugin.agentService) == null ? void 0 : _a2.cleanup();
@@ -20200,7 +20405,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
         text.inputEl.cols = 40;
       });
     }
-    new import_obsidian29.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Paths outside the vault where files can be exported (one per line). Supports ~ for home directory.").addTextArea((text) => {
+    new import_obsidian29.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin \u2014 the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.").addTextArea((text) => {
       const placeholder = process.platform === "win32" ? "~/Desktop\n~/Downloads\n%TEMP%" : "~/Desktop\n~/Downloads\n/tmp";
       text.setPlaceholder(placeholder).setValue(this.plugin.settings.allowedExportPaths.join("\n")).onChange(async (value) => {
         this.plugin.settings.allowedExportPaths = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
@@ -20268,13 +20473,13 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       cls: "setting-item-description",
       // The failures that matter most are on machines nobody here can reach, and
       // a student cannot be asked to open a terminal to retrieve them.
-      text: `\uC624\uB958\uAC00 \uC0DD\uAE30\uBA74 \uC790\uB3D9\uC73C\uB85C ${errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)} \uC5D0 \uAE30\uB85D\uB429\uB2C8\uB2E4. \uC778\uC99D \uD1A0\uD070 \uAC19\uC740 \uBE44\uBC00 \uAC12\uC740 \uAC00\uB824\uC11C \uC800\uC7A5\uD569\uB2C8\uB2E4.`
+      text: `\uC624\uB958\uAC00 \uC0DD\uAE30\uBA74 \uC790\uB3D9\uC73C\uB85C \uBCF4\uAD00\uD568\uC758 ${ERROR_LOG_PATH} \uC5D0 \uAE30\uB85D\uB429\uB2C8\uB2E4. \uC778\uC99D \uD1A0\uD070 \uAC19\uC740 \uBE44\uBC00 \uAC12\uC740 \uAC00\uB824\uC11C \uC800\uC7A5\uD569\uB2C8\uB2E4.`
     });
     new import_obsidian29.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
       (button) => button.setButtonText("\uBCF5\uC0AC").onClick(async () => {
         const entries = await readRecentErrors(
           this.plugin.storage.getAdapter(),
-          errorLogPath(this.app.vault.configDir, this.plugin.manifest.id)
+          ERROR_LOG_PATH
         );
         await navigator.clipboard.writeText(formatErrorsForReport(entries));
         new import_obsidian29.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
@@ -20348,6 +20553,26 @@ var ObsidianCopilotPlugin = class extends import_obsidian31.Plugin {
     /** True when this launch moved credentials out of the vault settings file.
      * Only then does the student get the one-time explanation. */
     this.secretsJustMoved = false;
+    /**
+     * Count of in-flight actions that can still write: slash-command inline bash
+     * expansions (chat input or inline edit) and a streaming provider request. A counter,
+     * not a boolean — two of these can overlap (e.g. a chat reply streaming while an
+     * inline-edit bash expansion runs), and whichever finishes first must not unlock the
+     * toggle while the other is still going. Read only through `isBashExpansionInFlight()`;
+     * mutated only through `setBashExpansionActive()`, whose name predates provider
+     * streaming joining the same counter but is kept so none of its call sites changed.
+     */
+    this.writeAuthorityCount = 0;
+    /**
+     * The effective permission mode ('ask' | 'agent') resolved at the moment
+     * `writeAuthorityCount` went 0 -> 1, kept until it drains back to 0. Settings and the
+     * selected provider can both change while a request is in flight — provider switching
+     * in particular stays enabled during streaming — so re-resolving the mode from CURRENT
+     * settings while something is still running would describe a different, later decision
+     * than the one that actually authorized the in-flight work. The toggle must show what
+     * the running work was authorized under, not what a fresh resolution would say now.
+     */
+    this.capturedPermissionMode = null;
   }
   async onload() {
     try {
@@ -20790,5 +21015,69 @@ var ObsidianCopilotPlugin = class extends import_obsidian31.Plugin {
       return leaves[0].view;
     }
     return null;
+  }
+  /**
+   * Returns every mounted ObsidianCode view, not just the first. Obsidian permits more
+   * than one leaf of the same view type (a restored layout, a user-arranged split), and
+   * `activateView()` only reuses leaf [0] — it does not prevent a second one existing.
+   * State that must be visible in every open chat view (like the permission toggle)
+   * has to be pushed to all of them, not just the one `getView()` happens to pick.
+   */
+  getAllViews() {
+    return this.app.workspace.getLeavesOfType(VIEW_TYPE_OBSIDIAN_COPILOT).map((leaf) => leaf.view);
+  }
+  /**
+   * Marks one write-capable action (a bash expansion or a streaming provider request)
+   * as started (`true`) or settled (`false`). Callers must pair every `true` with exactly
+   * one later `false`, normally via `try { ... } finally { setBashExpansionActive(false) }`
+   * around the action, so an overlapping second action is not unlocked by the first one
+   * finishing. Repaints EVERY mounted chat view's permission toggle immediately (a
+   * workspace can have more than one leaf of this view type open at once, and all of them
+   * are showing state gated by this same counter); if none are mounted (e.g. an
+   * inline-edit expansion with the chat view closed) there is nothing to repaint, and any
+   * toggle that opens later picks up the current count when it renders anyway.
+   */
+  setBashExpansionActive(active) {
+    const wasInFlight = this.writeAuthorityCount > 0;
+    this.writeAuthorityCount = Math.max(0, this.writeAuthorityCount + (active ? 1 : -1));
+    const isInFlight = this.writeAuthorityCount > 0;
+    if (!wasInFlight && isInFlight) {
+      this.capturedPermissionMode = resolveEffectivePermissionMode(
+        this.settings.permissionMode,
+        this.settings.selectedProvider,
+        this.settings.blanketWriteAcknowledged
+      );
+    } else if (wasInFlight && !isInFlight) {
+      this.capturedPermissionMode = null;
+    }
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+  isBashExpansionInFlight() {
+    return this.writeAuthorityCount > 0;
+  }
+  /** The mode captured at the 0 -> 1 edge above; null when nothing is in flight. */
+  getCapturedPermissionMode() {
+    return this.capturedPermissionMode;
+  }
+  /**
+   * Refreshes the captured mode from CURRENT settings without waiting for the counter to
+   * drain. The capture above exists to freeze the toggle against a change that would let
+   * it lie about work already running — but not every mid-flight `permissionMode` write is
+   * that kind of change. Some (plan approval restoring the prior mode) are the user
+   * deliberately granting authority right now, and the stale capture, not the write, is
+   * what would be wrong: the toggle would keep showing the read-only mode a plan-mode
+   * region captured, while the approved work is about to run with real authority. Callers
+   * that land a legitimate mid-flight grant call this immediately after the write so the
+   * label catches up to what just became true. A no-op while settled — there is no capture
+   * to correct.
+   */
+  recapturePermissionMode() {
+    if (this.writeAuthorityCount === 0) return;
+    this.capturedPermissionMode = resolveEffectivePermissionMode(
+      this.settings.permissionMode,
+      this.settings.selectedProvider,
+      this.settings.blanketWriteAcknowledged
+    );
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 };
