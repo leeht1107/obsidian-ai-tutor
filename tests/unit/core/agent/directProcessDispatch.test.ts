@@ -65,6 +65,22 @@ function writeFixtureCli(dir: string, provider: FixtureProvider = 'claude'): str
  * command is the interpreter and the fixture appears as its first argument.
  * Everywhere else the fixture is spawned directly.
  */
+/**
+ * The provider spawns only, with the teardown helper filtered out.
+ *
+ * `killTree` has no Windows equivalent of a process group, so on win32 it
+ * reaps by spawning `taskkill /T /F`. That is a second real child process, but
+ * it belongs to the teardown path, not the dispatch path — counting it would
+ * turn "one child per request" into a claim that silently fails on one
+ * platform while passing on the other, which is exactly how this went
+ * unnoticed until CI ran windows-latest.
+ */
+function providerSpawnCalls(
+  spy: jest.SpyInstance<childProcess.ChildProcess, Parameters<typeof childProcess.spawn>>
+): Parameters<typeof childProcess.spawn>[] {
+  return spy.mock.calls.filter((call) => !String(call[0]).toLowerCase().includes('taskkill'));
+}
+
 function expectSpawnedFixture(call: Parameters<typeof childProcess.spawn>, fixturePath: string): void {
   const [command, args] = call as unknown as [string, string[]];
   if (isWindows) {
@@ -119,9 +135,10 @@ describe('direct native-provider dispatch (non-Copilot providers)', () => {
 
     // Exactly one native child for the whole request — no shared runtime, proxy,
     // queue, RPC hop, or stream relay process in between.
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
-    const nativeArgs = spawnSpy.mock.calls[0][1] as string[];
+    const providerCalls = providerSpawnCalls(spawnSpy);
+    expect(providerCalls).toHaveLength(1);
+    expectSpawnedFixture(providerCalls[0], fixturePath);
+    const nativeArgs = providerCalls[0][1] as string[];
     expect(nativeArgs.slice(-4, -1)).toEqual(['--output-format', 'stream-json', '--verbose']);
     // The prompt goes last, behind every flag, or a variadic one swallows it.
     expect(nativeArgs[nativeArgs.length - 1]).toContain('proof prompt');
@@ -143,7 +160,11 @@ describe('direct native-provider dispatch (non-Copilot providers)', () => {
       // Recorded before delegating to the real spawn(): this is pure JS-side
       // dispatch overhead (prompt/arg build, CLI path resolution, env build),
       // not the OS process start or the CLI's own runtime.
-      samples.push(performance.now() - dispatchStart);
+      // Same reason as providerSpawnCalls: the win32 teardown spawns taskkill,
+      // and timing that would measure the reaper, not dispatch overhead.
+      if (!String(args[0]).toLowerCase().includes('taskkill')) {
+        samples.push(performance.now() - dispatchStart);
+      }
       return (realSpawn as (...a: Parameters<typeof childProcess.spawn>) => childProcess.ChildProcess)(...args);
     });
 
@@ -200,8 +221,9 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
       chunks.push(chunk);
     }
 
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
+    const providerCalls = providerSpawnCalls(spawnSpy);
+    expect(providerCalls).toHaveLength(1);
+    expectSpawnedFixture(providerCalls[0], fixturePath);
 
     // The fixture's raw stdout line is '{"item":{"text":"codex-fixture-ok"}}'.
     // Asserting the emitted text chunk is the extracted string alone (no
@@ -224,8 +246,9 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
       chunks.push(chunk);
     }
 
-    expect(spawnSpy).toHaveBeenCalledTimes(1);
-    expectSpawnedFixture(spawnSpy.mock.calls[0], fixturePath);
+    const providerCalls = providerSpawnCalls(spawnSpy);
+    expect(providerCalls).toHaveLength(1);
+    expectSpawnedFixture(providerCalls[0], fixturePath);
 
     // The fixture's raw stdout line is the JSON-shaped '{"raw":"agy-fixture-ok"}'.
     // parseNativeProviderLine's agy branch returns early with `line + '\n'`
