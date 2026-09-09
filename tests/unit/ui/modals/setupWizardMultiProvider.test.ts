@@ -32,6 +32,13 @@ jest.mock('@/core/setup/providerReadiness', () => ({
 jest.mock('@/core/setup/providerConnection', () => ({
   checkProviderConnection: jest.fn(),
 }));
+// `다시 확인` first asks whether the CLI is on disk, which reads the real machine:
+// these tests passed on a laptop with the CLIs installed and failed in CI, where
+// the probe was never reached at all.
+jest.mock('@/core/providers/providerRegistry', () => ({
+  ...jest.requireActual('@/core/providers/providerRegistry'),
+  findProviderCliPath: jest.fn(() => '/usr/local/bin/cli'),
+}));
 
 import { App } from 'obsidian';
 
