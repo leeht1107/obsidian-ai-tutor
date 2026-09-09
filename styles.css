@@ -2690,6 +2690,30 @@
   font-size: 13px;
 }
 
+/* Multi-select chooser: rows follow the quiz note list's shape. */
+.ocop-setup-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ocop-setup-choice:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ocop-setup-choice-box {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.ocop-setup-choice-label {
+  font-size: 13px;
+  color: var(--text-normal);
+}
+
 
 /* ============================================
    components/quiz-answer-panel.css
