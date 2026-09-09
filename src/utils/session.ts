@@ -62,7 +62,11 @@ export function formatToolCallForContext(toolCall: ToolCallInfo, maxResultLength
   }
 
   const result = truncateToolResult(toolCall.result, maxResultLength);
-  return `${base} result: ${result}`;
+  // Provenance annotation, not a boundary: it says where the text came from so the
+  // replayed transcript does not present a web page or a file as ordinary conversation.
+  // A tag inside the same message plane cannot stop text that wants to be read as an
+  // instruction, and nothing here should be described as if it could.
+  return `${base} result (tool output, external data): ${result}`;
 }
 
 /** Truncates tool result to avoid overloading recovery prompt. */
