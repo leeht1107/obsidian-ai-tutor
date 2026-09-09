@@ -5,11 +5,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type ObsidianCopilotPlugin from '../../main';
-import { stripCurrentNotePrefix } from '../../utils/context';
 import { findCopilotCLIPath, resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath, parseEnvironmentVariables } from '../../utils/env';
 import { normalizePathForFilesystem } from '../../utils/path';
-import { buildContextFromHistory, getLastUserMessage } from '../../utils/session';
+import { buildContextFromHistory } from '../../utils/session';
 import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
@@ -536,12 +535,14 @@ export class CopilotBridgeService {
     const holdsItsOwnSession = this.plugin.settings.selectedProvider === 'copilot' && Boolean(this.sessionId);
 
     if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
+      // `conversationHistory` is the conversation BEFORE this turn — the caller drops
+      // the in-flight user message and the assistant placeholder by id — so the prompt
+      // is always what comes next, and always gets appended. The old guard compared the
+      // stored question against the wrapped prompt, which never matched, so it never
+      // suppressed anything; the duplication it was aimed at is gone at the source now.
       const historyContext = buildContextFromHistory(conversationHistory);
-      const lastUserMessage = getLastUserMessage(conversationHistory);
-      const actualPrompt = stripCurrentNotePrefix(prompt);
-      const shouldAppendPrompt = !lastUserMessage || lastUserMessage.content.trim() !== actualPrompt.trim();
       if (historyContext) {
-        return shouldAppendPrompt ? `${historyContext}\n\nUser: ${injectedPrompt}` : historyContext;
+        return `${historyContext}\n\nUser: ${injectedPrompt}`;
       }
     }
 

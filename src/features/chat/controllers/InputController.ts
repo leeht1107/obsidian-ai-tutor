@@ -619,7 +619,7 @@ ${promptToSend}`;
 
     let wasInterrupted = false;
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions);
+      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
       if (wasInterrupted) {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
@@ -928,9 +928,13 @@ ${content}
     }
 
 
+    // Declared out here so `executeStream` can exclude the in-flight turn from the
+    // replayed transcript; stays undefined on the resend path, where the user message
+    // is already an earlier part of the conversation rather than a new one.
+    let userMsg: ChatMessage | undefined;
     if (!skipUserMessage) {
       const displayContent = options?.displayContent ?? content;
-      const userMsg: ChatMessage = {
+      userMsg = {
         id: this.deps.generateId(),
         role: 'user',
         content,
@@ -972,7 +976,7 @@ ${content}
 
     let wasInterrupted = false;
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions);
+      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
       if (wasInterrupted) {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
@@ -1166,16 +1170,25 @@ ${content}
     images: ImageAttachment[] | undefined,
     assistantMsg: ChatMessage,
     queryOptions: QueryOptions | undefined,
+    userMsg?: ChatMessage,
   ): Promise<boolean> {
     const { plugin, state, streamController } = this.deps;
     let wasInterrupted = false;
+    // The turn now in flight is already in `state.messages` (the student sees it), but
+    // `prompt` IS that turn — expanded with slash commands, editor selection and any
+    // quiz/socratic control text. Replaying both sends the question twice, in two
+    // different versions. Drop the in-flight pair by id: a positional slice would take
+    // whatever happens to sit at the end, and getting that boundary wrong deletes the
+    // conversation rather than a duplicate.
+    const inFlightIds = new Set([assistantMsg.id, ...(userMsg ? [userMsg.id] : [])]);
+    const previousMessages = state.messages.filter(msg => !inFlightIds.has(msg.id));
     // A running provider request can still write for as long as it streams — the CLI's
     // argv already captured the mode it was authorized under, same as inline bash — so
     // it shares the same busy signal the toggle reads. `finally` covers the interrupted
     // (stop button) path too, since breaking out of the loop below still runs it.
     this.deps.setBashExpansionActive(true);
     try {
-      for await (const chunk of plugin.agentService.query(prompt, images, state.messages, queryOptions)) {
+      for await (const chunk of plugin.agentService.query(prompt, images, previousMessages, queryOptions)) {
         if (state.cancelRequested) {
           wasInterrupted = true;
           break;

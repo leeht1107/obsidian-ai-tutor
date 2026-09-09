@@ -72,4 +72,30 @@ maybe('a native turn after a copilot turn keeps its context', () => {
     const prompt = await promptSeenByCli('claude', null);
     expect(prompt).toContain('이 노트 요약해줘');
   });
+
+  /**
+   * The caller now hands over the conversation BEFORE this turn, so the prompt is
+   * always what comes next. The removed guard suppressed it whenever the last stored
+   * question read the same as the prompt — which is exactly the shape a replayed
+   * in-flight turn produced, and would have dropped the question on the floor.
+   */
+  it('appends the prompt exactly once even when the last stored question reads the same', async () => {
+    const question = '<query>\n지금 어느 노트 보고 있어?\n</query>';
+    const out = path.join(dir, 'argv-identical.txt');
+    const cli = write(dir, 'dump-identical.sh',
+      `for a in "$@"; do last="$a"; done\nprintf '%s' "$last" > '${out}'`);
+    const service = makeService(cli, dir, 'claude');
+    const echoed: ChatMessage[] = [
+      ...history,
+      { id: '3', role: 'user', content: question, timestamp: 3 },
+    ] as unknown as ChatMessage[];
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _chunk of service.query(question, undefined, echoed)) { /* drain */ }
+
+    const prompt = fs.readFileSync(out, 'utf8');
+    expect(prompt).toContain('이 노트 요약해줘');
+    expect(prompt.split('지금 어느 노트 보고 있어?').length - 1).toBe(2);
+    expect(prompt.trimEnd().endsWith('</query>')).toBe(true);
+  });
 });

@@ -754,6 +754,56 @@ describe('InputController - Message Queue', () => {
     });
   });
 
+  describe('In-flight turn exclusion from replayed history', () => {
+    it('does not replay the in-flight user message or the assistant placeholder', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      deps.state.addMessage({
+        id: 'earlier-user',
+        role: 'user',
+        content: '정규화가 뭐야?',
+        timestamp: Date.now(),
+      });
+      deps.state.addMessage({
+        id: 'earlier-assistant',
+        role: 'assistant',
+        content: '중복을 줄이는 설계입니다.',
+        timestamp: Date.now(),
+      });
+
+      await controller.sendMessage({ content: '3정규형은?' });
+
+      const history = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][2] as typeof deps.state.messages;
+      expect(history.map(msg => msg.id)).toEqual(['earlier-user', 'earlier-assistant']);
+      // The earlier conversation must survive — dropping the in-flight pair is the
+      // whole change, and taking too much here would erase the context instead.
+      expect(history).toHaveLength(2);
+      expect(deps.state.messages).toHaveLength(4);
+    });
+
+    it('sends a quiz-controlled question to the CLI exactly once, in its expanded form', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      deps.state.quizSession = {
+        totalQuestions: 5,
+        currentQuestion: 1,
+        scopeLabel: '/quiz · 현재 노트 · db.md · 5문제 · 중 · 전체 범위',
+        difficulty: '중',
+        sourceInstruction: 'Use only the current note as ground truth source material: @db.md',
+      };
+
+      await controller.sendMessage({ content: '외래키가 뭔가요' });
+
+      const [prompt, , history] = (deps.plugin.agentService.query as jest.Mock).mock.calls[0] as [
+        string,
+        unknown,
+        typeof deps.state.messages,
+      ];
+      const replayed = history.map(msg => msg.content).join('\n');
+      expect(prompt).toContain('You are continuing an active quiz');
+      expect(prompt).toContain('외래키가 뭔가요');
+      expect(replayed).not.toContain('외래키가 뭔가요');
+    });
+  });
+
   describe('Plan mode', () => {
     it('clears stale plan file path when starting plan mode in plan permission', async () => {
       (deps.plugin.agentService.query as jest.Mock).mockReturnValue(

@@ -4,8 +4,6 @@
  * Current note and context file formatting for prompts.
  */
 
-const CURRENT_NOTE_PREFIX_REGEX = /^<current_note>\n[\s\S]*?<\/current_note>\n\n/;
-
 /** Formats current note in XML format. */
 export function formatCurrentNote(notePath: string): string {
   return `<current_note>\n${notePath}\n</current_note>`;
@@ -20,11 +18,6 @@ export function prependCurrentNote(prompt: string, notePath: string): string {
 }
 export function prependCurrentNoteContent(prompt: string, notePath: string, content: string): string {
   return `${formatCurrentNoteContent(notePath, content)}\n\n${prompt}`;
-}
-
-/** Strips current note prefix from a prompt. */
-export function stripCurrentNotePrefix(prompt: string): string {
-  return prompt.replace(CURRENT_NOTE_PREFIX_REGEX, '');
 }
 
 // ============================================

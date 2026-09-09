@@ -129,13 +129,3 @@ export function buildContextFromHistory(messages: ChatMessage[]): string {
 
   return parts.join('\n\n');
 }
-
-/** Gets the last user message from conversation history. */
-export function getLastUserMessage(messages: ChatMessage[]): ChatMessage | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') {
-      return messages[i];
-    }
-  }
-  return undefined;
-}
