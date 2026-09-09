@@ -11,12 +11,12 @@
  */
 
 import type { App, Plugin } from 'obsidian';
-import { Notice } from 'obsidian';
 
 import type { ProviderId } from '../providers/providerRegistry';
 import type { ProviderConnections } from '../setup/providerConnection';
 import type { Conversation, ObsidianCopilotSettings, SlashCommand } from '../types';
 import { DEFAULT_SETTINGS } from '../types';
+import { type FailureReportHost, reportBlockingFailure } from './FailureReport';
 import { SESSIONS_PATH, SessionStorage } from './SessionStorage';
 import { SettingsStorage, type StoredSettings } from './SettingsStorage';
 import { COMMANDS_PATH, SlashCommandStorage } from './SlashCommandStorage';
@@ -73,6 +73,23 @@ export class StorageService {
     this.settings = new SettingsStorage(this.adapter, this.app);
     this.commands = new SlashCommandStorage(this.adapter);
     this.sessions = new SessionStorage(this.adapter);
+  }
+
+  /**
+   * What `reportBlockingFailure` needs, built from this service's own adapter.
+   *
+   * Not `this.plugin` directly: migration runs from `initialize()`, and the
+   * plugin's `storage` field is not assigned until that returns — so asking the
+   * plugin for its adapter during a migration failure would find nothing, in
+   * exactly the case worth recording.
+   */
+  private failureHost(): FailureReportHost {
+    const plugin = this.plugin as Plugin & FailureReportHost;
+    return {
+      storage: { getAdapter: () => this.adapter },
+      manifest: this.plugin.manifest,
+      agentService: plugin.agentService,
+    };
   }
 
   /** Initialize storage, running migration if needed. */
@@ -241,10 +258,15 @@ export class StorageService {
     } catch (error) {
       if (hasRawForbidden) {
         console.error('[obsidian-ai-tutor] Legacy settings file is malformed and contains credentials/trust fields. Migration aborted.');
-        new Notice(
-          '이전 버전 설정 파일(.copilot/settings.json)이 손상되어 보안 정보를 안전하게 정리할 수 없습니다. 보안을 위해 해당 파일을 수동으로 확인하거나 삭제해 주세요.',
-          0
-        );
+        // A blocking failure at startup with a sticky notice, and until now no
+        // record: the student is told to inspect a file by hand and the plugin
+        // kept no evidence of why it asked.
+        reportBlockingFailure(this.failureHost(), {
+          notice: '이전 버전 설정 파일(.copilot/settings.json)이 손상되어 보안 정보를 안전하게 정리할 수 없습니다. 보안을 위해 해당 파일을 수동으로 확인하거나 삭제해 주세요.',
+          stage: 'internal',
+          detail: error instanceof Error ? error.message : String(error),
+          durationMs: 0,
+        });
         throw new Error(
           '[obsidian-ai-tutor] Legacy .copilot/settings.json is malformed and contains prohibited security fields. Migration aborted.'
         );
@@ -262,10 +284,12 @@ export class StorageService {
       await this.adapter.write(legacySettingsPath, JSON.stringify(sanitized, null, 2));
     } catch (error) {
       console.error('[obsidian-ai-tutor] Failed to sanitize legacy settings file:', error);
-      new Notice(
-        '이전 버전 설정 파일(.copilot/settings.json)의 보안 정보를 정리하지 못해 마이그레이션을 중단했습니다. 파일 쓰기 권한을 확인해 주세요.',
-        0
-      );
+      reportBlockingFailure(this.failureHost(), {
+        notice: '이전 버전 설정 파일(.copilot/settings.json)의 보안 정보를 정리하지 못해 마이그레이션을 중단했습니다. 파일 쓰기 권한을 확인해 주세요.',
+        stage: 'internal',
+        detail: error instanceof Error ? error.message : String(error),
+        durationMs: 0,
+      });
       throw new Error('[obsidian-ai-tutor] Failed to sanitize legacy credentials in .copilot/settings.json');
     }
 

@@ -15,7 +15,6 @@
  * finds no token or trust state there. SecretMoveNoticeModal says so in as many words.
  */
 import type { App } from 'obsidian';
-import { Notice } from 'obsidian';
 
 import {
   type EnvSnippet,
@@ -26,6 +25,7 @@ import {
   type PlatformBlockedCommands,
   type SelectedProvider,
 } from '../types/settings';
+import { type FailureReportHost, reportBlockingFailure } from './FailureReport';
 
 const STORAGE_KEY = 'obsidian-ai-tutor:secrets';
 
@@ -78,13 +78,18 @@ export function writeSecrets(app: App, secrets: StoredSecrets): boolean {
  * unrelated changes to a file that never holds the secret anyway. Saying so at
  * the moment it fails costs one retry instead of one mystery.
  */
-export function writeSecretsOrNotify(app: App, secrets: StoredSecrets): boolean {
+export function writeSecretsOrNotify(app: App, secrets: StoredSecrets, host?: FailureReportHost): boolean {
   if (writeSecrets(app, secrets)) return true;
-  new Notice(
-    '인증 정보를 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 값이 비어 있을 수 있으니, '
-    + '설정 화면에서 다시 입력해 주세요.',
-    10000
-  );
+  // Through the seam rather than a bare Notice: this is a failure the student is
+  // shown and then cannot explain later, because the symptom arrives one launch
+  // after the cause. `host` is optional only so the existing tests can call this
+  // without a plugin; every real caller passes one.
+  reportBlockingFailure(host ?? {}, {
+    notice: '인증 정보를 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 값이 비어 있을 수 있으니, '
+      + '설정 화면에서 다시 입력해 주세요.',
+    stage: 'internal',
+    durationMs: 10000,
+  });
   return false;
 }
 
@@ -213,12 +218,13 @@ export function writeTrust(app: App, trust: StoredTrust): boolean {
 /**
  * Write trust state, and notify the student if device-local storage fails.
  */
-export function writeTrustOrNotify(app: App, trust: StoredTrust): boolean {
+export function writeTrustOrNotify(app: App, trust: StoredTrust, host?: FailureReportHost): boolean {
   if (writeTrust(app, trust)) return true;
-  new Notice(
-    '보안 및 권한 설정을 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 기본값으로 재설정될 수 있으니 설정 화면을 확인해 주세요.',
-    10000
-  );
+  reportBlockingFailure(host ?? {}, {
+    notice: '보안 및 권한 설정을 이 컴퓨터에 저장하지 못했습니다. Obsidian을 다시 켜면 기본값으로 재설정될 수 있으니 설정 화면을 확인해 주세요.',
+    stage: 'internal',
+    durationMs: 10000,
+  });
   return false;
 }
 

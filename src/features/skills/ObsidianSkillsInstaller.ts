@@ -11,6 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { ProviderId } from '../../core/providers/providerRegistry';
+import { type FailureReportHost, reportBlockingFailure } from '../../core/storage/FailureReport';
 import { getVaultPath } from '../../utils/path';
 
 /** Bundled skill files to install */
@@ -497,10 +498,15 @@ function loadSkillsFromPath(skillsBasePath: string, isGlobal: boolean): Installe
 }
 
 /** Remove a specific skill by name */
-export async function removeSkill(app: App, skillName: string, providerId: ProviderId): Promise<boolean> {
+export async function removeSkill(app: App, skillName: string, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
   const skillsRoot = resolveSkillsRoot(app, providerId);
   if (!skillsRoot) {
-    new Notice('Could not determine skills folder');
+    reportBlockingFailure(host ?? {}, {
+      notice: 'Could not determine skills folder',
+      provider: providerId,
+      stage: 'install',
+      detail: 'resolveSkillsRoot returned nothing while removing a skill',
+    });
     return false;
   }
 
@@ -517,13 +523,18 @@ export async function removeSkill(app: App, skillName: string, providerId: Provi
     return true;
   } catch (error) {
     console.error(`Failed to remove skill "${skillName}":`, error);
-    new Notice(`Failed to remove skill: ${error instanceof Error ? error.message : String(error)}`);
+    reportBlockingFailure(host ?? {}, {
+      notice: `Failed to remove skill: ${error instanceof Error ? error.message : String(error)}`,
+      provider: providerId,
+      stage: 'install',
+      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
     return false;
   }
 }
 
 /** Install obsidian skills to the vault */
-export async function installObsidianSkills(app: App, providerId: ProviderId): Promise<boolean> {
+export async function installObsidianSkills(app: App, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
   const skillsBasePath = resolveSkillsRoot(app, providerId);
   // No vault path yet; the automatic install stays silent and tries again.
   if (!skillsBasePath) return false;
@@ -541,16 +552,26 @@ export async function installObsidianSkills(app: App, providerId: ProviderId): P
     return true;
   } catch (error) {
     console.error('Failed to install Obsidian Skills:', error);
-    new Notice(`Failed to install skills: ${error instanceof Error ? error.message : String(error)}`);
+    reportBlockingFailure(host ?? {}, {
+      notice: `Failed to install skills: ${error instanceof Error ? error.message : String(error)}`,
+      provider: providerId,
+      stage: 'install',
+      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
     return false;
   }
 }
 
 /** Uninstall obsidian skills from the vault */
-export async function uninstallObsidianSkills(app: App, providerId: ProviderId): Promise<boolean> {
+export async function uninstallObsidianSkills(app: App, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
   const skillsBasePath = resolveSkillsRoot(app, providerId);
   if (!skillsBasePath) {
-    new Notice('Could not determine skills folder');
+    reportBlockingFailure(host ?? {}, {
+      notice: 'Could not determine skills folder',
+      provider: providerId,
+      stage: 'install',
+      detail: 'resolveSkillsRoot returned nothing while removing the bundled skills',
+    });
     return false;
   }
 
@@ -567,7 +588,12 @@ export async function uninstallObsidianSkills(app: App, providerId: ProviderId):
     return true;
   } catch (error) {
     console.error('Failed to uninstall Obsidian Skills:', error);
-    new Notice(`Failed to remove skills: ${error instanceof Error ? error.message : String(error)}`);
+    reportBlockingFailure(host ?? {}, {
+      notice: `Failed to remove skills: ${error instanceof Error ? error.message : String(error)}`,
+      provider: providerId,
+      stage: 'install',
+      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
     return false;
   }
 }
@@ -889,10 +915,15 @@ async function installSkillFolder(
 }
 
 /** Install a skill from a GitHub URL */
-export async function installSkillFromUrl(app: App, url: string, providerId: ProviderId): Promise<boolean> {
+export async function installSkillFromUrl(app: App, url: string, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
   const vaultPath = getVaultPath(app);
   if (!vaultPath) {
-    new Notice('Could not determine vault path');
+    reportBlockingFailure(host ?? {}, {
+      notice: 'Could not determine vault path',
+      provider: providerId,
+      stage: 'install',
+      detail: 'getVaultPath returned nothing while installing a skill from a URL',
+    });
     return false;
   }
 
@@ -974,7 +1005,14 @@ export async function installSkillFromUrl(app: App, url: string, providerId: Pro
 
   } catch (error) {
     console.error('Failed to install skill from URL:', error);
-    new Notice(`Failed to install skill: ${error instanceof Error ? error.message : String(error)}`);
+    reportBlockingFailure(host ?? {}, {
+      notice: `Failed to install skill: ${error instanceof Error ? error.message : String(error)}`,
+      provider: providerId,
+      stage: 'install',
+      // The URL is student-supplied and can carry a token in its query string;
+      // the seam scrubs it, which is why the raw text is safe to keep here.
+      detail: `url: ${url}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+    });
     return false;
   }
 }

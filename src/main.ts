@@ -19,6 +19,7 @@ import {
 } from './core/providers/providerRegistry';
 import { applyRequestOutcome, type ConnectionState, type ProviderConnections } from './core/setup/providerConnection';
 import { StorageService } from './core/storage';
+import { reportBlockingFailure } from './core/storage/FailureReport';
 import type {
   Conversation,
   ConversationMeta,
@@ -86,7 +87,15 @@ export default class ObsidianCopilotPlugin extends Plugin {
       };
       this.conversations = [];
       this.activeConversationId = null;
-      new Notice('Obsidian AI Tutor loaded with default settings due to a startup error.');
+      // `this.storage` was just built above, so the log is reachable even though
+      // everything the student configured has been replaced by defaults. This is
+      // the failure most likely to be described later as "it forgot everything",
+      // and it had no record at all.
+      reportBlockingFailure(this, {
+        notice: 'Obsidian AI Tutor loaded with default settings due to a startup error.',
+        stage: 'internal',
+        detail: error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error),
+      });
     }
 
     this.agentService = new CopilotBridgeService(this);
@@ -249,7 +258,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
       if (!shouldInstallBundledSkills(state, provider, isObsidianSkillsInstalled(this.app, provider))) return;
       // Only record the attempt when it worked, so a vault path that was not
       // ready yet gets another chance next launch instead of being written off.
-      if (await installObsidianSkills(this.app, provider)) {
+      if (await installObsidianSkills(this.app, provider, this)) {
         await this.storage.updateState({
           skillsAutoInstalled: { ...state.skillsAutoInstalled, [provider]: true },
         });
@@ -384,7 +393,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
     writeSecretsOrNotify(this.app, {
       githubToken: this.settings.githubToken ?? '',
       environmentVariables: this.settings.environmentVariables ?? '',
-    });
+    }, this);
     writeTrustOrNotify(this.app, {
       permissionMode: this.settings.permissionMode,
       lastNonPlanPermissionMode: this.settings.lastNonPlanPermissionMode,
@@ -397,7 +406,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
       copilotCliPath: this.settings.copilotCliPath ?? '',
       allowedExportPaths: this.settings.allowedExportPaths ?? [],
       envSnippets: this.settings.envSnippets ?? [],
-    });
+    }, this);
     await this.storage.settings.save(settingsToSave);
 
     await this.storage.saveState({

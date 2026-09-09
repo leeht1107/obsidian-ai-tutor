@@ -38,7 +38,34 @@ import type { VaultFileAdapter } from './VaultFileAdapter';
 export const ERROR_LOG_PATH = '.ai-tutor/logs/errors.jsonl';
 
 /** Keep the tail. An old failure is rarely what the student is asking about. */
-const MAX_ENTRIES = 300;
+export const MAX_ENTRIES = 300;
+
+/**
+ * And keep each entry small.
+ *
+ * The entry cap alone bounded nothing useful: a provider CLI may write up to a
+ * megabyte of stderr before the reader stops collecting it, and all of it
+ * reached one line. A student in a crash loop would have handed over a file too
+ * large to open, for no extra diagnosis — the cause of a failed install is in
+ * the first few thousand characters or it is nowhere.
+ */
+const MAX_MESSAGE_CHARS = 4000;
+
+/** A path is a path. Anything longer than this is not one. */
+const MAX_PATH_CHARS = 512;
+
+/** Shorten, and say so, rather than shorten silently. */
+function capText(value: string, limit: number): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}…(${value.length - limit}자 잘림)`;
+}
+
+function capEntry(entry: ErrorLogEntry): ErrorLogEntry {
+  const capped: ErrorLogEntry = { ...entry, message: capText(entry.message, MAX_MESSAGE_CHARS) };
+  if (capped.cliPath) capped.cliPath = capText(capped.cliPath, MAX_PATH_CHARS);
+  if (capped.resolved) capped.resolved = capText(capped.resolved, MAX_PATH_CHARS);
+  return capped;
+}
 
 export interface ErrorLogEntry {
   /** ISO timestamp. */
@@ -57,29 +84,6 @@ export interface ErrorLogEntry {
   cliPath?: string;
   /** What the resolver decided to actually spawn, if it got that far. */
   resolved?: string;
-}
-
-/**
- * Replace the user's home directory with `~`.
- *
- * A Windows npm path is `C:\Users\<real name>\AppData\...`, and that path is
- * exactly the diagnostic detail worth keeping — so mask the name rather than
- * drop the path.
- *
- * The match has to stop at a path boundary. `/Users/markAlt` merely starts with
- * the same text as `/Users/mark`, and a bare `startsWith` turned it into
- * `~Alt/...`: a path nobody can act on, which also left half of the very
- * directory name it was masking on display.
- */
-export function maskHome(value: string | undefined, home: string): string | undefined {
-  if (!value) return value;
-  if (!home) return value;
-  const normalized = value.replace(/\//g, '\\');
-  const normalizedHome = home.replace(/\//g, '\\');
-  if (!normalized.toLowerCase().startsWith(normalizedHome.toLowerCase())) return value;
-  const next = normalized.charAt(normalizedHome.length);
-  if (next !== '' && next !== '\\') return value;
-  return '~' + value.slice(home.length);
 }
 
 /**
@@ -126,19 +130,60 @@ export function scrubCredentialPatterns(text: string): string {
   return text
     // scheme://user:password@host
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[redacted]@')
-    // An Authorization header, taken to the end of its line. Everything after the
-    // colon is the credential, and it is not reliably one whitespace-delimited
-    // token: Node prints the value quoted, so a `\S+` rule stops at the quote and
-    // leaves the blob behind. This also has to run before the generic key rule
-    // below, which would otherwise match the word `Authorization` and replace the
-    // scheme alone.
-    .replace(/\b(authorization)(\s*[=:]\s*).*/gi, '$1$2[redacted]')
+    // An Authorization header, but only when what follows actually looks like a
+    // credential. Taking the rest of the line was the safer-looking rule and the
+    // wrong one: npm reports a failed install as
+    // `Authorization: Personal access tokens ... are not supported`, and that
+    // sentence is the only thing telling the student what went wrong. Deleting a
+    // diagnostic to hide a secret that was never there is the worse failure of
+    // the two, so the value must carry a digit or a token separator to be taken.
+    // The optional quote is why a `\S+` rule was not enough: Node prints the
+    // value quoted — in either quote character — and a quote-terminated match
+    // leaves the blob behind. This
+    // still runs before the generic key rule below, which would otherwise match
+    // the word `Authorization` and replace the scheme alone.
+    .replace(
+      /\b(authorization)(\s*[=:]\s*)["']?(?:(?:bearer|basic|token|digest)\s+)?(?=[A-Za-z0-9\-._~+/=]*[0-9_\-./+=])[A-Za-z0-9\-._~+/=]{8,}["']?/gi,
+      '$1$2[redacted]'
+    )
     // A bearer token anywhere else.
     .replace(/\b(bearer\s+)\S+/gi, '$1[redacted]')
     // token=..., _authToken=..., api_key: ..., password ...
-    .replace(/\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|auth)[\w-]*)(\s*[=:]\s*)\S+/gi, '$1$2[redacted]')
+    // `authorization` is excluded because the rule above already decided about
+    // it; without the exclusion this one would fire on the npm sentence the rule
+    // above deliberately spared.
+    .replace(/\b((?!authorization\b)[\w-]*(?:token|secret|password|passwd|api[_-]?key|auth)[\w-]*)(\s*[=:]\s*)\S+/gi, '$1$2[redacted]')
+    // Signed-URL parameters. These carry a credential under a key name no
+    // generic rule recognises, and they arrive in the query string of a registry
+    // or bucket URL echoed back by a failed download. `&` ends the value, so one
+    // parameter is removed without taking the rest of the URL with it.
+    .replace(/\b(AWSAccessKeyId|Signature|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|sig|sv)(\s*[=:]\s*)[^\s&]+/gi, '$1$2[redacted]')
     // Vendor-prefixed keys are recognisable on their own.
-    .replace(/\b(?:gh[pousr]_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}/g, '[redacted]');
+    .replace(/\b(?:gh[pousr]_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}/g, '[redacted]')
+    // A Google API key: `?key=AIza...`. The bare parameter name `key` is far too
+    // common to redact on its own, so the value's own shape is what identifies it.
+    .replace(/\bAIza[A-Za-z0-9_-]{10,}/g, '[redacted]');
+}
+
+/**
+ * Mask and scrub a path field exactly as a message is masked and scrubbed.
+ *
+ * These two fields used to go through a masker that only looked at the start of
+ * the string, on the assumption that the value *is* a path. On Windows it is
+ * not: an npm `.cmd` shim resolves to the synthetic pair
+ * `node.exe <path under the home directory>`, and the home directory sits in the
+ * middle, so the student's account name was written to the file verbatim. The
+ * repository's tests only exercised the POSIX branch, where the path does start
+ * at the home directory, so nothing caught it.
+ *
+ * Fixed here rather than at the call site, because the call site that builds the
+ * next synthetic string would leak the same way again. And scrubbed as well as
+ * masked: a configured CLI path is student-supplied text and can carry a query
+ * string.
+ */
+function maskPathField(value: string | undefined, home: string): string | undefined {
+  if (!value) return value;
+  return scrubCredentialPatterns(maskHomeInText(value, home));
 }
 
 /**
@@ -171,7 +216,7 @@ async function writeOneEntry(
   entry: ErrorLogEntry
 ): Promise<void> {
   try {
-    const line = JSON.stringify(entry);
+    const line = JSON.stringify(capEntry(entry));
     const existing = (await adapter.exists(logPath))
       ? await adapter.read(logPath)
       : '';
@@ -203,8 +248,8 @@ export function recordError(
       // The message is masked and scrubbed here, at the one boundary every
       // caller passes through, rather than at each call site that could forget.
       message: scrubCredentialPatterns(maskHomeInText(entry.message, meta.home)),
-      cliPath: maskHome(entry.cliPath, meta.home),
-      resolved: maskHome(entry.resolved, meta.home),
+      cliPath: maskPathField(entry.cliPath, meta.home),
+      resolved: maskPathField(entry.resolved, meta.home),
       at: new Date().toISOString(),
       platform: `${process.platform} ${process.arch}`,
       pluginVersion: meta.pluginVersion,

@@ -382,7 +382,7 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
  * the student's back and not a claim that agy cannot read. The generic branch covers any
  * other CLI that dies quietly the same way.
  */
-export function explainEmptyNativeAnswer(provider: ProviderId, stderr: string): string {
+export function explainEmptyAnswer(provider: ProviderId, stderr: string): string {
   const detail = stderr.trim();
   if (provider === 'agy' && /no output produced/i.test(detail) && /permission/i.test(detail)) {
     return 'Antigravity가 이번에는 권한이 필요한 도구를 골라서 아무 답도 내지 못했습니다. 같은 질문을 다시 보내시거나 다른 provider를 골라 주세요.';
@@ -1111,7 +1111,7 @@ export class CopilotBridgeService {
       // and counted the run as ok.
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         this.onOutcome?.(provider, 'failed');
-        const emptyMessage = this.redactSecrets(explainEmptyNativeAnswer(provider, errorOutput));
+        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput));
         this.logError({ provider, stage: 'empty-answer', message: emptyMessage, exitCode, cliPath, resolved: command });
         yield { type: 'error', content: emptyMessage };
       }
@@ -1196,6 +1196,13 @@ export class CopilotBridgeService {
       return;
     }
     const [spawnCmd, spawnArgs] = [entry[0], [...entry[1], ...args]];
+    // What the resolver decided to run, for the log. The resolver's own
+    // arguments only: `spawnArgs` also carries the student's prompt, and the
+    // prompt is note content, which has no business in a file they mail to
+    // somebody. On Windows this pair is the whole diagnostic — an npm `.cmd`
+    // shim resolves to `node.exe <script>`, and recording `node.exe` alone, as
+    // this used to, threw away the half that says which install is broken.
+    const resolvedCommand = [spawnCmd, ...entry[1]].join(' ').trim();
     let child: ChildProcess;
     try {
       child = spawn(spawnCmd, spawnArgs, {
@@ -1214,7 +1221,7 @@ export class CopilotBridgeService {
         `Failed to start Copilot CLI: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}` +
         `\n(command: ${command}, cwd: ${cwd})`
       );
-      this.logError({ provider: 'copilot', stage: 'launch', message, cliPath: command, resolved: spawnCmd });
+      this.logError({ provider: 'copilot', stage: 'launch', message, cliPath: command, resolved: resolvedCommand });
       yield { type: 'error', content: message };
       return;
     }
@@ -1227,13 +1234,20 @@ export class CopilotBridgeService {
     let resolveWait: (() => void) | null = null;
     let done = false;
 
+    // A CLI can exit 0 having answered nothing at all, and only the chunks tell
+    // us — the same thing the native path tracks, for the same reason.
+    let sawText = false;
+    const pushChunk = (chunk: StreamChunk) => {
+      if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
+      chunks.push(chunk);
+    };
     const pushLine = (line: string) => {
       const parsed = this.parseCopilotEvent(line.trim());
       if (!parsed) {
-        chunks.push({ type: 'text', content: line + '\n' });
+        pushChunk({ type: 'text', content: line + '\n' });
         return;
       }
-      for (const chunk of this.translateCopilotEvent(parsed)) chunks.push(chunk);
+      for (const chunk of this.translateCopilotEvent(parsed)) pushChunk(chunk);
     };
     child.stdout?.on('data', (data: Buffer) => {
       stdoutBuffer += data.toString();
@@ -1259,37 +1273,57 @@ export class CopilotBridgeService {
       stderrBuffer = (stderrBuffer + data.toString()).slice(0, MAX_STDERR_CHARS);
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, receivedSignal) => {
       done = true;
       const trailing = stdoutBuffer.trim();
       if (trailing) {
         const parsed = this.parseCopilotEvent(trailing);
         if (parsed) {
           for (const chunk of this.translateCopilotEvent(parsed)) {
-            chunks.push(chunk);
+            pushChunk(chunk);
           }
         } else {
-          chunks.push({ type: 'text', content: stdoutBuffer });
+          pushChunk({ type: 'text', content: stdoutBuffer });
         }
       }
       // Read before the error below is appended, so the answer is judged on
       // what it already carried.
       const sawErrorChunk = chunks.some((chunk) => chunk.type === 'error');
       this.onOutcome?.('copilot', copilotRequestOutcome(code, stderrBuffer, sawErrorChunk));
-      if (code !== 0 && stderrBuffer.trim()) {
-        const copilotMessage = this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message);
-        this.logError({ provider: 'copilot', stage: 'exit', message: copilotMessage, exitCode: code, cliPath: command, resolved: spawnCmd });
-        chunks.push({ type: 'error', content: copilotMessage });
+      // A request the student stopped is not a failure, and must not reach the
+      // log: an entry there would destroy the only thing an empty log means.
+      if (this.wasInterrupted) { resolveWait?.(); return; }
+      if (code !== 0) {
+        // The old condition also required stderr. A CLI that was killed, ran out
+        // of memory, or crashed without a message showed the student a red
+        // bubble and left nothing behind — which is precisely the machine this
+        // log exists for. Fall back to what is known when stderr is empty.
+        const copilotMessage = stderrBuffer.trim()
+          ? this.redactSecrets(classifyCopilotFailure(stderrBuffer.trim()).message)
+          : (receivedSignal
+            ? `Copilot CLI was terminated (${receivedSignal}).`
+            : `Copilot CLI exited with code ${code}.`);
+        this.logError({ provider: 'copilot', stage: 'exit', message: copilotMessage, exitCode: code, signal: receivedSignal, cliPath: command, resolved: resolvedCommand });
+        pushChunk({ type: 'error', content: copilotMessage });
+      } else if (!sawText) {
+        // Exit 0 with no answer. The native providers call this out and log it;
+        // copilot rendered an empty bubble and counted the run as fine.
+        const emptyMessage = this.redactSecrets(explainEmptyAnswer('copilot', stderrBuffer));
+        this.logError({ provider: 'copilot', stage: 'empty-answer', message: emptyMessage, exitCode: code, cliPath: command, resolved: resolvedCommand });
+        pushChunk({ type: 'error', content: emptyMessage });
       }
       resolveWait?.();
     });
 
     child.on('error', (err) => {
       done = true;
-      chunks.push({
-        type: 'error',
-        content: `Failed to start Copilot CLI: ${err.message}`,
-      });
+      // The asynchronous half of a failed launch: an ENOENT on a shim that
+      // passed the resolver, a permissions failure. The native path folds the
+      // same event into an exit-code entry, so copilot was the only one of the
+      // four that showed this and recorded nothing.
+      const message = this.redactSecrets(`Failed to start Copilot CLI: ${err.message}`);
+      this.logError({ provider: 'copilot', stage: 'launch', message, cliPath: command, resolved: resolvedCommand });
+      pushChunk({ type: 'error', content: message });
       resolveWait?.();
     });
 

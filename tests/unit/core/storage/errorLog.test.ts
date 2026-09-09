@@ -11,7 +11,6 @@ import {
   ERROR_LOG_PATH,
   type ErrorLogEntry,
   formatErrorsForReport,
-  maskHome,
   readRecentErrors,
   recordError,
 } from '@/core/storage/ErrorLog';
@@ -92,13 +91,36 @@ describe('ErrorLog', () => {
     expect(read.map((e) => e.provider)).toEqual(['claude', 'codex']);
   });
 
-  it('masks the home directory out of a path', () => {
-    // `C:\Users\<real name>\AppData\...` is the whole diagnostic on Windows, so
+  it('masks the home directory out of a path field', async () => {
+    // `C:\\Users\\<real name>\\AppData\\...` is the whole diagnostic on Windows, so
     // the path is kept and only the name is removed.
-    expect(maskHome('C:\\Users\\Jihoon\\AppData\\Roaming\\npm\\claude.cmd', 'C:\\Users\\Jihoon'))
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      { provider: 'claude', stage: 'resolve', message: 'not found', cliPath: 'C:\\Users\\Jihoon\\AppData\\Roaming\\npm\\claude.cmd' },
+      { home: 'C:\\Users\\Jihoon', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(JSON.parse((files.get(LOG_PATH) ?? '').trim()).cliPath)
       .toBe('~\\AppData\\Roaming\\npm\\claude.cmd');
-    expect(maskHome('/opt/homebrew/bin/claude', '/Users/jihoon')).toBe('/opt/homebrew/bin/claude');
-    expect(maskHome(undefined, '/Users/jihoon')).toBeUndefined();
+  });
+
+  it('leaves a path outside the home directory alone', async () => {
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      { provider: 'claude', stage: 'resolve', message: 'not found', cliPath: '/opt/homebrew/bin/claude' },
+      { home: '/Users/jihoon', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const written = JSON.parse((files.get(LOG_PATH) ?? '').trim());
+    expect(written.cliPath).toBe('/opt/homebrew/bin/claude');
+    // A field the caller never set stays absent rather than becoming a string.
+    expect(written.resolved).toBeUndefined();
   });
 
   it('formats entries as something a student can paste into a message', () => {
@@ -151,16 +173,22 @@ describe('ErrorLog', () => {
     expect(files.get(LOG_PATH)).toContain('kept');
   });
 
-  it('masks the home directory only at a path boundary', () => {
+  it('masks the home directory only at a path boundary', async () => {
     // `/Users/markAlt` is a different person's directory that merely starts with
     // the same text. Masking it produced `~Alt/...`: a garbled path that also
     // leaked half the real directory name it was supposed to hide.
-    expect(maskHome('/Users/markAlt/secret/a.js', '/Users/mark')).toBe('/Users/markAlt/secret/a.js');
-    expect(maskHome('C:\\Users\\JihoonBackup\\npm\\claude.cmd', 'C:\\Users\\Jihoon'))
-      .toBe('C:\\Users\\JihoonBackup\\npm\\claude.cmd');
-    // The home directory itself, with nothing after it, still masks.
-    expect(maskHome('/Users/mark', '/Users/mark')).toBe('~');
-    expect(maskHome('/Users/mark/bin/claude', '/Users/mark')).toBe('~/bin/claude');
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      { provider: 'claude', stage: 'resolve', message: '/Users/markAlt/secret/a.js', cliPath: '/Users/mark/bin/claude' },
+      { home: '/Users/mark', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const written = JSON.parse((files.get(LOG_PATH) ?? '').trim());
+    expect(written.message).toBe('/Users/markAlt/secret/a.js');
+    expect(written.cliPath).toBe('~/bin/claude');
   });
 
   it('records an entry through the shared writer, with the home masked', async () => {
@@ -250,5 +278,154 @@ describe('ErrorLog', () => {
 
   it('says so plainly when there is nothing to report', () => {
     expect(formatErrorsForReport([])).toBe('기록된 오류가 없습니다.');
+  });
+
+  it('masks the home directory inside a composite resolved command, not only at its start', async () => {
+    // The Windows leak this test exists for. An npm `.cmd` shim resolves to a
+    // synthetic two-part string — `node.exe <path under the home directory>` —
+    // and the old path masker only looked at character zero, so the student's
+    // account name was written to the file verbatim. The 0.1.15 tests only ever
+    // exercised the POSIX branch, where `resolved` happens to start at the home
+    // directory, so nothing caught it.
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      {
+        provider: 'copilot',
+        stage: 'launch',
+        message: 'Failed to start Copilot CLI: spawn EINVAL',
+        cliPath: 'C:\\Users\\Jihoon\\AppData\\Roaming\\npm\\copilot.cmd',
+        resolved: 'C:\\Program Files\\nodejs\\node.exe C:\\Users\\Jihoon\\AppData\\Roaming\\npm\\node_modules\\copilot\\index.js',
+      },
+      { home: 'C:\\Users\\Jihoon', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const raw = files.get(LOG_PATH) ?? '';
+    expect(raw).not.toContain('Jihoon');
+    const written = JSON.parse(raw.trim());
+    expect(written.resolved).toBe('C:\\Program Files\\nodejs\\node.exe ~\\AppData\\Roaming\\npm\\node_modules\\copilot\\index.js');
+    expect(written.cliPath).toBe('~\\AppData\\Roaming\\npm\\copilot.cmd');
+  });
+
+  it('still leaves a different account whose name merely starts the same alone', async () => {
+    // The boundary rule the old masker got right, kept while replacing it:
+    // `C:\Users\JihoonBackup` is somebody else's directory.
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      { provider: 'claude', stage: 'resolve', message: 'not found', cliPath: 'C:\\Users\\JihoonBackup\\npm\\claude.cmd' },
+      { home: 'C:\\Users\\Jihoon', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(JSON.parse((files.get(LOG_PATH) ?? '').trim()).cliPath)
+      .toBe('C:\\Users\\JihoonBackup\\npm\\claude.cmd');
+  });
+
+  it('scrubs a credential out of a path field, not only out of the message', async () => {
+    // `cliPath` and `resolved` used to skip the credential scrub entirely. A
+    // configured CLI path is student-supplied text and can carry a query string.
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      { provider: 'claude', stage: 'resolve', message: 'not found', resolved: 'https://registry.example.com/x?token=abcd1234efgh' },
+      { home: '/Users/mark', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(files.get(LOG_PATH) ?? '').not.toContain('abcd1234efgh');
+  });
+
+  it('keeps the npm diagnostic that merely mentions an Authorization header', async () => {
+    // The scrub used to swallow everything after `Authorization:` to the end of
+    // the line, and npm's one useful sentence about why an install failed is
+    // written exactly that way. Deleting a diagnostic to hide a secret that was
+    // never there is the worse of the two failures: it is the only line telling
+    // the student what to do next.
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      {
+        provider: 'claude',
+        stage: 'install',
+        message: 'npm error code E401\nnpm error Incorrect or missing password.\n'
+          + 'npm error Authorization: Personal access tokens with fine-grained permissions are not supported for this registry.',
+      },
+      { home: '/Users/mark', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const written = JSON.parse((files.get(LOG_PATH) ?? '').trim());
+    expect(written.message).toContain('Personal access tokens with fine-grained permissions are not supported');
+  });
+
+  it('still removes an Authorization header that carries an actual token', async () => {
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      {
+        provider: 'claude',
+        stage: 'install',
+        message: 'request headers: Authorization: "Bearer ghp_aaaabbbbccccddddeeeeffff0000" and nothing else',
+      },
+      { home: '/Users/mark', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const raw = files.get(LOG_PATH) ?? '';
+    expect(raw).not.toContain('ghp_aaaabbbbccccddddeeeeffff0000');
+    // The sentence around it survives; only the value goes.
+    expect(raw).toContain('and nothing else');
+  });
+
+  it('removes the credential-shaped query parameters npm and cloud SDKs echo back', async () => {
+    const { adapter, files } = fakeAdapter();
+
+    recordError(
+      adapter,
+      {
+        provider: 'claude',
+        stage: 'install',
+        message: 'GET https://x.example/v1?key=AIzaSyD-ExampleExampleExample123456789'
+          + '&AWSAccessKeyId=AKIAIOSFODNN7EXAMPLE&Signature=Yn3s%2FbXQ1example%3D failed',
+      },
+      { home: '/Users/mark', pluginVersion: '0.1.16' }
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const raw = files.get(LOG_PATH) ?? '';
+    expect(raw).not.toContain('AIzaSyD-ExampleExampleExample123456789');
+    expect(raw).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(raw).not.toContain('Yn3s%2FbXQ1example');
+    expect(raw).toContain('failed');
+  });
+
+  it('caps one entry so a single crash cannot fill the whole file', async () => {
+    // The 300-entry cap alone bounded nothing useful: a provider CLI is allowed
+    // to write a megabyte of stderr, and that whole megabyte reached one line.
+    const { adapter, files } = fakeAdapter();
+
+    await appendErrorLog(adapter, LOG_PATH, entry({ message: 'x'.repeat(50_000) }));
+
+    const raw = (files.get(LOG_PATH) ?? '').trim();
+    expect(raw.length).toBeLessThan(10_000);
+    const written = JSON.parse(raw);
+    // Truncated, and said to be truncated, rather than silently shortened.
+    expect(written.message).toContain('잘림');
+    expect(written.message.startsWith('xxxx')).toBe(true);
+  });
+
+  it('leaves an ordinary-sized entry untouched by the cap', async () => {
+    const { adapter, files } = fakeAdapter();
+
+    await appendErrorLog(adapter, LOG_PATH, entry({ message: 'npm error code E401' }));
+
+    expect(JSON.parse((files.get(LOG_PATH) ?? '').trim()).message).toBe('npm error code E401');
   });
 });
