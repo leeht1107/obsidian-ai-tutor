@@ -4,7 +4,8 @@ import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
 import { defaultModelSource, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption,PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
-import { ERROR_LOG_PATH, formatErrorsForReport, readRecentErrors } from '../../core/storage/ErrorLog';
+import { ERROR_LOG_PATH } from '../../core/storage/ErrorLog';
+import { reportBlockingFailure } from '../../core/storage/FailureReport';
 import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
@@ -20,6 +21,7 @@ import {
   removeSkill,
   uninstallObsidianSkills,
 } from '../skills/ObsidianSkillsInstaller';
+import { copyRecentErrors } from './errorLogCopy';
 import { buildNavMappingText, parseNavMappings } from './keyboardNavigation';
 
 function formatHotkey(hotkey: { modifiers: string[]; key: string }): string {
@@ -211,8 +213,16 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           const options = await this.plugin.agentService.listNativeProviderModels(provider);
           if (options.length === 0) throw new Error('empty list');
           showList(options);
-        } catch {
-          new Notice(`${descriptor.label}에서 모델 목록을 가져오지 못했습니다. 로그인 여부를 확인해 주세요.`);
+        } catch (error) {
+          // The bare `catch {}` this replaces threw the cause away entirely. The
+          // student is told to check their login, which is a guess — the CLI may
+          // have failed for any reason, and only the cause says which.
+          reportBlockingFailure(this.plugin, {
+            notice: `${descriptor.label}에서 모델 목록을 가져오지 못했습니다. 로그인 여부를 확인해 주세요.`,
+            provider,
+            stage: 'exit',
+            detail: error instanceof Error ? error.message : String(error),
+          });
           button.setButtonText(stored ? `${stored} · 다시 시도` : '다시 시도');
           button.setDisabled(false);
         }
@@ -275,12 +285,12 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .addButton((button) => {
         if (skillsInstalled) {
           button.setButtonText('Reinstall').onClick(async () => {
-            await installObsidianSkills(this.app, skillProvider);
+            await installObsidianSkills(this.app, skillProvider, this.plugin);
             this.display();
           });
         } else {
           button.setButtonText('Install').setCta().onClick(async () => {
-            await installObsidianSkills(this.app, skillProvider);
+            await installObsidianSkills(this.app, skillProvider, this.plugin);
             this.display();
           });
         }
@@ -288,7 +298,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .addButton((button) => {
         if (skillsInstalled) {
           button.setButtonText('Remove').onClick(async () => {
-            await uninstallObsidianSkills(this.app, skillProvider);
+            await uninstallObsidianSkills(this.app, skillProvider, this.plugin);
             this.display();
           });
         }
@@ -316,7 +326,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
           button.setButtonText('Installing...').setDisabled(true);
           try {
-            const success = await installSkillFromUrl(this.app, skillUrl, skillProvider);
+            const success = await installSkillFromUrl(this.app, skillUrl, skillProvider, this.plugin);
             if (success) {
               if (textInput) textInput.value = '';
               skillUrl = '';
@@ -398,7 +408,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             cls: 'ocop-skills-remove-btn',
           });
           removeBtn.addEventListener('click', async () => {
-            await removeSkill(this.app, skill.name, skillProvider);
+            await removeSkill(this.app, skill.name, skillProvider, this.plugin);
             this.display();
           });
         }
@@ -464,6 +474,26 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     for (const provider of PROVIDERS) {
       this.renderProviderConnectionRow(containerEl, provider.id);
     }
+
+    // The rows above install one CLI and make it the default in the same click.
+    // This opens the first-run chooser instead, which installs everything that
+    // was ticked and asks which one should be the default only at the end — the
+    // only way back to it, since it otherwise appears once, on startup, and only
+    // when the selected provider has no CLI at all.
+    new Setting(containerEl)
+      .setName('설치 마법사')
+      .setDesc('여러 AI를 한 번에 설치하고 로그인합니다. 기본으로 쓸 AI는 마지막에 고릅니다.')
+      .addButton((button) => {
+        button.setButtonText('열기');
+        button.onClick(async () => {
+          const { SetupWizardModal } = await import('../../ui/modals/SetupWizardModal');
+          const modal = new SetupWizardModal(this.app, this.plugin);
+          const close = modal.onClose.bind(modal);
+          // Redraw, or the rows keep showing what was true before the wizard ran.
+          modal.onClose = () => { close(); this.display(); };
+          modal.open();
+        });
+      });
 
     this.renderDefaultModelRow(containerEl);
 
@@ -873,14 +903,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .setDesc('버튼을 누르면 최근 오류 기록이 복사됩니다. 그대로 선생님께 붙여넣어 주세요.')
       .addButton((button) =>
         button.setButtonText('복사').onClick(async () => {
-          const entries = await readRecentErrors(
-            this.plugin.storage.getAdapter(),
-            ERROR_LOG_PATH
-          );
-          await navigator.clipboard.writeText(formatErrorsForReport(entries));
-          new Notice(entries.length > 0
-            ? `최근 오류 ${entries.length}건을 복사했습니다.`
-            : '기록된 오류가 없습니다.');
+          await copyRecentErrors(this.plugin.storage.getAdapter(), this.plugin);
         })
       );
 

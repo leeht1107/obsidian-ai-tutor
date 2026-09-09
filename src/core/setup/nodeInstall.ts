@@ -77,6 +77,8 @@ export const NODE_DOWNLOAD_URL = 'https://nodejs.org/en/download';
 export interface NodeInstallResult {
   success: boolean;
   error?: string;
+  /** Stopped, but the process never reported its exit. See InstallResult. */
+  teardownUnconfirmed?: true;
 }
 
 export interface NodeInstallSession {
@@ -87,6 +89,12 @@ export interface NodeInstallSession {
 
 /** A package install can genuinely take minutes; this only bounds a hang. */
 const NODE_INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** How long a cancel waits for the killed process tree to actually report its exit. */
+const CANCEL_EXIT_GRACE_MS = 3000;
+
+const CANCELLED: NodeInstallResult = { success: false, error: '설치를 취소했습니다.' };
+const TIMED_OUT: NodeInstallResult = { success: false, error: '설치 시간이 초과됐습니다.' };
 
 /**
  * Install Node.js with the detected package manager, streaming its output.
@@ -110,12 +118,16 @@ export function startNodeInstall(
   }
 
   let settled = false;
+  /** The result the child's own exit should report, once we asked it to stop. */
+  let stopping: NodeInstallResult | null = null;
+  let exitGrace: ReturnType<typeof setTimeout> | undefined;
   let resolveDone: (result: NodeInstallResult) => void;
   const done = new Promise<NodeInstallResult>((resolve) => { resolveDone = resolve; });
   const finish = (result: NodeInstallResult) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+    clearTimeout(exitGrace);
     resolveDone(result);
   };
 
@@ -133,10 +145,7 @@ export function startNodeInstall(
     child.unref();
   };
 
-  const timer = setTimeout(() => {
-    teardown();
-    finish({ success: false, error: '설치 시간이 초과됐습니다.' });
-  }, NODE_INSTALL_TIMEOUT_MS);
+  const timer = setTimeout(() => stop(TIMED_OUT), NODE_INSTALL_TIMEOUT_MS);
 
   const errors: string[] = [];
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -149,16 +158,24 @@ export function startNodeInstall(
     if (line) { onProgress(line); errors.push(line); }
   });
 
-  child.on('error', (err: Error) => finish({ success: false, error: err.message }));
-  child.on('close', (code) => finish(code === 0
-    ? { success: true }
-    : { success: false, error: errors.slice(-5).join('\n') || `종료 코드 ${code ?? '?'}` }));
+  child.on('error', (err: Error) => finish(stopping ?? { success: false, error: err.message }));
+  child.on('close', (code) => finish(stopping
+    ?? (code === 0
+      ? { success: true }
+      : { success: false, error: errors.slice(-5).join('\n') || `종료 코드 ${code ?? '?'}` })));
+
+  /** Stop the child and resolve from its own exit — see AutoSetupService.stop. */
+  const stop = (result: NodeInstallResult) => {
+    if (settled || stopping) return;
+    stopping = result;
+    teardown();
+    exitGrace = setTimeout(() => finish({ ...result, teardownUnconfirmed: true }), CANCEL_EXIT_GRACE_MS);
+    exitGrace.unref?.();
+  };
 
   return {
     cancel() {
-      if (settled) return;
-      teardown();
-      finish({ success: false, error: '설치를 취소했습니다.' });
+      stop(CANCELLED);
     },
     done,
   };

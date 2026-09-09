@@ -75,6 +75,14 @@ export interface InstallResult {
   cliPath?: string;
   /** Human-readable error if installation failed. */
   error?: string;
+  /**
+   * Set when the install was stopped but the process never reported its exit.
+   *
+   * The kill is asynchronous — on Windows `killTree` only spawns `taskkill` —
+   * so after the grace period this says "we asked it to stop and cannot prove
+   * it did". A caller that serialises installs must not start the next one.
+   */
+  teardownUnconfirmed?: true;
 }
 
 /**
@@ -127,6 +135,12 @@ export async function installCopilotCLI(
 /** A global npm install is slow but not hours-long; this only bounds a hang. */
 const CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 
+/** How long a cancel waits for the killed process tree to actually report its exit. */
+const CANCEL_EXIT_GRACE_MS = 3000;
+
+const CANCELLED: InstallResult = { success: false, error: '설치를 취소했습니다.' };
+const TIMED_OUT: InstallResult = { success: false, error: '설치 시간이 초과됐습니다.' };
+
 export interface InstallSession {
   /** Stop the installer and resolve `done` as cancelled. Safe to call twice. */
   cancel(): void;
@@ -154,12 +168,16 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
   }
 
   let settled = false;
+  /** The result the child's own exit should report, once we asked it to stop. */
+  let stopping: InstallResult | null = null;
+  let exitGrace: ReturnType<typeof setTimeout> | undefined;
   let resolveDone: (result: InstallResult) => void;
   const done = new Promise<InstallResult>((resolve) => { resolveDone = resolve; });
   const finish = (result: InstallResult) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+    clearTimeout(exitGrace);
     resolveDone(result);
   };
 
@@ -177,26 +195,41 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
     child.unref();
   };
 
-  const timer = setTimeout(() => {
-    teardown();
-    finish({ success: false, error: '설치 시간이 초과됐습니다.' });
-  }, CLI_INSTALL_TIMEOUT_MS);
+  // A timeout stops the child the same way a cancel does, so it waits for the
+  // same proof of exit; resolving here would hand the caller a dead-looking
+  // install that is still writing to the global prefix.
+  const timer = setTimeout(() => stop(TIMED_OUT), CLI_INSTALL_TIMEOUT_MS);
 
   child.stdout?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) onProgress(line); });
   const errors: string[] = [];
   child.stderr?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) errors.push(line); });
 
-  child.on('error', (error: Error) => finish({ success: false, error: error.message }));
-  child.on('close', (code: number | null) => finish(code === 0
-    ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
-    : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` }));
+  child.on('error', (error: Error) => finish(stopping ?? { success: false, error: error.message }));
+  child.on('close', (code: number | null) => finish(stopping
+    ?? (code === 0
+      ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
+      : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` })));
+
+  /**
+   * Ask the child to stop, and resolve only from its own exit.
+   *
+   * killTree signals and returns — on Windows it merely spawns `taskkill` — so
+   * resolving here would tell the caller it is safe to start the next
+   * `npm install -g` while this one is still alive on the same global prefix.
+   * The grace timer exists so a child that never reports an exit cannot park
+   * the caller forever; it resolves with `teardownUnconfirmed`, which is not
+   * the same thing as "stopped".
+   */
+  const stop = (result: InstallResult) => {
+    if (settled || stopping) return;
+    stopping = result;
+    teardown();
+    exitGrace = setTimeout(() => finish({ ...result, teardownUnconfirmed: true }), CANCEL_EXIT_GRACE_MS);
+    exitGrace.unref?.();
+  };
 
   return {
-    cancel() {
-      if (settled) return;
-      teardown();
-      finish({ success: false, error: '설치를 취소했습니다.' });
-    },
+    cancel() { stop(CANCELLED); },
     done,
   };
 }
