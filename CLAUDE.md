@@ -8,38 +8,41 @@
 ## Current State
 
 - Objective: `goal-contract.md`.
-- Status: Released `0.1.16`. `main` == `origin/main` at `5186dd1`, tag `0.1.16` pushed; 97 suites /
-  1300 tests, typecheck and lint green. Two fixes, both from an external review triaged against the
-  working tree (its headline P0 did not hold — `TRUST_FIELDS` already closes it). First: the
-  student's question reached the CLI twice, once as the last line of the replayed transcript and
-  once as the prompt, in two different versions whenever a slash command, an editor selection or
-  quiz/socratic control text expanded it. `InputController.executeStream` now excludes the in-flight
-  user message and assistant placeholder **by id** — a positional slice erases the conversation when
-  the boundary is wrong — which made the never-firing `shouldAppendPrompt` guard,
-  `getLastUserMessage` and `stripCurrentNotePrefix` dead. Second: replayed tool results now say
-  `result (tool output, external data):` and the system prompt says tool, web and file content is
-  data, not instructions. That is a provenance annotation and is never to be called a defence: a tag
-  in the same message plane is not a boundary. A third item, disclosing a provider switch, Mark
-  closed as obvious behaviour and over-engineering — do not reopen. The release bundle was built in a
-  detached worktree at HEAD, because the tree also carries a concurrent session's unfinished
-  error-log work; the released asset is rebuilt by CI from the tag regardless.
-- Next likely action: Mark updates via BRAT to 0.1.16 and uses it. The only untested surface is
-  Windows — install from scratch, run the setup wizard to failure, confirm it appears under
-  Settings → 문제 기록 → 최근 오류 복사, then collect the student error log
-  (vault `.ai-tutor/logs/errors.jsonl`). macOS green proves nothing there. Standing asks remain:
-  PowerShell/cmd hardening, Settings/UI UX, quiz/socratic improvements.
+- Status: Released `0.1.18`. `main` == `origin/main` at `aca17a7`; the 0.1.18 release job
+  published main.js / manifest.json / styles.css. 100 suites / 1336 tests, typecheck, lint and
+  build green. Two workstreams shipped together. First, the first-run setup wizard is now
+  multi-select: everything a student ticks is installed one at a time, the logins are walked
+  afterwards one by one, and which CLI becomes the default is asked once, at the end — the queue
+  never writes `selectedProvider` while it runs, because doing it per entry makes whichever CLI
+  was processed last the default. The single-provider `target` path its four other call sites use
+  is untouched and its tests pass unmodified; Settings gained a 설치 마법사 button because the
+  chooser is otherwise unreachable after first run. Second, the concurrent error-log work: every
+  Notice-delivered blocking failure now goes through one `reportBlockingFailure` seam, the
+  streaming chat paths log beside their own error chunks with a tripwire test counting the 13
+  sites, and a cancel is still never recorded so an empty log keeps meaning the student was never
+  blocked. Three advisor-sol rounds, a two-peer ai-review, and an advisor-fable round each found
+  real defects — most of them in the *repair* of the previous round's finding, all in the same
+  place: stopping a package manager. `killTree` only signals, and on Windows it merely spawns
+  `taskkill /T /F`, so both install services now resolve `done` from the child's own exit; when
+  only the 3s grace answers, the result says the stop was unconfirmed, the queue refuses to spawn
+  anything else for the rest of the session, and it asks for an Obsidian restart. Tag `0.1.17`
+  exists on origin with no release: its job failed on a test of mine that read the real machine's
+  PATH (fixed in `0e0e46e`), and a new version was cut rather than a published tag moved.
+- Next likely action: Mark updates via BRAT to 0.1.18 and installs on Windows, which is
+  deliberately unverified — he accepted that risk and chose the error log as the instrument
+  instead. Collect the student's `.ai-tutor/logs/errors.jsonl` (or Settings → 문제 기록 → 최근
+  오류 복사) and fix from what it says. Standing asks remain: PowerShell/cmd hardening,
+  Settings/UI UX, quiz/socratic improvements.
 
 ## Current Sources of Truth
 
-- Living handoff: `.handoff/2026-09-09/121839_obsidian-ai-tutor_review-triage_handoff.md`
+- Living handoff: `.handoff/2026-09-10/000500_obsidian-ai-tutor_setup-wizard_handoff.md`
 - NOTE: `.handoff/` and `.claude/` are gitignored. Both live on this machine only, so a fresh clone resolves neither.
-- Active plan: none — the review-triage plan was executed in full and the work released.
-- Relevant artifacts: `.claude/artifacts/history-duplication-council-20260909-1240/` (the council Decision Contract that locked C1 and dropped C2/C3), `.claude/artifacts/note-context-loss-20260907-1349/` (the ChatGPT review and its verification), `.claude/artifacts/ask-agent-contract-20260907-2230/`, `.claude/artifacts/security-audit-fixes-20260907-1224/` — gitignored, on this disk only
-
-## Context Chain
-
-- Previous handoff: `.handoff/2026-09-08/225000_obsidian-ai-tutor_ask-agent-contract_handoff.md`
-- History index: `.handoff/LATEST.md` (this project's handoff registry, newest first)
+- Active plan: none — the multi-select wizard plan was executed in full and released as 0.1.18.
+- Relevant artifacts: `.claude/artifacts/setup-wizard-multi-provider-20260909-2230/` (three advisor-sol
+  rounds with receipts, both ai-review rounds, and the task scratchpad),
+  `.claude/artifacts/history-duplication-council-20260909-1240/`,
+  `.claude/artifacts/note-context-loss-20260907-1349/` — gitignored, on this disk only
 
 ## Resume Guidance
 
