@@ -136,3 +136,13 @@ HANDOFF.md
 # Editor workspace files name sibling folders that exist on one machine only,
 # so they are noise in a clone rather than setup anyone else can use.
 *.code-workspace
+
+# Agent process artifacts: development-time contracts, goals, and internal
+# planning docs. Students installing the plugin don't need these.
+CLAUDE.md
+AGENTS.md
+GOAL.md
+goal-contract.md
+docs/PRD.md
+docs/ADDENDUM.md
+docs/COMPLETION_PROOF_PACKET.md
