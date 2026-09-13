@@ -56,6 +56,38 @@ You only need to set up the one provider you plan to use. You can install and
 authenticate a second or third provider later and switch between them at any
 time in Settings.
 
+### Prefer to have an agent do this for you?
+
+If you already have an agentic coding assistant that can run terminal
+commands for you — VS Code's Copilot Chat in agent mode, Antigravity, etc. —
+you can paste it this whole README plus a prompt like this and let it handle
+the entire setup:
+
+```text
+Read this README and set up a provider CLI for me.
+
+- If I haven't told you which provider to use, ask me first.
+- Figure out yourself whether I'm on macOS or Windows and use the matching
+  commands — don't ask me.
+- Do everything yourself without asking permission at each step, except the
+  actual login.
+- If an install command in this doc fails or looks outdated, don't stop —
+  search the web for that provider's current official install instructions
+  and use those instead.
+- The login command needs browser authentication, so just tell me the
+  command and wait — don't try to complete login yourself.
+- Once I say I'm logged in, don't try to verify that yourself either; tell me
+  to open the plugin in Obsidian instead — its setup wizard actually checks
+  login state.
+- If this plugin itself is installed via BRAT and out of date, update it too
+  — run `BRAT: Check for updates and update all plugins` from Obsidian's
+  command palette. If you can't drive Obsidian's UI yourself, tell me
+  exactly what to click.
+```
+
+Whatever the agent reports, the plugin's own setup wizard is the real check
+for whether install and login succeeded.
+
 ---
 
 ## 📦 Installation
@@ -110,10 +142,6 @@ login command.
 | Auto-install (npm) | ✅ | ✅ | ✅ | ❌ guided manual only |
 | Tool approvals, MCP, plan mode, live diffs | ✅ | native CLI output only | native CLI output only | native CLI output only |
 | Dispatch model | 1 native CLI process per request, no shared runtime/proxy/relay | same | same | same |
-
-See `docs/COMPLETION_PROOF_PACKET.md` for the underlying dispatch evidence
-(one child process per request, sub-millisecond in-process overhead) and the
-exact commands used to verify it.
 
 ---
 
