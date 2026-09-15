@@ -161,9 +161,13 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     expect(spawnSpy).toHaveBeenCalled();
     const command = spawnSpy.mock.calls[0][0] as string;
     const args = spawnSpy.mock.calls[0][1] as string[];
+    const options = spawnSpy.mock.calls[0][2] as childProcess.SpawnOptions;
     expect(command).not.toMatch(/\.cmd$/i);
     expect(args[0]).toBe(`${pkgRoot}\\cli.js`);
     // The discovery arguments still follow the resolved entry point.
     expect(args.slice(-2)).toEqual(['debug', 'models']);
+    // Codex 0.154 reads from its inherited stdin before printing models. Model
+    // discovery has no input to supply, so it must close that pipe explicitly.
+    expect(options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
   });
 });

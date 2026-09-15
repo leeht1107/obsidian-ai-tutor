@@ -4811,6 +4811,10 @@ User: ${injectedPrompt}`;
         child = (0, import_child_process6.spawn)(entry[0], [...entry[1], ...args], {
           cwd: this.getWorkingDirectory(),
           env: process.env,
+          // Model discovery is not interactive. Leaving Node's default stdin
+          // pipe open makes current Codex wait for more input instead of
+          // printing its catalog; closing it also keeps the agy probe bounded.
+          stdio: ["ignore", "pipe", "pipe"],
           windowsHide: true,
           detached: !isWindows2
         });
