@@ -80,6 +80,8 @@ const MAX_STDERR_CHARS = 1024 * 1024;
 const MAX_LINE_BUFFER_CHARS = 1024 * 1024;
 /** Same ceiling execFile's own `maxBuffer` used to enforce for listNativeProviderModels. */
 const MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
+/** A model picker must recover from a CLI that waits on authentication or a network request. */
+const MODEL_LIST_TIMEOUT_MS = 15_000;
 
 interface DiffContentEntry {
   filePath: string;
@@ -718,9 +720,13 @@ export class CopilotBridgeService {
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         killTree(child);
         fn();
       };
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(`${provider} models timed out`)));
+      }, MODEL_LIST_TIMEOUT_MS);
       child.stdout?.on('data', (chunk: Buffer) => {
         stdout += chunk.toString();
         if (stdout.length > MODEL_LIST_MAX_STDOUT_CHARS) {

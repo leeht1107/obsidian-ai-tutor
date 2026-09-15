@@ -111,6 +111,7 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   afterEach(() => {
     if (platform) Object.defineProperty(process, 'platform', platform);
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
@@ -169,5 +170,30 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     // Codex 0.154 reads from its inherited stdin before printing models. Model
     // discovery has no input to supply, so it must close that pipe explicitly.
     expect(options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+  });
+
+  it('rejects and reaps a model listing that never closes', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(fs, 'statSync').mockImplementation((() => ({ isFile: () => true }) as fs.Stats) as unknown as typeof fs.statSync);
+    const child = new EventEmitter() as unknown as childProcess.ChildProcess;
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const kill = jest.fn();
+    Object.assign(child, { stdout, stderr, pid: 999_999, kill });
+    jest.spyOn(childProcess, 'spawn').mockReturnValue(child);
+
+    const promise = makeService({
+      selectedProvider: 'codex',
+      providerCliPaths: { codex: '/usr/local/bin/codex' },
+    }).listNativeProviderModels('codex');
+    const result = promise.then(
+      () => new Error('model listing unexpectedly resolved'),
+      (error: unknown) => error,
+    );
+
+    await jest.advanceTimersByTimeAsync(15_000);
+
+    expect(await result).toMatchObject({ message: 'codex models timed out' });
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
   });
 });

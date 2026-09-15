@@ -4392,6 +4392,7 @@ var CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 var MAX_STDERR_CHARS = 1024 * 1024;
 var MAX_LINE_BUFFER_CHARS = 1024 * 1024;
 var MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
+var MODEL_LIST_TIMEOUT_MS = 15e3;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map((tool) => tool.trim()).filter(Boolean)) != null ? _a : [];
@@ -4828,9 +4829,13 @@ User: ${injectedPrompt}`;
       const finish = (fn) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         killTree(child);
         fn();
       };
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(`${provider} models timed out`)));
+      }, MODEL_LIST_TIMEOUT_MS);
       (_a = child.stdout) == null ? void 0 : _a.on("data", (chunk) => {
         stdout += chunk.toString();
         if (stdout.length > MODEL_LIST_MAX_STDOUT_CHARS) {
