@@ -778,20 +778,14 @@ ${promptToSend}`;
 
   private async exitPlanPermissionMode(): Promise<void> {
     const { plugin, state } = this.deps;
-    const restored = plugin.settings.lastNonPlanPermissionMode ?? 'ask';
     if (plugin.settings.permissionMode === 'plan') {
-      plugin.settings.permissionMode = restored;
-      plugin.settings.lastNonPlanPermissionMode = restored;
-      // This can land while the write-authority region this very plan request opened
-      // (captured 'ask', since plan resolves read-only) is still draining — plan approval
-      // is awaited from inside the streaming loop that region wraps. That is not a stale
-      // write to refuse: the user just explicitly approved leaving read-only plan mode, so
-      // it is a deliberate, legitimate grant of authority happening right now. Refresh the
-      // capture immediately so the toggle reflects the grant instead of the read-only mode
-      // plan mode captured, and so a write dispatched later in this same in-flight region
-      // (e.g. an inline-bash expansion still to come) resolves against the restored mode
-      // rather than a stale 'ask'.
-      plugin.recapturePermissionMode();
+      if (typeof plugin.resetPermissionAuthority === 'function') plugin.resetPermissionAuthority();
+      else {
+        plugin.settings.permissionMode = 'ask';
+        plugin.settings.lastNonPlanPermissionMode = 'ask';
+        plugin.settings.blanketWriteAcknowledged = [];
+        plugin.recapturePermissionMode?.();
+      }
       await plugin.saveSettings();
     }
     state.resetPlanModeState();

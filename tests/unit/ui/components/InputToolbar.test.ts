@@ -124,6 +124,7 @@ describe('PermissionToggle - busy label shows the CAPTURED mode, not a fresh res
     const { labelText, setBashExpansionInFlight } = build({
       permissionMode: 'agent',
       selectedProvider: 'copilot',
+      blanketWriteAcknowledged: ['copilot'],
     });
     // getCapturedPermissionMode returns null here (default), so updateDisplay must fall
     // back to resolving from current settings rather than crash or show a stale value.
@@ -199,5 +200,96 @@ describe('PermissionToggle - check-then-act race across the confirmBlanketWrite 
 
     expect(callbacks.onPermissionModeChange).toHaveBeenCalledWith('agent');
     expect(settings.permissionMode).toBe('agent');
+  });
+});
+
+describe('PermissionToggle - runtime Agent grants', () => {
+  it.each(['copilot', 'claude', 'codex', 'agy'] as const)('asks before enabling Agent for %s', async (provider) => {
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask',
+      selectedProvider: provider,
+      blanketWriteAcknowledged: [],
+      allowUnsafeAgyAgent: provider === 'agy',
+    });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(true);
+
+    await container.clickAndSettle();
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledWith(provider, expect.any(Number));
+    expect(settings.permissionMode).toBe('agent');
+  });
+
+  it.each(['copilot', 'claude', 'codex', 'agy'] as const)('keeps %s in Ask when confirmation is cancelled', async (provider) => {
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask', selectedProvider: provider, blanketWriteAcknowledged: [], allowUnsafeAgyAgent: true,
+    });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
+
+    await container.clickAndSettle();
+
+    expect(settings.permissionMode).toBe('ask');
+    expect(callbacks.onPermissionModeChange).not.toHaveBeenCalled();
+  });
+
+  it('blocks Agy Agent before the expert setting is enabled', async () => {
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask', selectedProvider: 'agy', blanketWriteAcknowledged: [], allowUnsafeAgyAgent: false,
+    });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(true);
+
+    await container.clickAndSettle();
+
+    expect(settings.permissionMode).toBe('ask');
+    expect(callbacks.confirmBlanketWrite).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation again after returning to Ask', async () => {
+    const acknowledged: string[] = [];
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask', selectedProvider: 'codex', blanketWriteAcknowledged: acknowledged,
+    });
+    callbacks.confirmBlanketWrite = jest.fn().mockImplementation(async (provider: string) => {
+      acknowledged.push(provider);
+      return true;
+    });
+    callbacks.onPermissionModeChange = jest.fn().mockImplementation(async (mode: string) => {
+      settings.permissionMode = mode;
+      if (mode === 'ask') acknowledged.splice(0);
+    });
+
+    await container.clickAndSettle(); // Ask -> Agent
+    await container.clickAndSettle(); // Agent -> Ask, revokes grant
+    await container.clickAndSettle(); // Ask -> Agent, asks again
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards a stale Agy confirmation after a lifecycle authority reset', async () => {
+    let epoch = 7;
+    let resolveConfirmation: (accepted: boolean) => void = () => undefined;
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask', selectedProvider: 'agy', blanketWriteAcknowledged: [], allowUnsafeAgyAgent: true,
+    });
+    callbacks.getPermissionAuthorityEpoch = () => epoch;
+    callbacks.confirmBlanketWrite = jest.fn().mockImplementation(
+      async (provider: string, expectedEpoch: number) => {
+        const accepted = await new Promise<boolean>((resolve) => { resolveConfirmation = resolve; });
+        if (!accepted || epoch !== expectedEpoch || settings.selectedProvider !== provider) return false;
+        settings.blanketWriteAcknowledged.push(provider);
+        return true;
+      },
+    );
+
+    const pending = container.clickAndSettle();
+    await Promise.resolve();
+    epoch += 1;
+    settings.permissionMode = 'ask';
+    settings.blanketWriteAcknowledged = [];
+    resolveConfirmation(true);
+    await pending;
+
+    expect(settings.permissionMode).toBe('ask');
+    expect(settings.blanketWriteAcknowledged).toEqual([]);
+    expect(callbacks.onPermissionModeChange).not.toHaveBeenCalled();
   });
 });

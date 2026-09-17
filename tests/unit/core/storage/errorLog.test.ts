@@ -134,6 +134,43 @@ describe('ErrorLog', () => {
     expect(text).toContain('0.1.8');
   });
 
+  it('caps and scrubs structured diagnostics without storing request content', async () => {
+    const { adapter, files } = fakeAdapter();
+    recordError(adapter, {
+      provider: 'agy',
+      stage: 'exit',
+      message: '권한이 거부되었습니다.',
+      diagnostic: {
+        code: 'permission-denied',
+        storedMode: 'agent',
+        effectiveMode: 'ask',
+        outputFormat: 'json',
+        autoApproveTools: false,
+        stdoutBytes: 123,
+        stderrBytes: 456,
+        validTextChunks: 0,
+        parseFailureLines: 0,
+        providerStatus: 'SUCCESS',
+        deniedActions: ['command', ...Array.from({ length: 30 }, (_, i) => `action-${i}`)],
+        responseLength: 42,
+        stderrTruncated: true,
+        stderrExcerpt: '/Users/mark/private token=UNCONFIGURED_SECRET_123456',
+      },
+    }, { home: '/Users/mark', pluginVersion: '0.1.22' });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const written = JSON.parse((files.get(LOG_PATH) ?? '').trim());
+    expect(written.diagnostic).toMatchObject({
+      code: 'permission-denied', effectiveMode: 'ask', autoApproveTools: false,
+    });
+    expect(written.diagnostic.deniedActions).toHaveLength(20);
+    expect(written.diagnostic.stderrExcerpt).toContain('~/private');
+    expect(written.diagnostic.stderrExcerpt).not.toContain('UNCONFIGURED_SECRET_123456');
+    expect(JSON.stringify(written)).not.toContain('prompt');
+    expect(JSON.stringify(written)).not.toContain('stdoutRaw');
+    expect(JSON.stringify(written)).not.toContain('environmentVariables');
+  });
+
   it('keeps both entries when two failures are written in the same tick', async () => {
     // One CopilotBridgeService is shared by chat, title generation, inline edit and
     // instruction refine, and logError fires the append without awaiting it. An

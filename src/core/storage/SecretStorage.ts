@@ -141,6 +141,7 @@ const TRUST_STORAGE_KEY = 'obsidian-ai-tutor:trust';
 export const TRUST_FIELDS = [
   'permissionMode', 'lastNonPlanPermissionMode',
   'blanketWriteAcknowledged', 'permissions',
+  'allowUnsafeAgyAgent',
   'enableInlineBash', 'enableBlocklist', 'blockedCommands',
   'providerCliPaths', 'copilotCliPath',
   'allowedExportPaths', 'envSnippets',
@@ -150,6 +151,7 @@ export interface StoredTrust {
   permissionMode: PermissionMode;
   lastNonPlanPermissionMode?: NonPlanPermissionMode;
   blanketWriteAcknowledged: string[];
+  allowUnsafeAgyAgent: boolean;
   permissions: Permission[];
   enableInlineBash: boolean;
   enableBlocklist: boolean;
@@ -160,14 +162,11 @@ export interface StoredTrust {
   envSnippets: EnvSnippet[];
 }
 
-function isPermissionMode(v: unknown): v is PermissionMode {
-  return v === 'agent' || v === 'ask' || v === 'plan';
-}
-
 export function getDefaultTrust(): StoredTrust {
   return {
     permissionMode: 'ask',
     blanketWriteAcknowledged: [],
+    allowUnsafeAgyAgent: false,
     permissions: [],
     enableInlineBash: false,
     enableBlocklist: true,
@@ -185,10 +184,13 @@ export function readTrust(app: App): StoredTrust {
     if (!raw || typeof raw !== 'object') return getDefaultTrust();
     const defaults = getDefaultTrust();
     return {
-      permissionMode: isPermissionMode(raw.permissionMode) ? raw.permissionMode : defaults.permissionMode,
-      lastNonPlanPermissionMode: raw.lastNonPlanPermissionMode === 'agent' || raw.lastNonPlanPermissionMode === 'ask'
-        ? raw.lastNonPlanPermissionMode : undefined,
-      blanketWriteAcknowledged: Array.isArray(raw.blanketWriteAcknowledged) ? raw.blanketWriteAcknowledged : [],
+      // Agent authority is deliberately runtime-only. Older releases persisted all
+      // three fields; ignore them so an upgrade or reload always starts in Ask.
+      permissionMode: 'ask',
+      lastNonPlanPermissionMode: 'ask',
+      blanketWriteAcknowledged: [],
+      allowUnsafeAgyAgent: typeof raw.allowUnsafeAgyAgent === 'boolean'
+        ? raw.allowUnsafeAgyAgent : defaults.allowUnsafeAgyAgent,
       permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
       enableInlineBash: typeof raw.enableInlineBash === 'boolean' ? raw.enableInlineBash : defaults.enableInlineBash,
       enableBlocklist: typeof raw.enableBlocklist === 'boolean' ? raw.enableBlocklist : defaults.enableBlocklist,
@@ -259,5 +261,3 @@ export function containsProhibitedKeys(rawContent: string): boolean {
     TRUST_FIELDS.some(f => normalized.includes(f))
   );
 }
-
-

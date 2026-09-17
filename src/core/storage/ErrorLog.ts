@@ -53,6 +53,9 @@ const MAX_MESSAGE_CHARS = 4000;
 
 /** A path is a path. Anything longer than this is not one. */
 const MAX_PATH_CHARS = 512;
+const MAX_DIAGNOSTIC_STRING_CHARS = 256;
+const MAX_STDERR_EXCERPT_CHARS = 2000;
+const MAX_DIAGNOSTIC_ARRAY_ITEMS = 20;
 
 /** Shorten, and say so, rather than shorten silently. */
 function capText(value: string, limit: number): string {
@@ -64,7 +67,37 @@ function capEntry(entry: ErrorLogEntry): ErrorLogEntry {
   const capped: ErrorLogEntry = { ...entry, message: capText(entry.message, MAX_MESSAGE_CHARS) };
   if (capped.cliPath) capped.cliPath = capText(capped.cliPath, MAX_PATH_CHARS);
   if (capped.resolved) capped.resolved = capText(capped.resolved, MAX_PATH_CHARS);
+  if (entry.diagnostic) {
+    capped.diagnostic = {
+      ...entry.diagnostic,
+      code: capText(entry.diagnostic.code, MAX_DIAGNOSTIC_STRING_CHARS),
+      providerStatus: entry.diagnostic.providerStatus
+        ? capText(entry.diagnostic.providerStatus, MAX_DIAGNOSTIC_STRING_CHARS) : undefined,
+      deniedActions: entry.diagnostic.deniedActions
+        ?.slice(0, MAX_DIAGNOSTIC_ARRAY_ITEMS)
+        .map((value) => capText(value, MAX_DIAGNOSTIC_STRING_CHARS)),
+      stderrExcerpt: entry.diagnostic.stderrExcerpt
+        ? capText(entry.diagnostic.stderrExcerpt, MAX_STDERR_EXCERPT_CHARS) : undefined,
+    };
+  }
   return capped;
+}
+
+export interface ErrorDiagnostic {
+  code: string;
+  storedMode?: 'ask' | 'agent' | 'plan';
+  effectiveMode?: 'ask' | 'agent';
+  outputFormat?: string;
+  autoApproveTools?: boolean;
+  stdoutBytes?: number;
+  stderrBytes?: number;
+  validTextChunks?: number;
+  parseFailureLines?: number;
+  providerStatus?: string;
+  deniedActions?: string[];
+  responseLength?: number;
+  stderrTruncated?: boolean;
+  stderrExcerpt?: string;
 }
 
 export interface ErrorLogEntry {
@@ -84,6 +117,8 @@ export interface ErrorLogEntry {
   cliPath?: string;
   /** What the resolver decided to actually spawn, if it got that far. */
   resolved?: string;
+  /** Content-free execution facts. Never include prompts, stdout, env, or session ids. */
+  diagnostic?: ErrorDiagnostic;
 }
 
 /**
@@ -243,8 +278,18 @@ export function recordError(
 ): void {
   try {
     if (!adapter) return;
+    const diagnostic = entry.diagnostic ? {
+      ...entry.diagnostic,
+      providerStatus: entry.diagnostic.providerStatus
+        ? scrubCredentialPatterns(maskHomeInText(entry.diagnostic.providerStatus, meta.home)) : undefined,
+      deniedActions: entry.diagnostic.deniedActions
+        ?.map((value) => scrubCredentialPatterns(maskHomeInText(value, meta.home))),
+      stderrExcerpt: entry.diagnostic.stderrExcerpt
+        ? scrubCredentialPatterns(maskHomeInText(entry.diagnostic.stderrExcerpt, meta.home)) : undefined,
+    } : undefined;
     void appendErrorLog(adapter, ERROR_LOG_PATH, {
       ...entry,
+      diagnostic,
       // The message is masked and scrubbed here, at the one boundary every
       // caller passes through, rather than at each call site that could forget.
       message: scrubCredentialPatterns(maskHomeInText(entry.message, meta.home)),
@@ -293,7 +338,8 @@ export function formatErrorsForReport(entries: ErrorLogEntry[]): string {
         e.signal ? `signal ${e.signal}` : '',
         `${e.platform} / plugin ${e.pluginVersion}`,
       ].filter(Boolean).join(' | ');
-      return [head, where, how, e.message].filter(Boolean).join('\n');
+      const diagnostic = e.diagnostic ? `diagnostic: ${JSON.stringify(e.diagnostic)}` : '';
+      return [head, where, how, e.message, diagnostic].filter(Boolean).join('\n');
     })
     .join('\n\n');
 }

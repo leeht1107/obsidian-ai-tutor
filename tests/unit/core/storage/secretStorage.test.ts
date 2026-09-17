@@ -63,6 +63,24 @@ describe('SecretStorage', () => {
     expect(readSecrets(fakeApp())).toEqual({ githubToken: '', environmentVariables: '' });
   });
 
+  it('never restores a previous Agent grant but keeps the Agy expert setting', () => {
+    const app = fakeApp();
+    app.saveLocalStorage('obsidian-ai-tutor:trust', {
+      ...getDefaultTrust(),
+      permissionMode: 'agent',
+      lastNonPlanPermissionMode: 'agent',
+      blanketWriteAcknowledged: ['agy'],
+      allowUnsafeAgyAgent: true,
+    });
+
+    expect(readTrust(app)).toMatchObject({
+      permissionMode: 'ask',
+      lastNonPlanPermissionMode: 'ask',
+      blanketWriteAcknowledged: [],
+      allowUnsafeAgyAgent: true,
+    });
+  });
+
   it('moves a token out of the vault settings and blanks it there', () => {
     const app = fakeApp();
     const settings = { githubToken: 'github_pat_x', environmentVariables: '', model: 'gpt-4.1' };

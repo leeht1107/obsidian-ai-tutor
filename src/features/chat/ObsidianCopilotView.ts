@@ -2,7 +2,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
-import { findProviderCliPath, getProviderDescriptor, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
+import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
 import { connectionLabel } from '../../core/setup/providerConnection';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
@@ -119,6 +119,7 @@ export class ObsidianCopilotView extends ItemView {
   }
 
   async onOpen() {
+    this.plugin.resetPermissionAuthority();
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass('ocop-container');
@@ -289,9 +290,10 @@ export class ObsidianCopilotView extends ItemView {
       isPlanModeRequested: () => this.state.planModeRequested,
       isBashExpansionInFlight: () => this.plugin.isBashExpansionInFlight(),
       getCapturedPermissionMode: () => this.plugin.getCapturedPermissionMode(),
-      confirmBlanketWrite: async (provider) => {
+      getPermissionAuthorityEpoch: () => this.plugin.getPermissionAuthorityEpoch(),
+      confirmBlanketWrite: async (provider, authorityEpoch) => {
         const accepted = await new Promise<boolean>((resolve) => {
-          new BlanketWriteConsentModal(this.app, getProviderDescriptor(provider).label, resolve).open();
+          new BlanketWriteConsentModal(this.app, provider, resolve).open();
         });
         if (!accepted) return false;
         // The modal await can straddle a write-capable region starting elsewhere (e.g. an
@@ -304,10 +306,11 @@ export class ObsidianCopilotView extends ItemView {
           new Notice('실행 중인 작업이 끝날 때까지 모드를 바꿀 수 없습니다.');
           return false;
         }
+        if (this.plugin.getPermissionAuthorityEpoch() !== authorityEpoch
+          || this.plugin.settings.selectedProvider !== provider) return false;
         const acknowledged = new Set(this.plugin.settings.blanketWriteAcknowledged ?? []);
         acknowledged.add(provider);
         this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
-        await this.plugin.saveSettings();
         return true;
       },
       onModelChange: async (model: CopilotModel) => {
@@ -352,7 +355,8 @@ export class ObsidianCopilotView extends ItemView {
           this.plugin.settings.lastNonPlanPermissionMode = mode;
         }
 
-        this.plugin.settings.permissionMode = mode;
+        if (mode === 'ask') this.plugin.resetPermissionAuthority();
+        else this.plugin.settings.permissionMode = mode;
         await this.plugin.saveSettings();
 
         if (mode === 'plan') {
@@ -760,6 +764,7 @@ type ProviderSelectorPlugin = Pick<ObsidianCopilotPlugin, 'settings' | 'saveSett
   /** Optional so every existing test-constructed plugin stub keeps working unchanged;
    * absent reads as "not busy", matching `ToolbarCallbacks.isBashExpansionInFlight`. */
   isBashExpansionInFlight?: () => boolean;
+  resetPermissionAuthority?: () => void;
 };
 
 async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: ProviderId): Promise<void> {
@@ -867,6 +872,7 @@ export function createProviderSelector(
           return;
         }
         if (ready) {
+          plugin.resetPermissionAuthority?.();
           plugin.settings.selectedProvider = provider.id;
           await plugin.saveSettings();
           updateButton(); onProviderChange?.(provider.id); close();

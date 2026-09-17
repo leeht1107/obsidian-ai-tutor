@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ai-tutor",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Obsidian AI Tutor - AI-assisted learning embedded in the Obsidian sidebar",
   "main": "main.js",
   "scripts": {

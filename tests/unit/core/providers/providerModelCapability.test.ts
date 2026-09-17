@@ -40,7 +40,7 @@ describe('provider model + effort capability', () => {
       // With a model, agy rejects the pair — see the mutual-exclusion suite below.
       expect(buildNativeProviderCommand('agy', 'hello', '', 'medium', 'agent').args).toEqual([
         '--dangerously-skip-permissions',
-        '--effort', 'medium', '-p', 'hello',
+        '--effort', 'medium', '--output-format', 'json', '-p', 'hello',
       ]);
     });
 
@@ -208,12 +208,12 @@ describe('providers where model and effort cannot be combined', () => {
 
   it('never sends agy a model and an effort in the same invocation', () => {
     const args = buildNativeProviderCommand('agy', 'hello', 'gemini-3.8-flash-high', 'low', 'agent').args;
-    expect(args).toEqual(['--dangerously-skip-permissions', '--model', 'gemini-3.8-flash-high', '-p', 'hello']);
+    expect(args).toEqual(['--dangerously-skip-permissions', '--model', 'gemini-3.8-flash-high', '--output-format', 'json', '-p', 'hello']);
     expect(args).not.toContain('--effort');
   });
 
   it('still lets agy use effort alone when no model is pinned', () => {
-    expect(buildNativeProviderCommand('agy', 'hello', '', 'high', 'agent').args).toEqual(['--dangerously-skip-permissions', '--effort', 'high', '-p', 'hello']);
+    expect(buildNativeProviderCommand('agy', 'hello', '', 'high', 'agent').args).toEqual(['--dangerously-skip-permissions', '--effort', 'high', '--output-format', 'json', '-p', 'hello']);
   });
 
   it('leaves claude and codex free to combine the two', () => {

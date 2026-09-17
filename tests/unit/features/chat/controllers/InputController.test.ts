@@ -901,7 +901,7 @@ describe('InputController - Message Queue', () => {
       expect(deps.plugin.settings.permissionMode).toBe('ask');
     });
 
-    it('refreshes a stale ask capture on plan approval, so a later inline-bash authorisation and the toggle agree', async () => {
+    it('returns to Ask and clears runtime Agent authority when a plan ends', async () => {
       // Reproduces the adversarial sequence: a plan region is still draining (having
       // captured 'ask', since plan always resolves read-only) when its own approval
       // callback restores 'agent'. The write-authority counter and capture below are the
@@ -928,15 +928,13 @@ describe('InputController - Message Queue', () => {
       plugin.setBashExpansionActive(true);
       expect(plugin.getCapturedPermissionMode()).toBe('ask');
 
-      // Plan approval lands while that region is still in flight.
+      // Plan approval is not a reusable Agent grant. A later Agent transition
+      // has to ask again, even while this read-only region finishes draining.
       await (controller as any).exitPlanPermissionMode();
 
-      expect(plugin.settings.permissionMode).toBe('agent');
-      // The capture must be refreshed to match the just-granted mode — not left as the
-      // stale 'ask' the plan-mode region captured, or a subsequent inline-bash
-      // authorisation would run under 'agent' while the toggle (reading the captured mode
-      // while busy) still shows Ask.
-      expect(plugin.getCapturedPermissionMode()).toBe('agent');
+      expect(plugin.settings.permissionMode).toBe('ask');
+      expect(plugin.settings.blanketWriteAcknowledged).toEqual([]);
+      expect(plugin.getCapturedPermissionMode()).toBe('ask');
 
       // The region is still open; draining it clears the capture as normal.
       plugin.setBashExpansionActive(false);

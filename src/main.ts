@@ -74,6 +74,8 @@ export default class ObsidianCopilotPlugin extends Plugin {
    * the running work was authorized under, not what a fresh resolution would say now.
    */
   private capturedPermissionMode: NativePermissionMode | null = null;
+  /** Invalidates consent dialogs opened before a lifecycle authority reset. */
+  private permissionAuthorityEpoch = 0;
 
   async onload() {
     try {
@@ -296,9 +298,10 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.settings.environmentVariables = secrets.environmentVariables;
 
     const trust = readTrust(this.app);
-    this.settings.permissionMode = trust.permissionMode;
-    this.settings.lastNonPlanPermissionMode = trust.lastNonPlanPermissionMode;
-    this.settings.blanketWriteAcknowledged = trust.blanketWriteAcknowledged;
+    this.settings.permissionMode = 'ask';
+    this.settings.lastNonPlanPermissionMode = 'ask';
+    this.settings.blanketWriteAcknowledged = [];
+    this.settings.allowUnsafeAgyAgent = trust.allowUnsafeAgyAgent;
     this.settings.permissions = trust.permissions;
     this.settings.enableInlineBash = trust.enableInlineBash;
     this.settings.enableBlocklist = trust.enableBlocklist;
@@ -307,17 +310,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.settings.copilotCliPath = trust.copilotCliPath;
     this.settings.allowedExportPaths = trust.allowedExportPaths;
     this.settings.envSnippets = trust.envSnippets;
-
-    // Migrate legacy permission mode values (yolo→agent, normal→ask)
-    if ((this.settings.permissionMode as string) === 'yolo') this.settings.permissionMode = 'agent';
-    if ((this.settings.permissionMode as string) === 'normal') this.settings.permissionMode = 'ask';
-    if ((this.settings.lastNonPlanPermissionMode as string) === 'yolo') this.settings.lastNonPlanPermissionMode = 'agent';
-    if ((this.settings.lastNonPlanPermissionMode as string) === 'normal') this.settings.lastNonPlanPermissionMode = 'ask';
-
-    // Plan is no longer one of the toggle's states. Normalising it here rather than
-    // at each reader keeps `permissionMode` to the two values the UI can show, so a
-    // stored 'plan' cannot make the toolbar say one thing and the plan lock another.
-    if (this.settings.permissionMode === 'plan') this.settings.permissionMode = 'ask';
 
     // Migrate deprecated model names
     if ((this.settings.model as string) === 'gpt-4o') this.settings.model = 'gpt-4.1';
@@ -395,9 +387,12 @@ export default class ObsidianCopilotPlugin extends Plugin {
       environmentVariables: this.settings.environmentVariables ?? '',
     }, this);
     writeTrustOrNotify(this.app, {
-      permissionMode: this.settings.permissionMode,
-      lastNonPlanPermissionMode: this.settings.lastNonPlanPermissionMode,
-      blanketWriteAcknowledged: this.settings.blanketWriteAcknowledged ?? [],
+      // Runtime Agent authority never crosses a reload. Only the separate Agy
+      // expert preference persists; every actual transition is confirmed again.
+      permissionMode: 'ask',
+      lastNonPlanPermissionMode: 'ask',
+      blanketWriteAcknowledged: [],
+      allowUnsafeAgyAgent: this.settings.allowUnsafeAgyAgent ?? false,
       permissions: this.settings.permissions ?? [],
       enableInlineBash: this.settings.enableInlineBash,
       enableBlocklist: this.settings.enableBlocklist,
@@ -680,6 +675,19 @@ export default class ObsidianCopilotPlugin extends Plugin {
   /** The mode captured at the 0 -> 1 edge above; null when nothing is in flight. */
   getCapturedPermissionMode(): NativePermissionMode | null {
     return this.capturedPermissionMode;
+  }
+
+  /** Drop every runtime grant at a lifecycle boundary. Does not persist anything. */
+  resetPermissionAuthority(): void {
+    this.permissionAuthorityEpoch += 1;
+    this.settings.permissionMode = 'ask';
+    this.settings.lastNonPlanPermissionMode = 'ask';
+    this.settings.blanketWriteAcknowledged = [];
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+
+  getPermissionAuthorityEpoch(): number {
+    return this.permissionAuthorityEpoch;
   }
 
   /**

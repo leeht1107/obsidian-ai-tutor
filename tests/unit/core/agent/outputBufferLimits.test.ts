@@ -7,8 +7,8 @@
  * pushes all of it into the renderer process.
  *
  * The two halves are treated differently on purpose. stderr is diagnostic, so
- * the front of it is what matters and the rest can be dropped. stdout is the
- * student's answer, so it is flushed rather than discarded.
+ * the front of it is kept. Unterminated stdout is force-drained at the cap; for
+ * JSON-output providers those fragments are rejected rather than exposed as an answer.
  */
 import * as childProcess from 'child_process';
 import { EventEmitter } from 'events';
@@ -85,7 +85,7 @@ describe('native output buffers are bounded', () => {
     expect(error!.content.length).toBeLessThan(OVER_CAP / 2);
   });
 
-  it('flushes an unterminated stdout line instead of buffering it forever', async () => {
+  it('bounds an unterminated non-JSON stdout line and rejects it as provider output', async () => {
     // Three writes of 700 KiB with no newline anywhere. The buffer crosses the
     // cap on the second, so a correct implementation flushes once mid-stream and
     // once more at close — two chunks. Held to close, it would be exactly one.
@@ -99,12 +99,10 @@ describe('native output buffers are bounded', () => {
 
     const chunks = await drain(makeService().query('hello'));
 
-    const text = chunks.filter((c) => c.type === 'text') as { content: string }[];
-    expect(text.some((c) => c.content.includes('머리말'))).toBe(true);
-    // More than one chunk is the proof: with no cap the whole stream would sit
-    // in the buffer until close and arrive as a single trailing flush.
-    expect(text.length).toBeGreaterThan(1);
-    // Not reported as the answerless clean exit that guard is for.
-    expect(chunks.some((c) => c.type === 'error')).toBe(false);
+    // JSON-output providers may not promote raw stdout to a student answer. The
+    // forced cap still drains the oversized line, but each fragment is counted
+    // as a parse failure and the run ends with one actionable error.
+    expect(chunks.some((c) => c.type === 'text')).toBe(false);
+    expect(chunks.some((c) => c.type === 'error' && c.content.includes('JSON'))).toBe(true);
   });
 });

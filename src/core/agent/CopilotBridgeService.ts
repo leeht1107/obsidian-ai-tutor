@@ -27,7 +27,7 @@ import {
 } from '../providers/providerRegistry';
 import { isWindows, killTree } from '../setup/processTree';
 import type { RequestOutcome } from '../setup/providerConnection';
-import { type ErrorLogEntry, recordError } from '../storage/ErrorLog';
+import { type ErrorDiagnostic, type ErrorLogEntry, recordError } from '../storage/ErrorLog';
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
@@ -392,7 +392,7 @@ export function explainEmptyAnswer(
   const detail = stderr.trim();
   if (provider === 'agy' && /no output produced/i.test(detail) && /permission/i.test(detail)) {
     return permissionMode === 'ask'
-      ? 'Antigravity가 Ask 모드에서 권한이 필요한 도구를 골라 답하지 못했습니다. 파일 수정과 명령 실행을 허용해도 되는 질문이면 상단의 Ask를 Agent로 바꾸고 권한 안내를 확인한 뒤 다시 보내세요. 허용하지 않으려면 다른 provider를 골라 주세요.'
+      ? 'Antigravity가 Ask 모드에서 권한이 필요한 도구를 골라 안전하게 완료하지 못했습니다. Ask를 유지하려면 다른 provider를 골라 주세요.'
       : 'Antigravity가 Agent 모드에서도 권한이 필요한 도구를 실행하지 못해 답하지 못했습니다. 다른 provider를 골라 주세요.';
   }
   return `${provider} CLI가 아무 답도 내지 않고 끝났습니다. 다시 물어보시거나 다른 provider를 골라 주세요.${detail ? `\n\n${detail}` : ''}`;
@@ -479,7 +479,22 @@ export class CopilotBridgeService {
     return process.cwd();
   }
 
-  private buildSystemPromptText(prompt: string, vaultPath: string, queryOptions?: QueryOptions): string {
+  private effectivePermissionMode(provider: ProviderId, forcedReadOnly = false): NativePermissionMode {
+    const resolved = resolveEffectivePermissionMode(
+      this.plugin.settings.permissionMode,
+      provider,
+      this.plugin.settings.blanketWriteAcknowledged,
+      forcedReadOnly,
+    );
+    return provider === 'agy' && !this.plugin.settings.allowUnsafeAgyAgent ? 'ask' : resolved;
+  }
+
+  private buildSystemPromptText(
+    prompt: string,
+    vaultPath: string,
+    queryOptions?: QueryOptions,
+    permissionMode?: NativePermissionMode,
+  ): string {
     const hasEditorContext = prompt.includes('<editor_selection');
     return buildSystemPrompt({
       mediaFolder: this.plugin.settings.mediaFolder,
@@ -490,12 +505,15 @@ export class CopilotBridgeService {
       hasEditorContext,
       planMode: queryOptions?.planMode,
       appendedPlan: this.approvedPlanContent ?? undefined,
-      permissionMode: this.plugin.settings.permissionMode,
+      permissionMode: permissionMode ?? this.effectivePermissionMode(
+        this.plugin.settings.selectedProvider as ProviderId,
+        Boolean(queryOptions?.planMode),
+      ),
     });
   }
 
-  private injectSystemPrompt(prompt: string, vaultPath: string, queryOptions?: QueryOptions): string {
-    const systemPrompt = this.buildSystemPromptText(prompt, vaultPath, queryOptions).trim();
+  private injectSystemPrompt(prompt: string, vaultPath: string, queryOptions?: QueryOptions, permissionMode?: NativePermissionMode): string {
+    const systemPrompt = this.buildSystemPromptText(prompt, vaultPath, queryOptions, permissionMode).trim();
     return `<system_instructions>\n${systemPrompt}\n</system_instructions>\n\n${prompt}`;
   }
 
@@ -503,7 +521,8 @@ export class CopilotBridgeService {
     prompt: string,
     conversationHistory: ChatMessage[] | undefined,
     vaultPath: string,
-    queryOptions?: QueryOptions
+    queryOptions?: QueryOptions,
+    permissionMode?: NativePermissionMode,
   ): string {
     const currentProvider = this.plugin.settings.selectedProvider as ProviderId;
     // A copilot session is only a valid thing to resume if copilot ALSO held the
@@ -518,7 +537,7 @@ export class CopilotBridgeService {
     }
     this.lastTurnProvider = currentProvider;
 
-    const injectedPrompt = this.injectSystemPrompt(prompt, vaultPath, queryOptions);
+    const injectedPrompt = this.injectSystemPrompt(prompt, vaultPath, queryOptions, permissionMode);
 
     if (this.wasInterrupted && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
@@ -669,11 +688,12 @@ export class CopilotBridgeService {
     args: string[],
     capabilities: CopilotCliCapabilities,
     queryOptions?: QueryOptions,
-    skipAvailableTools = false
+    skipAvailableTools = false,
+    permissionMode: NativePermissionMode = 'ask',
   ): void {
     const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
     const finalTools = resolveCopilotAllowedTools(
-      this.plugin.settings.permissionMode,
+      permissionMode,
       queryOptions?.allowedTools,
       queryOptions?.planMode,
       enableWebSearch
@@ -787,12 +807,13 @@ export class CopilotBridgeService {
     const cwd = this.getWorkingDirectory();
     const capabilities = await this.getCliCapabilities(copilotPath);
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
-    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions);
+    const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode));
+    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
     const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
 
     const useAllowAllTools = shouldUseCopilotAllowAllTools(
-      this.plugin.settings.permissionMode,
+      permissionMode,
       capabilities.allowAllTools,
       queryOptions,
     );
@@ -830,7 +851,7 @@ export class CopilotBridgeService {
 
     // Avoid combining unrestricted access with a default --available-tools list. For MCP without
     // explicit tool requests, preserve unrestricted MCP routing even on older CLIs.
-    this.addToolArgs(args, capabilities, queryOptions, useAllowAllTools);
+    this.addToolArgs(args, capabilities, queryOptions, useAllowAllTools, permissionMode);
 
     this.abortController = new AbortController();
 
@@ -983,7 +1004,6 @@ export class CopilotBridgeService {
       return;
     }
 
-    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, this.getWorkingDirectory(), queryOptions);
     const selection = resolveNativeSelection(this.plugin.settings, queryOptions?.model);
     // Plan mode is a read-only exploration, so it maps to the same restriction as Ask.
     // A provider that cannot be held read-only gets `agent` whatever the toggle says;
@@ -998,7 +1018,14 @@ export class CopilotBridgeService {
     // The shared predicate so the toolbar, this dispatch, and both inline-bash gates
     // agree on what "Agent" means for this provider right now — see its doc comment
     // in providerRegistry.ts for why `settings.permissionMode` alone is not enough.
-    const permissionMode = resolveEffectivePermissionMode(mode, provider, acknowledged, Boolean(queryOptions?.planMode));
+    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions?.planMode));
+    const fullPrompt = this.buildPromptWithHistory(
+      prompt,
+      conversationHistory,
+      this.getWorkingDirectory(),
+      queryOptions,
+      permissionMode,
+    );
 
     // Both of these change what the CLI is allowed to do, so neither may be silent.
     // A Notice rather than a stream chunk: the conversation is the model's transcript,
@@ -1049,13 +1076,16 @@ export class CopilotBridgeService {
       return;
     }
     this.currentProcess = child;
-    // Parsed chunks are handed over as the child produces them. These CLIs are asked for a
-    // streaming format, so buffering to exit would hide a token that was ready seconds earlier.
     const pending: StreamChunk[] = [];
     let lineBuffer = '';
+    let agyOutput = '';
+    let agyOutputTruncated = false;
     let errorOutput = '';
-    // A CLI can exit 0 having answered nothing at all, and only the chunks tell us.
-    let sawText = false;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let stderrTruncated = false;
+    let parseFailureLines = 0;
+    let validTextChunks = 0;
     let exitCode: number | null = null;
     let closeSignal: NodeJS.Signals | null = null;
     let closed = false;
@@ -1063,12 +1093,20 @@ export class CopilotBridgeService {
     const signal = () => { const resume = wake; wake = null; resume?.(); };
 
     const push = (line: string) => {
+      if (provider === 'agy') {
+        const combined = agyOutput + `${line}\n`;
+        if (combined.length > MAX_LINE_BUFFER_CHARS) agyOutputTruncated = true;
+        agyOutput = combined.slice(0, MAX_LINE_BUFFER_CHARS);
+        return;
+      }
+      try { JSON.parse(line); } catch { parseFailureLines += 1; return; }
       const chunk = this.parseNativeProviderLine(provider, line);
       if (!chunk) return;
-      if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
+      if (chunk.type === 'text' && chunk.content.trim()) validTextChunks += 1;
       pending.push(chunk);
     };
     child.stdout?.on('data', (data: Buffer) => {
+      stdoutBytes += data.byteLength;
       lineBuffer += data.toString();
       const lines = lineBuffer.split(/\r?\n/);
       // The last element is whatever came after the final newline — possibly half a line.
@@ -1089,63 +1127,127 @@ export class CopilotBridgeService {
       signal();
     });
     child.stderr?.on('data', (data: Buffer) => {
+      stderrBytes += data.byteLength;
       // stderr is diagnostic and only its head is ever read, so this one is
       // capped rather than flushed — a crash loop must not fill memory.
-      if (errorOutput.length >= MAX_STDERR_CHARS) return;
-      errorOutput = (errorOutput + data.toString()).slice(0, MAX_STDERR_CHARS);
+      if (errorOutput.length >= MAX_STDERR_CHARS) { stderrTruncated = true; return; }
+      const combined = errorOutput + data.toString();
+      if (combined.length > MAX_STDERR_CHARS) stderrTruncated = true;
+      errorOutput = combined.slice(0, MAX_STDERR_CHARS);
     });
     child.on('close', (code, receivedSignal) => { exitCode = code; closeSignal = receivedSignal; closed = true; signal(); });
     child.on('error', (error) => { errorOutput = error.message; exitCode = 1; closed = true; signal(); });
     child.stdin?.end();
 
     try {
-      for (;;) {
-        while (pending.length) yield pending.shift() as StreamChunk;
-        if (closed) break;
+      while (!closed) {
+        if (provider !== 'agy') {
+          while (pending.length) yield pending.shift() as StreamChunk;
+        }
         // Re-checked inside the executor so a close that lands between the drain and the
         // await cannot leave us waiting on a signal that already fired.
         await new Promise<void>((resolve) => {
-          if (closed || pending.length) { resolve(); return; }
+          if (closed || (provider !== 'agy' && pending.length > 0)) { resolve(); return; }
           wake = resolve;
         });
       }
       const tail = lineBuffer.trim();
-      if (tail) {
-        const chunk = this.parseNativeProviderLine(provider, tail);
-        if (chunk) {
-          if (chunk.type === 'text' && chunk.content.trim()) sawText = true;
-          yield chunk;
-        }
-      }
-      // Only a failed run's stderr is an error. All three CLIs write ordinary notices there
-      // on success (codex prints "Reading additional input from stdin..." on every run),
-      // and surfacing those as an error bubble made healthy runs look broken. A user-
-      // requested stop is not a failure either, even though SIGTERM reports code === null.
-      if (!this.wasInterrupted && exitCode === 0 && sawText) {
-        this.onOutcome?.(provider, 'ok');
-      }
-      // A clean exit with no answer is a failure the student can act on, not a success.
-      // agy reaches here whenever headless mode auto-denies a tool it picked: exit 0, the
-      // reason on stderr only. Guarding on a non-zero exit alone showed an empty bubble
-      // and counted the run as ok.
-      if (!this.wasInterrupted && exitCode === 0 && !sawText) {
-        this.onOutcome?.(provider, 'failed');
-        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput, permissionMode));
-        this.logError({ provider, stage: 'empty-answer', message: emptyMessage, exitCode, cliPath, resolved: command });
-        yield { type: 'error', content: emptyMessage };
-      }
-      if (!this.wasInterrupted && exitCode !== 0) {
+      if (tail) push(tail);
+      if (this.wasInterrupted) { yield { type: 'done' }; return; }
+
+      let providerStatus: string | undefined;
+      let deniedActions: string[] | undefined;
+      let responseLength: number | undefined;
+      let failureCode = '';
+      let failureMessage = '';
+
+      if (exitCode !== 0) {
         // Only 'failed'. These CLIs have no auth string we have verified, and
         // inventing one would be a guess about the student's login.
-        this.onOutcome?.(provider, 'failed');
-        // Never silent: a CLI that dies without writing to stderr would otherwise render
-        // as an empty but successful answer.
-        const exitMessage = this.redactSecrets(errorOutput.trim())
+        failureCode = 'provider-error';
+        failureMessage = this.redactSecrets(errorOutput.trim())
           || (closeSignal
             ? `${provider} CLI was terminated (${closeSignal}).`
             : `${provider} CLI exited with code ${exitCode}.`);
-        this.logError({ provider, stage: 'exit', message: exitMessage, exitCode, signal: closeSignal, cliPath, resolved: command });
-        yield { type: 'error', content: exitMessage };
+      } else if (provider === 'agy') {
+        let parsed: Record<string, unknown> | null = null;
+        if (!agyOutputTruncated) {
+          try { parsed = JSON.parse(agyOutput.trim()) as Record<string, unknown>; } catch { parseFailureLines += 1; }
+        } else {
+          parseFailureLines += 1;
+        }
+        if (!parsed) {
+          failureCode = 'output-parse-failed';
+          failureMessage = 'Antigravity의 JSON 출력을 읽지 못했습니다. agy를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.';
+        } else {
+          providerStatus = typeof parsed.status === 'string' ? parsed.status : undefined;
+          const response = typeof parsed.response === 'string' ? parsed.response : '';
+          responseLength = response.length;
+          const denied = Array.isArray(parsed.denied_actions) ? parsed.denied_actions : [];
+          deniedActions = denied.map((item) => {
+            if (typeof item === 'string') return item;
+            if (!item || typeof item !== 'object') return 'unknown';
+            const record = item as Record<string, unknown>;
+            return [record.action, record.name, record.tool, record.type, record.kind]
+              .find((value) => typeof value === 'string') as string ?? 'unknown';
+          });
+          if (deniedActions.length > 0) {
+            failureCode = 'permission-denied';
+            failureMessage = permissionMode === 'ask'
+              ? 'Antigravity가 Ask 모드에서 권한이 필요한 작업을 거부해 답변을 완료하지 못했습니다. 다른 provider를 사용해 주세요.'
+              : 'Antigravity가 요청한 작업 권한을 얻지 못해 답변을 완료하지 못했습니다.';
+          } else if (providerStatus !== 'SUCCESS') {
+            failureCode = 'provider-error';
+            failureMessage = `Antigravity가 실패 상태${providerStatus ? ` (${providerStatus})` : ''}를 반환했습니다.`;
+          } else if (!response.trim()) {
+            failureCode = 'empty-response';
+            failureMessage = explainEmptyAnswer(provider, errorOutput, permissionMode);
+          } else {
+            validTextChunks = 1;
+            pending.push({ type: 'text', content: response });
+          }
+        }
+      } else if (parseFailureLines > 0) {
+        failureCode = 'output-parse-failed';
+        failureMessage = `${provider} CLI의 JSON 출력을 읽지 못했습니다. CLI를 업데이트한 뒤 다시 시도해 주세요.`;
+      } else if (validTextChunks === 0) {
+        failureCode = 'empty-response';
+        failureMessage = explainEmptyAnswer(provider, errorOutput, permissionMode);
+      }
+
+      if (failureCode) {
+        this.onOutcome?.(provider, 'failed');
+        const diagnostic: ErrorDiagnostic = {
+          code: failureCode,
+          storedMode: mode,
+          effectiveMode: permissionMode,
+          outputFormat: provider === 'claude' ? 'stream-json' : 'json',
+          autoApproveTools: permissionMode === 'agent',
+          stdoutBytes,
+          stderrBytes,
+          validTextChunks,
+          parseFailureLines,
+          providerStatus,
+          deniedActions,
+          responseLength,
+          stderrTruncated: stderrTruncated || errorOutput.length > 2000,
+          stderrExcerpt: this.redactSecrets(errorOutput.trim()).slice(0, 2000),
+        };
+        const safeMessage = this.redactSecrets(failureMessage);
+        this.logError({
+          provider,
+          stage: failureCode === 'empty-response' ? 'empty-answer' : 'exit',
+          message: safeMessage,
+          exitCode,
+          signal: closeSignal,
+          cliPath,
+          resolved: command,
+          diagnostic,
+        });
+        yield { type: 'error', content: safeMessage };
+      } else {
+        this.onOutcome?.(provider, 'ok');
+        while (pending.length) yield pending.shift() as StreamChunk;
       }
       yield { type: 'done' };
     } finally {
@@ -1160,7 +1262,6 @@ export class CopilotBridgeService {
   }
 
   private parseNativeProviderLine(provider: ProviderId, line: string): StreamChunk | null {
-    if (provider === 'agy') return { type: 'text', content: line + '\n' };
     try {
       const event = JSON.parse(line) as Record<string, unknown>;
       if (provider === 'claude') {
@@ -1192,7 +1293,7 @@ export class CopilotBridgeService {
         if (typeof event.text === 'string') return { type: 'text', content: event.text };
       }
     } catch {
-      return { type: 'text', content: line + '\n' };
+      return null;
     }
     return null;
   }

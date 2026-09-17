@@ -14,3 +14,4 @@ export {
 } from './InstructionConfirmModal';
 export { QuizSetupModal, type QuizSetupResult } from './QuizSetupModal';
 export { SocraticSetupModal, type SocraticSetupResult } from './SocraticSetupModal';
+export { UnsafeAgyAgentConsentModal } from './UnsafeAgyAgentConsentModal';

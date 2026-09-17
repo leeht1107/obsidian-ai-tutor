@@ -36,7 +36,8 @@ describe('ask mode', () => {
   });
 
   it('adds nothing for agy, which cannot write headless in the first place', () => {
-    expect(buildNativeProviderCommand('agy', 'hi', '', '', 'ask').args).toEqual(['-p', 'hi']);
+    expect(buildNativeProviderCommand('agy', 'hi', '', '', 'ask').args)
+      .toEqual(['--output-format', 'json', '-p', 'hi']);
   });
 
   it('adds nothing for copilot, which is fail-closed with no flag at all', () => {
@@ -53,7 +54,7 @@ describe('ask mode', () => {
 describe('agent mode', () => {
   it('needs the skip-permissions flag for agy, its only headless write lever', () => {
     expect(buildNativeProviderCommand('agy', 'hi', '', '', 'agent').args)
-      .toEqual(['--dangerously-skip-permissions', '-p', 'hi']);
+      .toEqual(['--dangerously-skip-permissions', '--output-format', 'json', '-p', 'hi']);
   });
 
   it('needs --allow-all-tools for copilot, which otherwise could not edit a note', () => {

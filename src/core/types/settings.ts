@@ -150,6 +150,8 @@ export interface ObsidianCopilotSettings {
   lastNonPlanPermissionMode?: NonPlanPermissionMode;
   /** Providers whose all-or-nothing write permission the student has confirmed once. */
   blanketWriteAcknowledged?: string[];
+  /** Device-local expert gate. Agy Agent still requires a fresh runtime grant. */
+  allowUnsafeAgyAgent: boolean;
   permissions: Permission[];
   excludedTags: string[];
   mediaFolder: string;
@@ -182,6 +184,7 @@ export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   permissionMode: 'ask',
   lastNonPlanPermissionMode: 'ask',
   blanketWriteAcknowledged: [],
+  allowUnsafeAgyAgent: false,
   permissions: [],
   excludedTags: [],
   mediaFolder: '',

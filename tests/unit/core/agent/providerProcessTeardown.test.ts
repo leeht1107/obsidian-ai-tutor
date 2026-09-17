@@ -52,7 +52,7 @@ maybe('querySelectedProvider: process-group teardown of backgrounded children', 
     // Prints an answer immediately, like the reviewer's wrapper, then leaves a
     // detached grandchild running past the parent's own exit.
     const cli = write(dir, 'provider-detach.sh',
-      `sh -c 'sleep 0.3; printf x >> "${proofFile}"' >/dev/null 2>&1 &\nprintf 'ok\\n'`);
+      `sh -c 'sleep 0.3; printf x >> "${proofFile}"' >/dev/null 2>&1 &\nprintf '%s\\n' '{"status":"SUCCESS","response":"ok","denied_actions":[]}'`);
     const service = makeService(cli, dir);
 
     await drain(service);
@@ -64,7 +64,7 @@ maybe('querySelectedProvider: process-group teardown of backgrounded children', 
   });
 
   it('still returns the full answer for an ordinary request (teardown does not truncate output)', async () => {
-    const cli = write(dir, 'provider-normal.sh', `printf 'line one\\nline two\\n'`);
+    const cli = write(dir, 'provider-normal.sh', `printf '%s\\n' '{"status":"SUCCESS","response":"line one\\nline two\\n","denied_actions":[]}'`);
     const service = makeService(cli, dir);
 
     const text = await drain(service);

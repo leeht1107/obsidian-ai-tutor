@@ -253,26 +253,18 @@ export function writesOutsideVault(id: ProviderId): boolean {
   return id === 'claude' || id === 'agy';
 }
 
-/**
- * Whether letting this CLI write is a decision a student should make once, in writing.
- *
- * Since Agent mode now auto-approves every tool on all four, "does it ask?" no longer
- * separates them — reach does. The two CLIs with no workspace boundary are the two worth
- * a dialog, so this is `writesOutsideVault` under the name the consent path already uses.
- */
+/** Which Agent modes can reach outside the vault. Consent itself is now per transition. */
 export function writesWithoutAsking(id: ProviderId): boolean { return writesOutsideVault(id); }
 
 /** What the chat toolbar's Ask / Agent choice means to a CLI. */
 export type NativePermissionMode = 'ask' | 'agent';
 
 /**
- * Whether this provider still needs one-time consent before it may write without asking.
- * A hand-edited settings file can leave anything in `blanketWriteAcknowledged`, so this
- * checks `Array.isArray` rather than trusting the field — `undefined.includes` would take
- * the request down instead of falling back to the safe answer.
+ * Whether this provider still needs a runtime consent for the current Agent transition.
+ * Every provider is gated; the array is intentionally cleared at lifecycle boundaries and
+ * whenever the student returns to Ask. A malformed value fails closed.
  */
 export function needsBlanketWriteConsent(id: ProviderId, blanketWriteAcknowledged?: string[]): boolean {
-  if (!writesWithoutAsking(id)) return false;
   return !(Array.isArray(blanketWriteAcknowledged) && blanketWriteAcknowledged.includes(id));
 }
 
@@ -346,7 +338,7 @@ export function buildNativeProviderCommand(
     case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '-s', readOnly ? 'read-only' : 'workspace-write', '-c', 'approval_policy="never"', '--json', prompt] };
     // agy cannot use a writing tool headless — it has no way to ask permission — so
     // read-only is its default and this flag is the only thing that lifts it.
-    case 'agy': return { command: 'agy', args: [...(readOnly ? [] : ['--dangerously-skip-permissions']), ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '-p', prompt] };
+    case 'agy': return { command: 'agy', args: [...(readOnly ? [] : ['--dangerously-skip-permissions']), ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '--output-format', 'json', '-p', prompt] };
     // copilot is fail-closed too: with no flag it answered "Permission denied and could not
     // request permission from user", so Agent mode does nothing the label promised. It wrote
     // in the working directory on `--allow-all-tools` alone, so `--allow-all-paths` is left

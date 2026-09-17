@@ -37,6 +37,7 @@ export interface ToolbarSettings {
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
   blanketWriteAcknowledged?: string[];
+  allowUnsafeAgyAgent?: boolean;
 }
 
 /**
@@ -53,6 +54,7 @@ export function toToolbarSettings(settings: {
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
   blanketWriteAcknowledged?: string[];
+  allowUnsafeAgyAgent?: boolean;
 }): ToolbarSettings {
   return {
     model: settings.model,
@@ -63,6 +65,7 @@ export function toToolbarSettings(settings: {
     providerModels: settings.providerModels,
     providerEfforts: settings.providerEfforts,
     blanketWriteAcknowledged: settings.blanketWriteAcknowledged,
+    allowUnsafeAgyAgent: settings.allowUnsafeAgyAgent,
   };
 }
 
@@ -80,7 +83,8 @@ export interface ToolbarCallbacks {
   isAgentInitiatedPlanMode?: () => boolean;
   isPlanModeRequested?: () => boolean;
   /** Ask the student, in a dialog they must answer, before a blanket-write provider may write. */
-  confirmBlanketWrite?: (provider: ProviderId) => Promise<boolean>;
+  confirmBlanketWrite?: (provider: ProviderId, authorityEpoch: number) => Promise<boolean>;
+  getPermissionAuthorityEpoch?: () => number;
   /**
    * True while a slash command's inline bash is expanding (child process spawned and not
    * yet resolved). The toggle must not flip mid-flight: the running command already
@@ -630,15 +634,30 @@ export class PermissionToggle {
     // consent moves toward Agent on the first click rather than the second.
     const shown = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     const next: PermissionMode = shown === 'agent' ? 'ask' : 'agent';
+    const authorityEpoch = this.callbacks.getPermissionAuthorityEpoch?.() ?? 0;
+
+    if (next === 'agent' && provider === 'agy' && !settings.allowUnsafeAgyAgent) {
+      new Notice('Antigravity Agent 모드는 고급 설정에서 위험 동의를 먼저 켜야 합니다. 지금은 Ask를 유지합니다.');
+      this.updateDisplay();
+      return;
+    }
 
     // A provider with no per-tool permission is asked about once, in a dialog the
     // student has to answer. A tooltip they may never hover is not consent.
     if (next === 'agent' && needsBlanketWriteConsent(provider, settings.blanketWriteAcknowledged)) {
-      const accepted = await this.callbacks.confirmBlanketWrite?.(provider);
+      const accepted = await this.callbacks.confirmBlanketWrite?.(provider, authorityEpoch);
       if (!accepted) {
         this.updateDisplay();
         return;
       }
+    }
+
+    // A provider switch, new view, reload boundary, or Plan exit may have reset
+    // authority while the modal was open. Its old answer cannot authorize the new state.
+    if ((this.callbacks.getPermissionAuthorityEpoch?.() ?? authorityEpoch) !== authorityEpoch
+      || this.callbacks.getSettings().selectedProvider !== provider) {
+      this.updateDisplay();
+      return;
     }
 
     // The consent modal above is an await: a write-capable region (bash expansion or a

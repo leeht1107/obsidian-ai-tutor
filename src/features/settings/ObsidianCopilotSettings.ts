@@ -10,6 +10,7 @@ import { getCurrentPlatformKey } from '../../core/types';
 import { COPILOT_MODELS } from '../../core/types/models';
 import type ObsidianCopilotPlugin from '../../main';
 import { EnvSnippetManager, SlashCommandSettings } from '../../ui';
+import { UnsafeAgyAgentConsentModal } from '../../ui/modals/UnsafeAgyAgentConsentModal';
 import { setupCollapsible } from '../../ui/utils/collapsible';
 import { expandHomePath } from '../../utils/path';
 import {
@@ -457,6 +458,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             dropdown.setValue(this.plugin.settings.selectedProvider);
             return;
           }
+          this.plugin.resetPermissionAuthority();
           this.plugin.settings.selectedProvider = value as typeof this.plugin.settings.selectedProvider;
           await this.plugin.saveSettings();
           this.plugin.agentService?.cleanup();
@@ -743,6 +745,27 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(advancedContentEl)
+      .setName('Agy 위험 Agent 모드 허용')
+      .setDesc('기본값은 꺼짐입니다. 켜도 Agy를 Agent로 바꿀 때마다 다시 확인합니다.')
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.allowUnsafeAgyAgent ?? false)
+        .onChange(async (value) => {
+          if (!value) {
+            this.plugin.settings.allowUnsafeAgyAgent = false;
+            if (this.plugin.settings.selectedProvider === 'agy') this.plugin.resetPermissionAuthority();
+            await this.plugin.saveSettings();
+            return;
+          }
+          toggle.setValue(false);
+          const accepted = await new Promise<boolean>((resolve) => {
+            new UnsafeAgyAgentConsentModal(this.app, resolve).open();
+          });
+          this.plugin.settings.allowUnsafeAgyAgent = accepted;
+          toggle.setValue(accepted);
+          await this.plugin.saveSettings();
+        }));
 
     const platformKey = getCurrentPlatformKey();
     const isWindows = platformKey === 'windows';

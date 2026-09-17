@@ -278,7 +278,7 @@ describe('explainEmptyAnswer', () => {
   it('explains agy\'s auto-denied tool in words a student can act on', () => {
     const message = explainEmptyAnswer('agy', agyStderr, 'ask');
     expect(message).toContain('Ask');
-    expect(message).toContain('Agent');
+    expect(message).toContain('다른 provider');
     expect(message).toContain('권한');
     expect(message).not.toContain('같은 질문을 다시');
     // The raw jetski string names a settings.json belonging to another tool. A student

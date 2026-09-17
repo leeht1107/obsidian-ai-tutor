@@ -64,7 +64,7 @@ describe('ObsidianCopilotPlugin - captured permission mode', () => {
   });
 
   it('captures the effective mode on the 0 -> 1 edge and clears it back to null at 0', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent', blanketWriteAcknowledged: ['codex'] });
 
     plugin.setBashExpansionActive(true);
     expect(plugin.getCapturedPermissionMode()).toBe('agent');
@@ -88,7 +88,7 @@ describe('ObsidianCopilotPlugin - captured permission mode', () => {
   });
 
   it('does not let a second, overlapping region overwrite the first capture', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent', blanketWriteAcknowledged: ['codex'] });
 
     // First region starts under 'agent' and captures it.
     plugin.setBashExpansionActive(true);
@@ -111,7 +111,7 @@ describe('ObsidianCopilotPlugin - captured permission mode', () => {
   });
 
   it('re-captures fresh on the NEXT 0 -> 1 edge once the counter has fully drained', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent', blanketWriteAcknowledged: ['codex'] });
 
     plugin.setBashExpansionActive(true);
     plugin.setBashExpansionActive(false);
@@ -125,13 +125,13 @@ describe('ObsidianCopilotPlugin - captured permission mode', () => {
 
 describe('ObsidianCopilotPlugin - recapturePermissionMode', () => {
   it('is a no-op while settled — there is no stale capture to correct', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent', blanketWriteAcknowledged: ['codex'] });
     plugin.recapturePermissionMode();
     expect(plugin.getCapturedPermissionMode()).toBeNull();
   });
 
   it('overwrites the captured mode from CURRENT settings while a region is open', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask', blanketWriteAcknowledged: ['codex'] });
 
     plugin.setBashExpansionActive(true);
     expect(plugin.getCapturedPermissionMode()).toBe('ask');
@@ -144,7 +144,7 @@ describe('ObsidianCopilotPlugin - recapturePermissionMode', () => {
   });
 
   it('repaints every mounted view when it refreshes the capture', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask' });
+    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask', blanketWriteAcknowledged: ['codex'] });
     plugin.setBashExpansionActive(true);
     const leaf = { view: { refreshPermissionToggle: jest.fn() } };
     (plugin.app.workspace.getLeavesOfType as jest.Mock).mockReturnValue([leaf]);
@@ -167,5 +167,23 @@ describe('ObsidianCopilotPlugin - multi-leaf permission toggle repaint', () => {
 
     expect(leafA.view.refreshPermissionToggle).toHaveBeenCalledTimes(1);
     expect(leafB.view.refreshPermissionToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ObsidianCopilotPlugin - runtime authority reset', () => {
+  it('drops Agent mode and every provider grant without changing an in-flight capture', () => {
+    const plugin = buildPlugin({
+      selectedProvider: 'codex', permissionMode: 'agent', lastNonPlanPermissionMode: 'agent',
+      blanketWriteAcknowledged: ['codex'],
+    });
+    plugin.setBashExpansionActive(true);
+    expect(plugin.getCapturedPermissionMode()).toBe('agent');
+
+    plugin.resetPermissionAuthority();
+
+    expect(plugin.settings.permissionMode).toBe('ask');
+    expect(plugin.settings.lastNonPlanPermissionMode).toBe('ask');
+    expect(plugin.settings.blanketWriteAcknowledged).toEqual([]);
+    expect(plugin.getCapturedPermissionMode()).toBe('agent');
   });
 });

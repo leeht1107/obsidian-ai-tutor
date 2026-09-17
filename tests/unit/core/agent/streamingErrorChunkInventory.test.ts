@@ -24,19 +24,19 @@ import * as path from 'path';
 const SOURCE = path.join(__dirname, '../../../../src/core/agent/CopilotBridgeService.ts');
 
 /**
- * 13 sites, as of 0.1.16, every one of them logged where a log is reachable:
+ * 12 sites, as of 0.1.22, every one of them logged where a log is reachable:
  *
  * - 1 inside the copilot event translator (a `result` event carrying a non-zero
  *   exit code). A pure function with no access to the log; the `close` handler
  *   records the same run, which is why it is the exception and not a gap.
  * - 2 at the request level: no copilot CLI configured, and anything thrown on
  *   the plugin's own side of a request.
- * - 5 on the native path: CLI not found, nothing runnable resolved, launch,
- *   empty-answer, exit.
+ * - 4 on the native path: CLI not found, nothing runnable resolved, launch,
+ *   and the shared structured-output failure branch.
  * - 5 on the copilot path: nothing runnable resolved, a synchronous `spawn`
  *   throw, the asynchronous `error` event, exit, and empty-answer.
  */
-const KNOWN_ERROR_CHUNK_SITES = 13;
+const KNOWN_ERROR_CHUNK_SITES = 12;
 
 describe('streaming error chunks', () => {
   it('has not grown a new construction site without someone deciding about the log', () => {

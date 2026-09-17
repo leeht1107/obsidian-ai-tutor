@@ -17,7 +17,7 @@ describe('chat toolbar picks reaching the CLI', () => {
     const selection = resolveNativeSelection(settings);
     expect(selection).toEqual({ provider: 'agy', model: 'gemini-3.8-flash-low', effort: '' });
     expect(buildNativeProviderCommand(selection.provider, 'hello', selection.model, selection.effort, 'agent').args)
-      .toEqual(['--dangerously-skip-permissions', '--model', 'gemini-3.8-flash-low', '-p', 'hello']);
+      .toEqual(['--dangerously-skip-permissions', '--model', 'gemini-3.8-flash-low', '--output-format', 'json', '-p', 'hello']);
   });
 
   it('sends the effort stored for the selected provider', () => {

@@ -505,6 +505,7 @@ export class SetupWizardModal extends Modal {
     this.pickingDefault = true;
     const previous = this.plugin.settings.selectedProvider;
     try {
+      this.plugin.resetPermissionAuthority?.();
       this.plugin.settings.selectedProvider = provider;
       await this.plugin.saveSettings();
     } catch (error) {
@@ -535,6 +536,7 @@ export class SetupWizardModal extends Modal {
       new Notice('실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.');
       return;
     }
+    this.plugin.resetPermissionAuthority?.();
     this.plugin.settings.selectedProvider = provider;
     await this.plugin.saveSettings();
 
