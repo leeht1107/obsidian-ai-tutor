@@ -15,6 +15,7 @@ import {
   findProviderCliPath,
   getProviderDescriptor,
   getStaticProviderModels,
+  type NativePermissionMode,
   needsBlanketWriteConsent,
   parseAgyModels,
   parseCodexModels,
@@ -379,15 +380,20 @@ export function detectCopilotCliCapabilities(helpText: string): CopilotCliCapabi
  *
  * agy does this routinely: headless it cannot prompt for a permission, so a tool it chose
  * is auto-denied and it exits 0 with the explanation on stderr only — measured 2026-09-06,
- * 3 of 4 agy Ask runs. Its tool choice is non-deterministic, and the same question answered
- * correctly on the fourth, so the honest answer is "ask again", not a silent retry behind
- * the student's back and not a claim that agy cannot read. The generic branch covers any
- * other CLI that dies quietly the same way.
+ * 3 of 4 agy Ask runs. Repeating the same request left students in that loop, so the message
+ * now names the real choice: explicitly consent to Agent mode, or keep Ask and use another
+ * provider. The generic branch covers any other CLI that dies quietly the same way.
  */
-export function explainEmptyAnswer(provider: ProviderId, stderr: string): string {
+export function explainEmptyAnswer(
+  provider: ProviderId,
+  stderr: string,
+  permissionMode: NativePermissionMode = 'ask'
+): string {
   const detail = stderr.trim();
   if (provider === 'agy' && /no output produced/i.test(detail) && /permission/i.test(detail)) {
-    return 'Antigravity가 이번에는 권한이 필요한 도구를 골라서 아무 답도 내지 못했습니다. 같은 질문을 다시 보내시거나 다른 provider를 골라 주세요.';
+    return permissionMode === 'ask'
+      ? 'Antigravity가 Ask 모드에서 권한이 필요한 도구를 골라 답하지 못했습니다. 파일 수정과 명령 실행을 허용해도 되는 질문이면 상단의 Ask를 Agent로 바꾸고 권한 안내를 확인한 뒤 다시 보내세요. 허용하지 않으려면 다른 provider를 골라 주세요.'
+      : 'Antigravity가 Agent 모드에서도 권한이 필요한 도구를 실행하지 못해 답하지 못했습니다. 다른 provider를 골라 주세요.';
   }
   return `${provider} CLI가 아무 답도 내지 않고 끝났습니다. 다시 물어보시거나 다른 provider를 골라 주세요.${detail ? `\n\n${detail}` : ''}`;
 }
@@ -575,6 +581,16 @@ export class CopilotBridgeService {
     return env;
   }
 
+  /** Build the environment shared by native chat and model discovery. */
+  private getNativeProviderEnv(cliPath: string): NodeJS.ProcessEnv {
+    const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+    return {
+      ...process.env,
+      ...customEnv,
+      PATH: getEnhancedPath(customEnv.PATH, cliPath),
+    };
+  }
+
   async prewarmCapabilities(): Promise<void> {
     const copilotPath = this.getCopilotPath();
     if (!copilotPath) {
@@ -702,7 +718,7 @@ export class CopilotBridgeService {
       try {
         child = spawn(entry[0], [...entry[1], ...args], {
           cwd: this.getWorkingDirectory(),
-          env: process.env,
+          env: this.getNativeProviderEnv(cliPath),
           // Model discovery is not interactive. Leaving Node's default stdin
           // pipe open makes current Codex wait for more input instead of
           // printing its catalog; closing it also keeps the agy probe bounded.
@@ -1016,14 +1032,7 @@ export class CopilotBridgeService {
       child = spawn(command, args, {
       cwd: this.getWorkingDirectory(),
       // Do not pass the legacy Copilot token setting to another provider.
-      env: (() => {
-        const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
-        return {
-          ...process.env,
-          ...customEnv,
-          PATH: getEnhancedPath(customEnv.PATH, cliPath),
-        };
-      })(),
+      env: this.getNativeProviderEnv(cliPath),
       stdio: ['pipe', 'pipe', 'pipe'],
       // No console window should flash on a student's screen per request.
       windowsHide: true,
@@ -1121,7 +1130,7 @@ export class CopilotBridgeService {
       // and counted the run as ok.
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         this.onOutcome?.(provider, 'failed');
-        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput));
+        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput, permissionMode));
         this.logError({ provider, stage: 'empty-answer', message: emptyMessage, exitCode, cliPath, resolved: command });
         yield { type: 'error', content: emptyMessage };
       }

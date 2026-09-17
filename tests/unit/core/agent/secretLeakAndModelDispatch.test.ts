@@ -41,7 +41,10 @@ function childEmitting(stderr: string, exitCode: number): childProcess.ChildProc
   return child;
 }
 
-function makeService(overrides: Record<string, unknown> = {}): CopilotBridgeService {
+function makeService(
+  overrides: Record<string, unknown> = {},
+  activeEnvironment = `OPENAI_API_KEY=${API_KEY}\nLANG=ko_KR.UTF-8`
+): CopilotBridgeService {
   const fakePlugin = {
     settings: {
       ...DEFAULT_SETTINGS,
@@ -52,7 +55,7 @@ function makeService(overrides: Record<string, unknown> = {}): CopilotBridgeServ
       ...overrides,
     },
     app: { vault: { adapter: { basePath: '/vault' } } },
-    getActiveEnvironmentVariables: () => `OPENAI_API_KEY=${API_KEY}\nLANG=ko_KR.UTF-8`,
+    getActiveEnvironmentVariables: () => activeEnvironment,
   } as unknown as ObsidianCopilotPlugin;
   return new CopilotBridgeService(fakePlugin);
 }
@@ -170,6 +173,32 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     // Codex 0.154 reads from its inherited stdin before printing models. Model
     // discovery has no input to supply, so it must close that pipe explicitly.
     expect(options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+  });
+
+  it('uses the configured environment and enhanced PATH for model discovery', async () => {
+    jest.spyOn(fs, 'statSync').mockImplementation((() => ({ isFile: () => true }) as fs.Stats) as unknown as typeof fs.statSync);
+    const spawnSpy = jest.spyOn(childProcess, 'spawn').mockImplementation((() => {
+      const child = new EventEmitter() as unknown as childProcess.ChildProcess;
+      const stdout = new EventEmitter();
+      const stderr = new EventEmitter();
+      Object.assign(child, { stdout, stderr, kill: jest.fn() });
+      setImmediate(() => (child as unknown as EventEmitter).emit('close', 0, null));
+      return child;
+    }) as unknown as typeof childProcess.spawn);
+
+    const customBin = process.platform === 'win32' ? 'C:\\student\\node' : '/student/node';
+    await makeService(
+      {
+        selectedProvider: 'codex',
+        providerCliPaths: { codex: '/usr/local/bin/codex' },
+      },
+      `OPENAI_API_KEY=${API_KEY}\nLANG=ko_KR.UTF-8\nPATH=${customBin}`
+    ).listNativeProviderModels('codex');
+
+    const options = spawnSpy.mock.calls[0][2] as childProcess.SpawnOptions;
+    expect(options.env?.OPENAI_API_KEY).toBe(API_KEY);
+    expect(options.env?.LANG).toBe('ko_KR.UTF-8');
+    expect(options.env?.PATH?.split(process.platform === 'win32' ? ';' : ':')[0]).toBe(customBin);
   });
 
   it('rejects and reaps a model listing that never closes', async () => {

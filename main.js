@@ -4567,10 +4567,10 @@ function detectCopilotCliCapabilities(helpText) {
     reasoningEffort: helpText.includes("--reasoning-effort")
   };
 }
-function explainEmptyAnswer(provider, stderr) {
+function explainEmptyAnswer(provider, stderr, permissionMode = "ask") {
   const detail = stderr.trim();
   if (provider === "agy" && /no output produced/i.test(detail) && /permission/i.test(detail)) {
-    return "Antigravity\uAC00 \uC774\uBC88\uC5D0\uB294 \uAD8C\uD55C\uC774 \uD544\uC694\uD55C \uB3C4\uAD6C\uB97C \uACE8\uB77C\uC11C \uC544\uBB34 \uB2F5\uB3C4 \uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uAC19\uC740 \uC9C8\uBB38\uC744 \uB2E4\uC2DC \uBCF4\uB0B4\uC2DC\uAC70\uB098 \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694.";
+    return permissionMode === "ask" ? "Antigravity\uAC00 Ask \uBAA8\uB4DC\uC5D0\uC11C \uAD8C\uD55C\uC774 \uD544\uC694\uD55C \uB3C4\uAD6C\uB97C \uACE8\uB77C \uB2F5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD30C\uC77C \uC218\uC815\uACFC \uBA85\uB839 \uC2E4\uD589\uC744 \uD5C8\uC6A9\uD574\uB3C4 \uB418\uB294 \uC9C8\uBB38\uC774\uBA74 \uC0C1\uB2E8\uC758 Ask\uB97C Agent\uB85C \uBC14\uAFB8\uACE0 \uAD8C\uD55C \uC548\uB0B4\uB97C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694. \uD5C8\uC6A9\uD558\uC9C0 \uC54A\uC73C\uB824\uBA74 \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694." : "Antigravity\uAC00 Agent \uBAA8\uB4DC\uC5D0\uC11C\uB3C4 \uAD8C\uD55C\uC774 \uD544\uC694\uD55C \uB3C4\uAD6C\uB97C \uC2E4\uD589\uD558\uC9C0 \uBABB\uD574 \uB2F5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694.";
   }
   return `${provider} CLI\uAC00 \uC544\uBB34 \uB2F5\uB3C4 \uB0B4\uC9C0 \uC54A\uACE0 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uBB3C\uC5B4\uBCF4\uC2DC\uAC70\uB098 \uB2E4\uB978 provider\uB97C \uACE8\uB77C \uC8FC\uC138\uC694.${detail ? `
 
@@ -4705,6 +4705,15 @@ User: ${injectedPrompt}`;
     }
     return env;
   }
+  /** Build the environment shared by native chat and model discovery. */
+  getNativeProviderEnv(cliPath) {
+    const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
+    return {
+      ...process.env,
+      ...customEnv,
+      PATH: getEnhancedPath(customEnv.PATH, cliPath)
+    };
+  }
   async prewarmCapabilities() {
     const copilotPath = this.getCopilotPath();
     if (!copilotPath) {
@@ -4811,7 +4820,7 @@ User: ${injectedPrompt}`;
       try {
         child = (0, import_child_process6.spawn)(entry[0], [...entry[1], ...args], {
           cwd: this.getWorkingDirectory(),
-          env: process.env,
+          env: this.getNativeProviderEnv(cliPath),
           // Model discovery is not interactive. Leaving Node's default stdin
           // pipe open makes current Codex wait for more input instead of
           // printing its catalog; closing it also keeps the agy probe bounded.
@@ -5060,14 +5069,7 @@ ${remedy}`;
       child = (0, import_child_process6.spawn)(command, args, {
         cwd: this.getWorkingDirectory(),
         // Do not pass the legacy Copilot token setting to another provider.
-        env: (() => {
-          const customEnv = parseEnvironmentVariables(this.plugin.getActiveEnvironmentVariables());
-          return {
-            ...process.env,
-            ...customEnv,
-            PATH: getEnhancedPath(customEnv.PATH, cliPath)
-          };
-        })(),
+        env: this.getNativeProviderEnv(cliPath),
         stdio: ["pipe", "pipe", "pipe"],
         // No console window should flash on a student's screen per request.
         windowsHide: true,
@@ -5162,7 +5164,7 @@ ${remedy}`;
       }
       if (!this.wasInterrupted && exitCode === 0 && !sawText) {
         (_f = this.onOutcome) == null ? void 0 : _f.call(this, provider, "failed");
-        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput));
+        const emptyMessage = this.redactSecrets(explainEmptyAnswer(provider, errorOutput, permissionMode));
         this.logError({ provider, stage: "empty-answer", message: emptyMessage, exitCode, cliPath, resolved: command });
         yield { type: "error", content: emptyMessage };
       }

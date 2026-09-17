@@ -276,11 +276,20 @@ describe('explainEmptyAnswer', () => {
     + 'permissions.allow in settings.json (e.g. command(<target>)).';
 
   it('explains agy\'s auto-denied tool in words a student can act on', () => {
-    const message = explainEmptyAnswer('agy', agyStderr);
+    const message = explainEmptyAnswer('agy', agyStderr, 'ask');
+    expect(message).toContain('Ask');
+    expect(message).toContain('Agent');
     expect(message).toContain('권한');
-    expect(message).toContain('다시');
+    expect(message).not.toContain('같은 질문을 다시');
     // The raw jetski string names a settings.json belonging to another tool. A student
     // reading it would be told to edit a file this plugin has no business touching.
+    expect(message).not.toContain('settings.json');
+  });
+
+  it('does not tell an agy student who is already in Agent to toggle modes', () => {
+    const message = explainEmptyAnswer('agy', agyStderr, 'agent');
+    expect(message).toContain('Agent 모드에서도');
+    expect(message).not.toContain('Ask를 Agent로');
     expect(message).not.toContain('settings.json');
   });
 
