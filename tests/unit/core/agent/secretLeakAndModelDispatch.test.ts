@@ -25,6 +25,9 @@ import type ObsidianCopilotPlugin from '@/main';
 const FAKE_CLI = process.platform === 'win32'
   ? 'C:\\Users\\s\\AppData\\Roaming\\npm\\claude.exe'
   : '/usr/local/bin/claude';
+const FAKE_CODEX_CLI = process.platform === 'win32'
+  ? 'C:\\Users\\s\\AppData\\Roaming\\npm\\codex.exe'
+  : '/usr/local/bin/codex';
 
 const TOKEN = 'github_pat_11ABCDEFG_supersecretvalue';
 const API_KEY = 'sk-proj-averysecretapikeyvalue';
@@ -190,7 +193,7 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     await makeService(
       {
         selectedProvider: 'codex',
-        providerCliPaths: { codex: '/usr/local/bin/codex' },
+        providerCliPaths: { codex: FAKE_CODEX_CLI },
       },
       `OPENAI_API_KEY=${API_KEY}\nLANG=ko_KR.UTF-8\nPATH=${customBin}`
     ).listNativeProviderModels('codex');
@@ -213,7 +216,7 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
 
     const promise = makeService({
       selectedProvider: 'codex',
-      providerCliPaths: { codex: '/usr/local/bin/codex' },
+      providerCliPaths: { codex: FAKE_CODEX_CLI },
     }).listNativeProviderModels('codex');
     const result = promise.then(
       () => new Error('model listing unexpectedly resolved'),

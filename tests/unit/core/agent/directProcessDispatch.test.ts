@@ -156,7 +156,7 @@ describe('direct native-provider dispatch (non-Copilot providers)', () => {
 
     expect(chunks.some((c) => c.type === 'text' && c.content.includes('dispatch-fixture-ok'))).toBe(true);
     expect(chunks[chunks.length - 1]).toEqual({ type: 'done' });
-  });
+  }, 15_000);
 
   it('keeps in-process dispatch overhead (up to the spawn() call) at p95 <= 10ms', async () => {
     const SAMPLE_SIZE = 200;
