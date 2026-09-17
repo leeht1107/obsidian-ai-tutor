@@ -226,6 +226,12 @@ describe('model discovery resolves the CLI the same way dispatch does', () => {
     await jest.advanceTimersByTimeAsync(15_000);
 
     expect(await result).toMatchObject({ message: 'codex models timed out' });
-    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    const taskkillCalls = jest.mocked(childProcess.spawn).mock.calls.filter(
+      ([command]) => String(command).toLowerCase().includes('taskkill'),
+    );
+    expect(taskkillCalls).toEqual(process.platform === 'win32'
+      ? [['taskkill', ['/PID', '999999', '/T', '/F'], { stdio: 'ignore', windowsHide: true }]]
+      : []);
+    expect(kill.mock.calls).toEqual(process.platform === 'win32' ? [] : [['SIGKILL']]);
   });
 });
