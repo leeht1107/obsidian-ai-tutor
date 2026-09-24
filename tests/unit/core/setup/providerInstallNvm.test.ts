@@ -90,6 +90,59 @@ describeUnix('NVM provider discovery and installation', () => {
     ]);
   });
 
+  it('matches a partial default alias to its major before newer unrelated versions', () => {
+    fs.unlinkSync(path.join(home, '.nvm', 'alias', '22'));
+    for (const version of ['v23.0.0', 'v24.0.0']) {
+      fs.mkdirSync(path.join(home, '.nvm', 'versions', 'node', version, 'bin'), { recursive: true });
+    }
+    const defaultCli = path.join(nvmBin, 'claude');
+    const newerCli = path.join(home, '.nvm', 'versions', 'node', 'v24.0.0', 'bin', 'claude');
+    fs.writeFileSync(defaultCli, '');
+    fs.writeFileSync(newerCli, '');
+
+    const versionDirs = getEnhancedPath().split(path.delimiter)
+      .filter(candidate => candidate.startsWith(path.join(home, '.nvm', 'versions', 'node')));
+    expect(versionDirs).toEqual([
+      nvmBin,
+      path.join(home, '.nvm', 'versions', 'node', 'v24.0.0', 'bin'),
+      path.join(home, '.nvm', 'versions', 'node', 'v23.0.0', 'bin'),
+    ]);
+    expect(findProviderCliPath('claude')).toBe(defaultCli);
+  });
+
+  it('prefers a provider already available on the current PATH over NVM fallback copies', () => {
+    const activeBin = path.join(home, 'active-node', 'bin');
+    fs.mkdirSync(activeBin, { recursive: true });
+    const activeCli = path.join(activeBin, 'claude');
+    fs.writeFileSync(activeCli, '');
+    fs.writeFileSync(path.join(nvmBin, 'claude'), '');
+    process.env.PATH = activeBin;
+
+    expect(findProviderCliPath('claude')).toBe(activeCli);
+  });
+
+  it('prefers Copilot already available on the current PATH over NVM fallback copies', () => {
+    const activeBin = path.join(home, 'active-node', 'bin');
+    fs.mkdirSync(activeBin, { recursive: true });
+    const activeCli = path.join(activeBin, 'copilot');
+    fs.writeFileSync(activeCli, '');
+    fs.writeFileSync(path.join(nvmBin, 'copilot'), '');
+    process.env.PATH = activeBin;
+
+    expect(findCopilotCLIPath()).toBe(activeCli);
+  });
+
+  it('prefers npm already available on the current PATH over NVM fallback npm', () => {
+    const activeBin = path.join(home, 'active-node', 'bin');
+    fs.mkdirSync(activeBin, { recursive: true });
+    const activeNpm = path.join(activeBin, 'npm');
+    fs.writeFileSync(activeNpm, '');
+    fs.writeFileSync(path.join(nvmBin, 'npm'), '');
+    process.env.PATH = activeBin;
+
+    expect(findNpmPath()).toBe(activeNpm);
+  });
+
   it.each(['claude', 'codex'] as const)('finds the NVM-installed %s CLI', (provider) => {
     const cliPath = path.join(nvmBin, provider);
     fs.writeFileSync(cliPath, '');

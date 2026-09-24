@@ -99,7 +99,15 @@ export function findCopilotCLIPath(): string | null {
   // npm creates .cmd wrappers on Windows; .exe only from volta/scoop shims
   const binaryNames = isWindows ? ['copilot.cmd', 'copilot.exe'] : ['copilot'];
 
-  // 1. 하드코딩 후보 경로
+  // Respect the active environment before checking plugin-discovered fallbacks.
+  for (const dir of dedupePaths(parsePathEntries(getEnvValue('PATH')))) {
+    for (const name of binaryNames) {
+      const p = pp.join(dir, name);
+      if (isExistingFile(p)) return p;
+    }
+  }
+
+  // Common fallback locations for GUI-launched apps.
   // On Windows, prefer env vars over os.homedir() path joining —
   // APPDATA / LOCALAPPDATA are always correct even on non-standard installs.
   const appData = getEnvValue('APPDATA') ?? pp.join(home, 'AppData', 'Roaming');
@@ -142,20 +150,12 @@ export function findCopilotCLIPath(): string | null {
     }
   }
 
-  // 2. npm global prefix (env var 기반, execSync 없음)
+  // npm global prefix (env var 기반, execSync 없음)
   const npmPrefix = getNpmGlobalPrefix();
   if (npmPrefix) {
     const binDir = isWindows ? npmPrefix : pp.join(npmPrefix, 'bin');
     for (const name of binaryNames) {
       const p = pp.join(binDir, name);
-      if (isExistingFile(p)) return p;
-    }
-  }
-
-  // 3. PATH 탐색 (따옴표 제거 + ~ 확장 + 플레이스홀더 필터 + 중복 제거)
-  for (const dir of dedupePaths(parsePathEntries(getEnvValue('PATH')))) {
-    for (const name of binaryNames) {
-      const p = pp.join(dir, name);
       if (isExistingFile(p)) return p;
     }
   }

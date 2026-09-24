@@ -127,16 +127,22 @@ describe('getEnhancedPath', () => {
       expect(segments[2]).toBe('/third/bin');
     });
 
-    it('preserves priority: additional > extra > current', () => {
+    it('preserves priority: additional > current > extra fallback', () => {
       process.env.PATH = '/usr/bin';
       const result = getEnhancedPath('/user/custom');
       const segments = result.split(SEP);
 
       const customIndex = segments.indexOf('/user/custom');
       const usrBinIndex = segments.indexOf('/usr/bin');
+      const fallbackPath = isWindows
+        ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs')
+        : '/usr/local/bin';
+      const fallbackIndex = segments.indexOf(fallbackPath);
 
-      // Custom should come before current PATH
+      // User configuration and the active environment should come before guessed paths.
       expect(customIndex).toBeLessThan(usrBinIndex);
+      expect(fallbackIndex).toBeGreaterThanOrEqual(0);
+      expect(usrBinIndex).toBeLessThan(fallbackIndex);
     });
 
     it('handles undefined additional paths', () => {
@@ -263,7 +269,7 @@ describe('getEnhancedPath', () => {
       expect(nodeIndex).toBeLessThan(extraIndex);
     });
 
-    it('does not prepend node directory when cliPath is native binary', () => {
+    it('keeps current PATH ahead of extra fallback paths for a native CLI', () => {
       const fakeDir = isWindows ? 'C:\\fake\\node' : '/tmp/fake-node';
       mockNodeExecutable(fakeDir);
 
@@ -282,7 +288,7 @@ describe('getEnhancedPath', () => {
 
       expect(nodeIndex).toBeGreaterThanOrEqual(0);
       expect(extraIndex).toBeGreaterThanOrEqual(0);
-      expect(nodeIndex).toBeGreaterThan(extraIndex);
+      expect(nodeIndex).toBeLessThan(extraIndex);
     });
 
     it('accepts cliPath parameter without error', () => {

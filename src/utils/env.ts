@@ -19,6 +19,12 @@ function parseNodeVersion(version: string): { major: number; minor: number; patc
   return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4] };
 }
 
+function parsePartialNodeVersion(version: string): { major: number; minor?: number } | null {
+  const match = version.match(/^v?(\d+)(?:\.(\d+))?$/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: match[2] === undefined ? undefined : Number(match[2]) };
+}
+
 function compareNodeVersions(a: string, b: string): number {
   const left = parseNodeVersion(a);
   const right = parseNodeVersion(b);
@@ -50,6 +56,7 @@ export function getNvmCandidateDirs(home: string): string[] {
 
   const nvmDir = path.join(home, '.nvm');
   let alias = '';
+  let partialAlias: { major: number; minor?: number } | null = null;
   try {
     alias = fs.readFileSync(path.join(nvmDir, 'alias', 'default'), 'utf8').trim();
   } catch { /* NVM is not installed */ }
@@ -61,12 +68,17 @@ export function getNvmCandidateDirs(home: string): string[] {
     if (parsed) {
       const version = alias.startsWith('v') ? alias : `v${alias}`;
       candidates.push(path.join(nvmDir, 'versions', 'node', version, 'bin'));
+      partialAlias = null;
       break;
     }
+    const requestedPartialAlias = parsePartialNodeVersion(alias);
     if (!/^[A-Za-z0-9._/-]+$/.test(alias) || alias.split('/').some(part => !part || part === '..')) break;
     try {
       alias = fs.readFileSync(path.join(nvmDir, 'alias', ...alias.split('/')), 'utf8').trim();
-    } catch { break; }
+    } catch {
+      partialAlias = requestedPartialAlias ?? partialAlias;
+      break;
+    }
   }
 
   try {
@@ -74,7 +86,17 @@ export function getNvmCandidateDirs(home: string): string[] {
     const versions = fs.readdirSync(versionsDir)
       .filter(version => parseNodeVersion(version) !== null)
       .sort(compareNodeVersions);
-    for (const version of versions.slice(0, 3)) {
+    const matchingVersion = partialAlias
+      ? versions.find(version => {
+          const parsed = parseNodeVersion(version);
+          return parsed !== null && parsed.major === partialAlias.major &&
+            (partialAlias.minor === undefined || parsed.minor === partialAlias.minor);
+        })
+      : undefined;
+    const orderedVersions = matchingVersion
+      ? [matchingVersion, ...versions.filter(version => version !== matchingVersion)]
+      : versions;
+    for (const version of orderedVersions.slice(0, 3)) {
       candidates.push(path.join(versionsDir, version, 'bin'));
     }
   } catch { /* NVM is not installed or is inaccessible */ }
@@ -343,7 +365,7 @@ export function getEnhancedPath(additionalPaths?: string, cliPath?: string): str
   const extraPaths = getExtraBinaryPaths().filter(p => p); // Filter out empty
   const currentPath = process.env.PATH || '';
 
-  // Build path segments: additional (user config) > CLI dir (if has node) > node dir (fallback) > extra paths > current PATH
+  // Build path segments: user config > CLI dir > active PATH > Node fallback > guessed paths.
   const segments: string[] = [];
 
   // Add user-specified paths first (highest priority)
@@ -371,8 +393,13 @@ export function getEnhancedPath(additionalPaths?: string, cliPath?: string): str
     }
   }
 
+  // Keep the process's active environment ahead of paths guessed for GUI apps.
+  if (currentPath) {
+    segments.push(...parsePathEntries(currentPath));
+  }
+
   // Fallback: If CLI is a .js file and we didn't find node in CLI dir,
-  // search common locations for Node.js
+  // search common locations for Node.js after the active PATH.
   if (cliPath && cliPathRequiresNode(cliPath) && !cliDirHasNode) {
     const nodeDir = findNodeDirectory();
     if (nodeDir) {
@@ -380,13 +407,8 @@ export function getEnhancedPath(additionalPaths?: string, cliPath?: string): str
     }
   }
 
-  // Add our extra paths
+  // Guessed extra paths are last so they cannot shadow the active environment.
   segments.push(...extraPaths);
-
-  // Add current PATH
-  if (currentPath) {
-    segments.push(...parsePathEntries(currentPath));
-  }
 
   // Deduplicate while preserving order
   const seen = new Set<string>();

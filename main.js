@@ -222,6 +222,11 @@ function parseNodeVersion(version) {
   if (!match) return null;
   return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4] };
 }
+function parsePartialNodeVersion(version) {
+  const match = version.match(/^v?(\d+)(?:\.(\d+))?$/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: match[2] === void 0 ? void 0 : Number(match[2]) };
+}
 function compareNodeVersions(a, b) {
   const left = parseNodeVersion(a);
   const right = parseNodeVersion(b);
@@ -245,6 +250,7 @@ function getNvmCandidateDirs(home) {
   if (!home) return uniquePaths(candidates);
   const nvmDir = path2.join(home, ".nvm");
   let alias = "";
+  let partialAlias = null;
   try {
     alias = fs2.readFileSync(path2.join(nvmDir, "alias", "default"), "utf8").trim();
   } catch (e) {
@@ -254,19 +260,27 @@ function getNvmCandidateDirs(home) {
     if (parsed) {
       const version = alias.startsWith("v") ? alias : `v${alias}`;
       candidates.push(path2.join(nvmDir, "versions", "node", version, "bin"));
+      partialAlias = null;
       break;
     }
+    const requestedPartialAlias = parsePartialNodeVersion(alias);
     if (!/^[A-Za-z0-9._/-]+$/.test(alias) || alias.split("/").some((part) => !part || part === "..")) break;
     try {
       alias = fs2.readFileSync(path2.join(nvmDir, "alias", ...alias.split("/")), "utf8").trim();
     } catch (e) {
+      partialAlias = requestedPartialAlias != null ? requestedPartialAlias : partialAlias;
       break;
     }
   }
   try {
     const versionsDir = path2.join(nvmDir, "versions", "node");
     const versions = fs2.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
-    for (const version of versions.slice(0, 3)) {
+    const matchingVersion = partialAlias ? versions.find((version) => {
+      const parsed = parseNodeVersion(version);
+      return parsed !== null && parsed.major === partialAlias.major && (partialAlias.minor === void 0 || parsed.minor === partialAlias.minor);
+    }) : void 0;
+    const orderedVersions = matchingVersion ? [matchingVersion, ...versions.filter((version) => version !== matchingVersion)] : versions;
+    for (const version of orderedVersions.slice(0, 3)) {
       candidates.push(path2.join(versionsDir, version, "bin"));
     }
   } catch (e) {
@@ -477,6 +491,9 @@ function getEnhancedPath(additionalPaths, cliPath) {
     } catch (e) {
     }
   }
+  if (currentPath) {
+    segments.push(...parsePathEntries(currentPath));
+  }
   if (cliPath && cliPathRequiresNode(cliPath) && !cliDirHasNode) {
     const nodeDir = findNodeDirectory();
     if (nodeDir) {
@@ -484,9 +501,6 @@ function getEnhancedPath(additionalPaths, cliPath) {
     }
   }
   segments.push(...extraPaths);
-  if (currentPath) {
-    segments.push(...parsePathEntries(currentPath));
-  }
   const seen = /* @__PURE__ */ new Set();
   const unique = segments.filter((p) => {
     const normalized = isWindows ? p.toLowerCase() : p;
@@ -602,6 +616,12 @@ function findCopilotCLIPath() {
   const home = os2.homedir();
   const isWindows4 = process.platform === "win32";
   const binaryNames = isWindows4 ? ["copilot.cmd", "copilot.exe"] : ["copilot"];
+  for (const dir of dedupePaths(parsePathEntries2(getEnvValue2("PATH")))) {
+    for (const name of binaryNames) {
+      const p = pp.join(dir, name);
+      if (isExistingFile(p)) return p;
+    }
+  }
   const appData = (_a = getEnvValue2("APPDATA")) != null ? _a : pp.join(home, "AppData", "Roaming");
   const localAppData = (_b = getEnvValue2("LOCALAPPDATA")) != null ? _b : pp.join(home, "AppData", "Local");
   const candidateDirs = isWindows4 ? [
@@ -642,12 +662,6 @@ function findCopilotCLIPath() {
     const binDir = isWindows4 ? npmPrefix : pp.join(npmPrefix, "bin");
     for (const name of binaryNames) {
       const p = pp.join(binDir, name);
-      if (isExistingFile(p)) return p;
-    }
-  }
-  for (const dir of dedupePaths(parsePathEntries2(getEnvValue2("PATH")))) {
-    for (const name of binaryNames) {
-      const p = pp.join(dir, name);
       if (isExistingFile(p)) return p;
     }
   }
