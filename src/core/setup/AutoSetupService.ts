@@ -69,20 +69,31 @@ export function checkProviderSetupStatus(providerId: ProviderId): SetupStatus & 
   return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
 }
 
-export interface InstallResult {
-  success: boolean;
-  /** Path to the CLI binary if installation succeeded. */
-  cliPath?: string;
-  /** Human-readable error if installation failed. */
-  error?: string;
-  /**
-   * Set when the install was stopped but the process never reported its exit.
-   *
-   * The kill is asynchronous — on Windows `killTree` only spawns `taskkill` —
-   * so after the grace period this says "we asked it to stop and cannot prove
-   * it did". A caller that serialises installs must not start the next one.
-   */
-  teardownUnconfirmed?: true;
+export type InstallResult =
+  | { success: true; cliPath: string; teardownUnconfirmed?: never }
+  | {
+      success: false;
+      /** Human-readable error if installation failed. */
+      error: string;
+      /**
+       * Set when the install was stopped but the process never reported its exit.
+       * The kill is asynchronous — on Windows `killTree` only spawns `taskkill` —
+       * so after the grace period this says "we asked it to stop and cannot prove
+       * it did". A caller that serialises installs must not start the next one.
+       */
+      teardownUnconfirmed?: true;
+    };
+
+type FailedInstallResult = Extract<InstallResult, { success: false }>;
+
+function verifyProviderInstall(providerId: ProviderId): InstallResult {
+  const cliPath = findProviderCliPath(providerId);
+  return cliPath
+    ? { success: true, cliPath }
+    : {
+        success: false,
+        error: '설치는 완료됐지만 설치된 CLI를 찾지 못했습니다. Obsidian을 다시 시작한 뒤 다시 확인해 주세요.',
+      };
 }
 
 /**
@@ -117,7 +128,7 @@ export async function installCopilotCLI(
 
     proc.on('close', (code: number | null) => {
       if (code === 0) {
-        resolve({ success: true, cliPath: findCopilotCLIPath() ?? undefined });
+        resolve(verifyProviderInstall('copilot'));
       } else {
         resolve({
           success: false,
@@ -138,8 +149,8 @@ const CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 /** How long a cancel waits for the killed process tree to actually report its exit. */
 const CANCEL_EXIT_GRACE_MS = 3000;
 
-const CANCELLED: InstallResult = { success: false, error: '설치를 취소했습니다.' };
-const TIMED_OUT: InstallResult = { success: false, error: '설치 시간이 초과됐습니다.' };
+const CANCELLED: FailedInstallResult = { success: false, error: '설치를 취소했습니다.' };
+const TIMED_OUT: FailedInstallResult = { success: false, error: '설치 시간이 초과됐습니다.' };
 
 export interface InstallSession {
   /** Stop the installer and resolve `done` as cancelled. Safe to call twice. */
@@ -169,7 +180,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
 
   let settled = false;
   /** The result the child's own exit should report, once we asked it to stop. */
-  let stopping: InstallResult | null = null;
+  let stopping: FailedInstallResult | null = null;
   let exitGrace: ReturnType<typeof setTimeout> | undefined;
   let resolveDone: (result: InstallResult) => void;
   const done = new Promise<InstallResult>((resolve) => { resolveDone = resolve; });
@@ -205,10 +216,15 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
   child.stderr?.on('data', (data: Buffer) => { const line = data.toString().trim(); if (line) errors.push(line); });
 
   child.on('error', (error: Error) => finish(stopping ?? { success: false, error: error.message }));
-  child.on('close', (code: number | null) => finish(stopping
-    ?? (code === 0
-      ? { success: true, cliPath: findProviderCliPath(providerId) ?? undefined }
-      : { success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` })));
+  child.on('close', (code: number | null) => {
+    if (stopping) {
+      finish(stopping);
+    } else if (code === 0) {
+      finish(verifyProviderInstall(providerId));
+    } else {
+      finish({ success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` });
+    }
+  });
 
   /**
    * Ask the child to stop, and resolve only from its own exit.
@@ -220,7 +236,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
    * the caller forever; it resolves with `teardownUnconfirmed`, which is not
    * the same thing as "stopped".
    */
-  const stop = (result: InstallResult) => {
+  const stop = (result: FailedInstallResult) => {
     if (settled || stopping) return;
     stopping = result;
     teardown();

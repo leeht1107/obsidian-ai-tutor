@@ -112,6 +112,18 @@ describe('SetupWizardModal — install and login are actually driven', () => {
     expect(startLogin).toHaveBeenCalledWith('codex', expect.any(Function), expect.any(Object));
   });
 
+  it('sends an already installed Claude CLI to login without reinstalling it', async () => {
+    setupStatus.mockReturnValue({ cliFound: true, npmFound: true, status: 'ready' });
+    connection.mockResolvedValue('not-connected');
+    const wizard = makeWizard();
+
+    await wizard.chooseProvider('claude');
+
+    expect(install).not.toHaveBeenCalled();
+    expect(connection).toHaveBeenCalledWith('claude', expect.any(Object));
+    expect(wizard.phase).toBe('login');
+  });
+
   it('confirms with a real login check before declaring success', async () => {
     const wizard = makeWizard();
     await wizard.chooseProvider('codex');

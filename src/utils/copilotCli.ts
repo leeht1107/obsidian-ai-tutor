@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { getFnmCandidateDirs, getNvmCandidateDirs } from './env';
+
 function isExistingFile(p: string): boolean {
   try {
     return fs.existsSync(p) && fs.statSync(p).isFile();
@@ -90,93 +92,6 @@ function getNpmGlobalPrefix(): string | null {
   return null;
 }
 
-/**
- * Returns bin dirs for all installed NVM Node.js versions on Mac/Linux.
- * Obsidian is a GUI app and doesn't source .zshrc/.bashrc, so NVM_BIN is
- * typically not set. We read ~/.nvm/alias/default directly instead.
- */
-function nvmCandidateDirs(home: string): string[] {
-  const pp = platformPath();
-  const dirs: string[] = [];
-  const nvmDir = pp.join(home, '.nvm');
-
-  // Primary: read the default alias file to find the active version
-  try {
-    const raw = fs.readFileSync(pp.join(nvmDir, 'alias', 'default'), 'utf8').trim();
-    // Could be "20.0.0", "v20.0.0", or an LTS alias like "lts/hydrogen"
-    const version = raw.startsWith('v') ? raw : /^\d/.test(raw) ? `v${raw}` : null;
-    if (version) {
-      dirs.push(pp.join(nvmDir, 'versions', 'node', version, 'bin'));
-    }
-  } catch { /* nvm not installed */ }
-
-  // Fallback: scan installed versions and try up to 3 most recent
-  try {
-    const nvmNodeDir = pp.join(nvmDir, 'versions', 'node');
-    if (fs.existsSync(nvmNodeDir)) {
-      const versions = (fs.readdirSync(nvmNodeDir) as string[])
-        .filter((v: string) => v.startsWith('v'))
-        .sort((a: string, b: string) => {
-          const pa = a.slice(1).split('.').map(Number);
-          const pb = b.slice(1).split('.').map(Number);
-          for (let i = 0; i < 3; i++) {
-            const diff = (pb[i] ?? 0) - (pa[i] ?? 0);
-            if (diff !== 0) return diff;
-          }
-          return 0;
-        });
-      for (const v of versions.slice(0, 3)) {
-        dirs.push(pp.join(nvmNodeDir, v, 'bin'));
-      }
-    }
-  } catch { /* ignore */ }
-
-  return dirs;
-}
-
-/**
- * Returns bin dirs for fnm (Fast Node Manager) on Mac/Linux.
- * Like NVM, fnm's PATH hook isn't available in GUI apps unless FNM_MULTISHELL_PATH is set.
- */
-function fnmCandidateDirs(home: string): string[] {
-  const pp = platformPath();
-  const dirs: string[] = [];
-
-  // FNM_MULTISHELL_PATH is set by fnm's shell hook — may be absent in GUI apps
-  const multishell = process.env.FNM_MULTISHELL_PATH;
-  if (multishell) dirs.push(multishell);
-
-  // Common fnm data dirs
-  const fnmDataDirs = [
-    process.env.FNM_DIR,
-    pp.join(home, '.local', 'share', 'fnm'),
-    pp.join(home, '.fnm'),
-  ].filter(Boolean) as string[];
-
-  for (const fnmDir of fnmDataDirs) {
-    const nodeVersionsDir = pp.join(fnmDir, 'node-versions');
-    try {
-      if (fs.existsSync(nodeVersionsDir)) {
-        const versions = (fs.readdirSync(nodeVersionsDir) as string[])
-          .sort((a: string, b: string) => {
-            const pa = a.replace(/^v/, '').split('.').map(Number);
-            const pb = b.replace(/^v/, '').split('.').map(Number);
-            for (let i = 0; i < 3; i++) {
-              const diff = (pb[i] ?? 0) - (pa[i] ?? 0);
-              if (diff !== 0) return diff;
-            }
-            return 0;
-        });
-        for (const v of versions.slice(0, 3)) {
-          dirs.push(pp.join(nodeVersionsDir, v, 'installation', 'bin'));
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  return dirs;
-}
-
 export function findCopilotCLIPath(): string | null {
   const pp = platformPath();
   const home = os.homedir();
@@ -216,8 +131,8 @@ export function findCopilotCLIPath(): string | null {
         pp.join(home, '.asdf', 'bin'),
         pp.join(home, '.npm-global', 'bin'),
         pp.join(home, 'bin'),
-        ...nvmCandidateDirs(home),
-        ...fnmCandidateDirs(home),
+        ...getNvmCandidateDirs(home),
+        ...getFnmCandidateDirs(home),
       ];
 
   for (const dir of candidateDirs) {

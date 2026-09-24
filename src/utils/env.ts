@@ -13,6 +13,101 @@ const isWindows = process.platform === 'win32';
 const PATH_SEPARATOR = isWindows ? ';' : ':';
 const NODE_EXECUTABLE = isWindows ? 'node.exe' : 'node';
 
+function parseNodeVersion(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
+  const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4] };
+}
+
+function compareNodeVersions(a: string, b: string): number {
+  const left = parseNodeVersion(a);
+  const right = parseNodeVersion(b);
+  if (!left || !right) return 0;
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    const difference = right[key] - left[key];
+    if (difference !== 0) return difference;
+  }
+  if (left.prerelease === right.prerelease) return 0;
+  if (!left.prerelease) return -1;
+  if (!right.prerelease) return 1;
+  return right.prerelease.localeCompare(left.prerelease, undefined, { numeric: true });
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return [...new Set(paths.filter(Boolean))];
+}
+
+/**
+ * Return NVM Node bin directories without relying on shell startup files.
+ * GUI apps often lack NVM_BIN, so resolve its default alias and then scan the
+ * installed versions as a bounded fallback.
+ */
+export function getNvmCandidateDirs(home: string): string[] {
+  if (isWindows) return [];
+  const candidates: string[] = [];
+  if (process.env.NVM_BIN) candidates.push(process.env.NVM_BIN);
+  if (!home) return uniquePaths(candidates);
+
+  const nvmDir = path.join(home, '.nvm');
+  let alias = '';
+  try {
+    alias = fs.readFileSync(path.join(nvmDir, 'alias', 'default'), 'utf8').trim();
+  } catch { /* NVM is not installed */ }
+
+  // NVM aliases can point directly to a version (v22.14.0) or through a
+  // named alias (22 -> v22.14.0, lts/*, etc.). Bound alias resolution.
+  for (let depth = 0; alias && depth < 4; depth++) {
+    const parsed = parseNodeVersion(alias);
+    if (parsed) {
+      const version = alias.startsWith('v') ? alias : `v${alias}`;
+      candidates.push(path.join(nvmDir, 'versions', 'node', version, 'bin'));
+      break;
+    }
+    if (!/^[A-Za-z0-9._/-]+$/.test(alias) || alias.split('/').some(part => !part || part === '..')) break;
+    try {
+      alias = fs.readFileSync(path.join(nvmDir, 'alias', ...alias.split('/')), 'utf8').trim();
+    } catch { break; }
+  }
+
+  try {
+    const versionsDir = path.join(nvmDir, 'versions', 'node');
+    const versions = fs.readdirSync(versionsDir)
+      .filter(version => parseNodeVersion(version) !== null)
+      .sort(compareNodeVersions);
+    for (const version of versions.slice(0, 3)) {
+      candidates.push(path.join(versionsDir, version, 'bin'));
+    }
+  } catch { /* NVM is not installed or is inaccessible */ }
+
+  return uniquePaths(candidates);
+}
+
+/** Return bin directories for fnm's installed Node versions. */
+export function getFnmCandidateDirs(home: string): string[] {
+  if (isWindows) return [];
+  const candidates: string[] = [];
+  if (process.env.FNM_MULTISHELL_PATH) candidates.push(process.env.FNM_MULTISHELL_PATH);
+  const fnmDirs = uniquePaths([
+    process.env.FNM_DIR || '',
+    home ? path.join(home, '.local', 'share', 'fnm') : '',
+    home ? path.join(home, '.fnm') : '',
+  ]);
+
+  for (const fnmDir of fnmDirs) {
+    try {
+      const versionsDir = path.join(fnmDir, 'node-versions');
+      const versions = fs.readdirSync(versionsDir)
+        .filter(version => parseNodeVersion(version) !== null)
+        .sort(compareNodeVersions);
+      for (const version of versions.slice(0, 3)) {
+        candidates.push(path.join(versionsDir, version, 'installation', 'bin'));
+      }
+    } catch { /* fnm is not installed or is inaccessible */ }
+  }
+
+  return uniquePaths(candidates);
+}
+
 /**
  * Get the user's home directory, handling both Unix and Windows.
  */
@@ -149,13 +244,11 @@ function getExtraBinaryPaths(): string[] {
       paths.push(path.join(home, '.volta', 'bin'));
       paths.push(path.join(home, '.asdf', 'shims'));
       paths.push(path.join(home, '.asdf', 'bin'));
+      paths.push(path.join(home, '.npm-global', 'bin'));
+      paths.push(path.join(home, 'bin'));
       paths.push(path.join(home, '.fnm'));
-
-      // NVM: use NVM_BIN if set, otherwise skip (NVM_BIN points to actual bin)
-      const nvmBin = process.env.NVM_BIN;
-      if (nvmBin) {
-        paths.push(nvmBin);
-      }
+      paths.push(...getFnmCandidateDirs(home));
+      paths.push(...getNvmCandidateDirs(home));
     }
 
     return paths;

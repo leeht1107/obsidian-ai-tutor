@@ -29,18 +29,521 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// src/utils/path.ts
+function getVaultPath(app) {
+  const adapter = app.vault.adapter;
+  if ("basePath" in adapter) {
+    return adapter.basePath;
+  }
+  return null;
+}
+function getEnvValue(key) {
+  const hasKey = (name) => Object.prototype.hasOwnProperty.call(process.env, name);
+  if (hasKey(key)) {
+    return process.env[key];
+  }
+  if (process.platform !== "win32") {
+    return void 0;
+  }
+  const upper = key.toUpperCase();
+  if (hasKey(upper)) {
+    return process.env[upper];
+  }
+  const lower = key.toLowerCase();
+  if (hasKey(lower)) {
+    return process.env[lower];
+  }
+  const matchKey = Object.keys(process.env).find((name) => name.toLowerCase() === key.toLowerCase());
+  return matchKey ? process.env[matchKey] : void 0;
+}
+function expandEnvironmentVariables(value) {
+  if (!value.includes("%") && !value.includes("$") && !value.includes("!")) {
+    return value;
+  }
+  const isWindows4 = process.platform === "win32";
+  let expanded = value;
+  expanded = expanded.replace(/%([A-Za-z_][A-Za-z0-9_]*(?:\([A-Za-z0-9_]+\))?[A-Za-z0-9_]*)%/g, (match, name) => {
+    const envValue = getEnvValue(name);
+    return envValue !== void 0 ? envValue : match;
+  });
+  if (isWindows4) {
+    expanded = expanded.replace(/!([A-Za-z_][A-Za-z0-9_]*)!/g, (match, name) => {
+      const envValue = getEnvValue(name);
+      return envValue !== void 0 ? envValue : match;
+    });
+    expanded = expanded.replace(/\$env:([A-Za-z_][A-Za-z0-9_]*)/gi, (match, name) => {
+      const envValue = getEnvValue(name);
+      return envValue !== void 0 ? envValue : match;
+    });
+  }
+  expanded = expanded.replace(/\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name1, name2) => {
+    const key = name1 != null ? name1 : name2;
+    if (!key) return match;
+    const envValue = getEnvValue(key);
+    return envValue !== void 0 ? envValue : match;
+  });
+  return expanded;
+}
+function expandHomePath(p) {
+  const expanded = expandEnvironmentVariables(p);
+  if (expanded === "~") {
+    return os.homedir();
+  }
+  if (expanded.startsWith("~/")) {
+    return path.join(os.homedir(), expanded.slice(2));
+  }
+  if (expanded.startsWith("~\\")) {
+    return path.join(os.homedir(), expanded.slice(2));
+  }
+  return expanded;
+}
+function stripSurroundingQuotes(value) {
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+function isPathPlaceholder(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed === "$PATH" || trimmed === "${PATH}") return true;
+  return trimmed.toUpperCase() === "%PATH%";
+}
+function parsePathEntries(pathValue) {
+  if (!pathValue) {
+    return [];
+  }
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  return pathValue.split(delimiter).map((segment) => stripSurroundingQuotes(segment.trim())).filter((segment) => segment.length > 0 && !isPathPlaceholder(segment)).map((segment) => translateMsysPath(expandHomePath(segment)));
+}
+function resolveRealPath(p) {
+  var _a;
+  const realpathFn = (_a = fs.realpathSync.native) != null ? _a : fs.realpathSync;
+  try {
+    return realpathFn(p);
+  } catch (e) {
+    const absolute = path.resolve(p);
+    let current = absolute;
+    const suffix = [];
+    while (true) {
+      try {
+        if (fs.existsSync(current)) {
+          const resolvedExisting = realpathFn(current);
+          return suffix.length > 0 ? path.join(resolvedExisting, ...suffix.reverse()) : resolvedExisting;
+        }
+      } catch (e2) {
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return absolute;
+      }
+      suffix.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+function translateMsysPath(value) {
+  var _a;
+  if (process.platform !== "win32") {
+    return value;
+  }
+  const msysMatch = value.match(/^\/([a-zA-Z])(\/.*)?$/);
+  if (msysMatch) {
+    const driveLetter = msysMatch[1].toUpperCase();
+    const restOfPath = (_a = msysMatch[2]) != null ? _a : "";
+    return `${driveLetter}:${restOfPath.replace(/\//g, "\\")}`;
+  }
+  return value;
+}
+function normalizePathBeforeResolution(p) {
+  const expanded = expandHomePath(p);
+  return translateMsysPath(expanded);
+}
+function normalizeWindowsPathPrefix(value) {
+  if (process.platform !== "win32") {
+    return value;
+  }
+  const normalized = translateMsysPath(value);
+  if (normalized.startsWith("\\\\?\\UNC\\")) {
+    return `\\\\${normalized.slice("\\\\?\\UNC\\".length)}`;
+  }
+  if (normalized.startsWith("\\\\?\\")) {
+    return normalized.slice("\\\\?\\".length);
+  }
+  return normalized;
+}
+function normalizePathForFilesystem(value) {
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+  const expanded = normalizePathBeforeResolution(value);
+  let normalized = expanded;
+  try {
+    normalized = process.platform === "win32" ? path.win32.normalize(expanded) : path.normalize(expanded);
+  } catch (e) {
+    normalized = expanded;
+  }
+  return normalizeWindowsPathPrefix(normalized);
+}
+function normalizePathForComparison(value) {
+  if (!value || typeof value !== "string") {
+    return "";
+  }
+  const expanded = normalizePathBeforeResolution(value);
+  let normalized = expanded;
+  try {
+    normalized = process.platform === "win32" ? path.win32.normalize(expanded) : path.normalize(expanded);
+  } catch (e) {
+    normalized = expanded;
+  }
+  normalized = normalizeWindowsPathPrefix(normalized);
+  normalized = normalized.replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function isPathWithinVault(candidatePath, vaultPath) {
+  const vaultReal = normalizePathForComparison(resolveRealPath(vaultPath));
+  const normalizedPath = normalizePathBeforeResolution(candidatePath);
+  const absCandidate = path.isAbsolute(normalizedPath) ? normalizedPath : path.resolve(vaultPath, normalizedPath);
+  const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
+  return resolvedCandidate === vaultReal || resolvedCandidate.startsWith(vaultReal + "/");
+}
+var fs, os, path;
+var init_path = __esm({
+  "src/utils/path.ts"() {
+    fs = __toESM(require("fs"));
+    os = __toESM(require("os"));
+    path = __toESM(require("path"));
+  }
+});
+
+// src/utils/env.ts
+function parseNodeVersion(version) {
+  const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4] };
+}
+function compareNodeVersions(a, b) {
+  const left = parseNodeVersion(a);
+  const right = parseNodeVersion(b);
+  if (!left || !right) return 0;
+  for (const key of ["major", "minor", "patch"]) {
+    const difference = right[key] - left[key];
+    if (difference !== 0) return difference;
+  }
+  if (left.prerelease === right.prerelease) return 0;
+  if (!left.prerelease) return -1;
+  if (!right.prerelease) return 1;
+  return right.prerelease.localeCompare(left.prerelease, void 0, { numeric: true });
+}
+function uniquePaths(paths) {
+  return [...new Set(paths.filter(Boolean))];
+}
+function getNvmCandidateDirs(home) {
+  if (isWindows) return [];
+  const candidates = [];
+  if (process.env.NVM_BIN) candidates.push(process.env.NVM_BIN);
+  if (!home) return uniquePaths(candidates);
+  const nvmDir = path2.join(home, ".nvm");
+  let alias = "";
+  try {
+    alias = fs2.readFileSync(path2.join(nvmDir, "alias", "default"), "utf8").trim();
+  } catch (e) {
+  }
+  for (let depth = 0; alias && depth < 4; depth++) {
+    const parsed = parseNodeVersion(alias);
+    if (parsed) {
+      const version = alias.startsWith("v") ? alias : `v${alias}`;
+      candidates.push(path2.join(nvmDir, "versions", "node", version, "bin"));
+      break;
+    }
+    if (!/^[A-Za-z0-9._/-]+$/.test(alias) || alias.split("/").some((part) => !part || part === "..")) break;
+    try {
+      alias = fs2.readFileSync(path2.join(nvmDir, "alias", ...alias.split("/")), "utf8").trim();
+    } catch (e) {
+      break;
+    }
+  }
+  try {
+    const versionsDir = path2.join(nvmDir, "versions", "node");
+    const versions = fs2.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
+    for (const version of versions.slice(0, 3)) {
+      candidates.push(path2.join(versionsDir, version, "bin"));
+    }
+  } catch (e) {
+  }
+  return uniquePaths(candidates);
+}
+function getFnmCandidateDirs(home) {
+  if (isWindows) return [];
+  const candidates = [];
+  if (process.env.FNM_MULTISHELL_PATH) candidates.push(process.env.FNM_MULTISHELL_PATH);
+  const fnmDirs = uniquePaths([
+    process.env.FNM_DIR || "",
+    home ? path2.join(home, ".local", "share", "fnm") : "",
+    home ? path2.join(home, ".fnm") : ""
+  ]);
+  for (const fnmDir of fnmDirs) {
+    try {
+      const versionsDir = path2.join(fnmDir, "node-versions");
+      const versions = fs2.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
+      for (const version of versions.slice(0, 3)) {
+        candidates.push(path2.join(versionsDir, version, "installation", "bin"));
+      }
+    } catch (e) {
+    }
+  }
+  return uniquePaths(candidates);
+}
+function getHomeDir() {
+  return process.env.HOME || process.env.USERPROFILE || "";
+}
+function getExtraBinaryPaths() {
+  const home = getHomeDir();
+  if (isWindows) {
+    const paths = [];
+    const localAppData = process.env.LOCALAPPDATA;
+    const appData = process.env.APPDATA;
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    const programData = process.env.ProgramData || "C:\\ProgramData";
+    if (appData) {
+      paths.push(path2.join(appData, "npm"));
+    }
+    if (localAppData) {
+      paths.push(path2.join(localAppData, "Programs", "nodejs"));
+      paths.push(path2.join(localAppData, "Programs", "node"));
+    }
+    paths.push(path2.join(programFiles, "nodejs"));
+    paths.push(path2.join(programFilesX86, "nodejs"));
+    const nvmSymlink = process.env.NVM_SYMLINK;
+    if (nvmSymlink) {
+      paths.push(nvmSymlink);
+    }
+    const nvmHome = process.env.NVM_HOME;
+    if (nvmHome) {
+      paths.push(nvmHome);
+    } else if (appData) {
+      paths.push(path2.join(appData, "nvm"));
+    }
+    const voltaHome = process.env.VOLTA_HOME;
+    if (voltaHome) {
+      paths.push(path2.join(voltaHome, "bin"));
+    } else if (home) {
+      paths.push(path2.join(home, ".volta", "bin"));
+    }
+    const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
+    if (fnmMultishell) {
+      paths.push(fnmMultishell);
+    }
+    const fnmDir = process.env.FNM_DIR;
+    if (fnmDir) {
+      paths.push(fnmDir);
+    } else if (localAppData) {
+      paths.push(path2.join(localAppData, "fnm"));
+    }
+    const chocolateyInstall = process.env.ChocolateyInstall;
+    if (chocolateyInstall) {
+      paths.push(path2.join(chocolateyInstall, "bin"));
+    } else {
+      paths.push(path2.join(programData, "chocolatey", "bin"));
+    }
+    const scoopDir = process.env.SCOOP;
+    if (scoopDir) {
+      paths.push(path2.join(scoopDir, "shims"));
+      paths.push(path2.join(scoopDir, "apps", "nodejs", "current", "bin"));
+      paths.push(path2.join(scoopDir, "apps", "nodejs", "current"));
+    } else if (home) {
+      paths.push(path2.join(home, "scoop", "shims"));
+      paths.push(path2.join(home, "scoop", "apps", "nodejs", "current", "bin"));
+      paths.push(path2.join(home, "scoop", "apps", "nodejs", "current"));
+    }
+    paths.push(path2.join(programFiles, "Docker", "Docker", "resources", "bin"));
+    if (home) {
+      paths.push(path2.join(home, ".local", "bin"));
+    }
+    return paths;
+  } else {
+    const paths = [
+      "/usr/local/bin",
+      "/opt/homebrew/bin",
+      // macOS ARM Homebrew
+      "/usr/bin",
+      "/bin"
+    ];
+    const voltaHome = process.env.VOLTA_HOME;
+    if (voltaHome) {
+      paths.push(path2.join(voltaHome, "bin"));
+    }
+    const asdfRoot = process.env.ASDF_DATA_DIR || process.env.ASDF_DIR;
+    if (asdfRoot) {
+      paths.push(path2.join(asdfRoot, "shims"));
+      paths.push(path2.join(asdfRoot, "bin"));
+    }
+    const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
+    if (fnmMultishell) {
+      paths.push(fnmMultishell);
+    }
+    const fnmDir = process.env.FNM_DIR;
+    if (fnmDir) {
+      paths.push(fnmDir);
+    }
+    if (home) {
+      paths.push(path2.join(home, ".local", "bin"));
+      paths.push(path2.join(home, ".docker", "bin"));
+      paths.push(path2.join(home, ".volta", "bin"));
+      paths.push(path2.join(home, ".asdf", "shims"));
+      paths.push(path2.join(home, ".asdf", "bin"));
+      paths.push(path2.join(home, ".npm-global", "bin"));
+      paths.push(path2.join(home, "bin"));
+      paths.push(path2.join(home, ".fnm"));
+      paths.push(...getFnmCandidateDirs(home));
+      paths.push(...getNvmCandidateDirs(home));
+    }
+    return paths;
+  }
+}
+function findNodeDirectory() {
+  const searchPaths = getExtraBinaryPaths();
+  const currentPath = process.env.PATH || "";
+  const pathDirs = parsePathEntries(currentPath);
+  const allPaths = [...searchPaths, ...pathDirs];
+  for (const dir of allPaths) {
+    if (!dir) continue;
+    try {
+      const nodePath = path2.join(dir, NODE_EXECUTABLE);
+      if (fs2.existsSync(nodePath)) {
+        const stat = fs2.statSync(nodePath);
+        if (stat.isFile()) {
+          return dir;
+        }
+      }
+    } catch (e) {
+    }
+  }
+  return null;
+}
+function cliPathRequiresNode(cliPath) {
+  const jsExtensions = [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];
+  const lower = cliPath.toLowerCase();
+  if (jsExtensions.some((ext) => lower.endsWith(ext))) {
+    return true;
+  }
+  try {
+    if (!fs2.existsSync(cliPath)) {
+      return false;
+    }
+    const stat = fs2.statSync(cliPath);
+    if (!stat.isFile()) {
+      return false;
+    }
+    let fd = null;
+    try {
+      fd = fs2.openSync(cliPath, "r");
+      const buffer = Buffer.alloc(200);
+      const bytesRead = fs2.readSync(fd, buffer, 0, buffer.length, 0);
+      const header = buffer.slice(0, bytesRead).toString("utf8");
+      return header.startsWith("#!") && header.toLowerCase().includes("node");
+    } finally {
+      if (fd !== null) {
+        try {
+          fs2.closeSync(fd);
+        } catch (e) {
+        }
+      }
+    }
+  } catch (e) {
+    return false;
+  }
+}
+function getEnhancedPath(additionalPaths, cliPath) {
+  const extraPaths = getExtraBinaryPaths().filter((p) => p);
+  const currentPath = process.env.PATH || "";
+  const segments = [];
+  if (additionalPaths) {
+    segments.push(...parsePathEntries(additionalPaths));
+  }
+  let cliDirHasNode = false;
+  if (cliPath) {
+    try {
+      const cliDir = path2.dirname(cliPath);
+      const nodeInCliDir = path2.join(cliDir, NODE_EXECUTABLE);
+      if (fs2.existsSync(nodeInCliDir)) {
+        const stat = fs2.statSync(nodeInCliDir);
+        if (stat.isFile()) {
+          segments.push(cliDir);
+          cliDirHasNode = true;
+        }
+      }
+    } catch (e) {
+    }
+  }
+  if (cliPath && cliPathRequiresNode(cliPath) && !cliDirHasNode) {
+    const nodeDir = findNodeDirectory();
+    if (nodeDir) {
+      segments.push(nodeDir);
+    }
+  }
+  segments.push(...extraPaths);
+  if (currentPath) {
+    segments.push(...parsePathEntries(currentPath));
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const unique = segments.filter((p) => {
+    const normalized = isWindows ? p.toLowerCase() : p;
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+  return unique.join(PATH_SEPARATOR);
+}
+function parseEnvironmentVariables(input) {
+  const result = {};
+  for (const line of input.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex > 0) {
+      const key = trimmed.substring(0, eqIndex).trim();
+      let value = trimmed.substring(eqIndex + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+      if (key) {
+        const tokenKeys = /* @__PURE__ */ new Set(["GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"]);
+        const normalizedPlaceholder = value.toLowerCase();
+        if (tokenKeys.has(key) && (normalizedPlaceholder === "your_api_key_here" || normalizedPlaceholder === "your-key" || normalizedPlaceholder.includes("your_api_key") || normalizedPlaceholder.includes("your_github_token") || normalizedPlaceholder.includes("your_copilot_token"))) {
+          continue;
+        }
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+var fs2, path2, isWindows, PATH_SEPARATOR, NODE_EXECUTABLE;
+var init_env = __esm({
+  "src/utils/env.ts"() {
+    fs2 = __toESM(require("fs"));
+    path2 = __toESM(require("path"));
+    init_path();
+    isWindows = process.platform === "win32";
+    PATH_SEPARATOR = isWindows ? ";" : ":";
+    NODE_EXECUTABLE = isWindows ? "node.exe" : "node";
+  }
+});
+
 // src/utils/copilotCli.ts
 function isExistingFile(p) {
   try {
-    return fs.existsSync(p) && fs.statSync(p).isFile();
+    return fs3.existsSync(p) && fs3.statSync(p).isFile();
   } catch (e) {
     return false;
   }
 }
 function platformPath() {
-  return process.platform === "win32" ? path.win32 : path.posix;
+  return process.platform === "win32" ? path3.win32 : path3.posix;
 }
-function getEnvValue(key) {
+function getEnvValue2(key) {
   const exact = process.env[key];
   if (exact !== void 0) return exact;
   const lower = key.toLowerCase();
@@ -49,28 +552,28 @@ function getEnvValue(key) {
   }
   return void 0;
 }
-function stripSurroundingQuotes(value) {
+function stripSurroundingQuotes2(value) {
   if (value.length >= 2 && (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1);
   }
   return value;
 }
-function isPathPlaceholder(value) {
+function isPathPlaceholder2(value) {
   return /^\$\{?PATH\}?$|^%PATH%$/i.test(value);
 }
-function expandHomePath(p) {
+function expandHomePath2(p) {
   if (p === "~") {
-    return os.homedir();
+    return os2.homedir();
   }
   if (p.startsWith("~/") || p.startsWith("~\\")) {
-    return platformPath().join(os.homedir(), p.slice(2));
+    return platformPath().join(os2.homedir(), p.slice(2));
   }
   return p;
 }
-function parsePathEntries(pathValue) {
+function parsePathEntries2(pathValue) {
   if (!pathValue) return [];
   const delimiter = process.platform === "win32" ? ";" : ":";
-  return pathValue.split(delimiter).map((e) => expandHomePath(stripSurroundingQuotes(e.trim()))).filter((e) => e.length > 0 && !isPathPlaceholder(e));
+  return pathValue.split(delimiter).map((e) => expandHomePath2(stripSurroundingQuotes2(e.trim()))).filter((e) => e.length > 0 && !isPathPlaceholder2(e));
 }
 function dedupePaths(entries) {
   const seen = /* @__PURE__ */ new Set();
@@ -85,101 +588,35 @@ function dedupePaths(entries) {
   return result;
 }
 function getNpmGlobalPrefix() {
-  const prefix = getEnvValue("npm_config_prefix");
+  const prefix = getEnvValue2("npm_config_prefix");
   if (prefix && prefix !== "undefined") return prefix;
   if (process.platform === "win32") {
-    const appData = getEnvValue("APPDATA");
-    if (appData) return path.win32.join(appData, "npm");
+    const appData = getEnvValue2("APPDATA");
+    if (appData) return path3.win32.join(appData, "npm");
   }
   return null;
-}
-function nvmCandidateDirs(home) {
-  const pp = platformPath();
-  const dirs = [];
-  const nvmDir = pp.join(home, ".nvm");
-  try {
-    const raw = fs.readFileSync(pp.join(nvmDir, "alias", "default"), "utf8").trim();
-    const version = raw.startsWith("v") ? raw : /^\d/.test(raw) ? `v${raw}` : null;
-    if (version) {
-      dirs.push(pp.join(nvmDir, "versions", "node", version, "bin"));
-    }
-  } catch (e) {
-  }
-  try {
-    const nvmNodeDir = pp.join(nvmDir, "versions", "node");
-    if (fs.existsSync(nvmNodeDir)) {
-      const versions = fs.readdirSync(nvmNodeDir).filter((v) => v.startsWith("v")).sort((a, b) => {
-        var _a, _b;
-        const pa = a.slice(1).split(".").map(Number);
-        const pb = b.slice(1).split(".").map(Number);
-        for (let i = 0; i < 3; i++) {
-          const diff = ((_a = pb[i]) != null ? _a : 0) - ((_b = pa[i]) != null ? _b : 0);
-          if (diff !== 0) return diff;
-        }
-        return 0;
-      });
-      for (const v of versions.slice(0, 3)) {
-        dirs.push(pp.join(nvmNodeDir, v, "bin"));
-      }
-    }
-  } catch (e) {
-  }
-  return dirs;
-}
-function fnmCandidateDirs(home) {
-  const pp = platformPath();
-  const dirs = [];
-  const multishell = process.env.FNM_MULTISHELL_PATH;
-  if (multishell) dirs.push(multishell);
-  const fnmDataDirs = [
-    process.env.FNM_DIR,
-    pp.join(home, ".local", "share", "fnm"),
-    pp.join(home, ".fnm")
-  ].filter(Boolean);
-  for (const fnmDir of fnmDataDirs) {
-    const nodeVersionsDir = pp.join(fnmDir, "node-versions");
-    try {
-      if (fs.existsSync(nodeVersionsDir)) {
-        const versions = fs.readdirSync(nodeVersionsDir).sort((a, b) => {
-          var _a, _b;
-          const pa = a.replace(/^v/, "").split(".").map(Number);
-          const pb = b.replace(/^v/, "").split(".").map(Number);
-          for (let i = 0; i < 3; i++) {
-            const diff = ((_a = pb[i]) != null ? _a : 0) - ((_b = pa[i]) != null ? _b : 0);
-            if (diff !== 0) return diff;
-          }
-          return 0;
-        });
-        for (const v of versions.slice(0, 3)) {
-          dirs.push(pp.join(nodeVersionsDir, v, "installation", "bin"));
-        }
-      }
-    } catch (e) {
-    }
-  }
-  return dirs;
 }
 function findCopilotCLIPath() {
   var _a, _b, _c, _d, _e;
   const pp = platformPath();
-  const home = os.homedir();
+  const home = os2.homedir();
   const isWindows4 = process.platform === "win32";
   const binaryNames = isWindows4 ? ["copilot.cmd", "copilot.exe"] : ["copilot"];
-  const appData = (_a = getEnvValue("APPDATA")) != null ? _a : pp.join(home, "AppData", "Roaming");
-  const localAppData = (_b = getEnvValue("LOCALAPPDATA")) != null ? _b : pp.join(home, "AppData", "Local");
+  const appData = (_a = getEnvValue2("APPDATA")) != null ? _a : pp.join(home, "AppData", "Roaming");
+  const localAppData = (_b = getEnvValue2("LOCALAPPDATA")) != null ? _b : pp.join(home, "AppData", "Local");
   const candidateDirs = isWindows4 ? [
     // npm global bin — primary location after `npm install -g`
     pp.join(appData, "npm"),
     // nvm-windows: NVM_SYMLINK is a system env var pointing to active Node dir
-    (_c = getEnvValue("NVM_SYMLINK")) != null ? _c : "",
+    (_c = getEnvValue2("NVM_SYMLINK")) != null ? _c : "",
     // nvm-windows: NVM_HOME stores all versions; active is via NVM_SYMLINK
-    (_d = getEnvValue("NVM_HOME")) != null ? _d : "",
+    (_d = getEnvValue2("NVM_HOME")) != null ? _d : "",
     // LocalAppData nodejs locations (some installers / nvm-windows symlinks)
     pp.join(localAppData, "Programs", "nodejs"),
     pp.join(localAppData, "Programs", "node"),
     // scoop shims
     pp.join(home, "scoop", "shims"),
-    pp.join((_e = getEnvValue("ProgramFiles")) != null ? _e : "C:\\Program Files", "nodejs"),
+    pp.join((_e = getEnvValue2("ProgramFiles")) != null ? _e : "C:\\Program Files", "nodejs"),
     pp.join(home, ".volta", "bin"),
     pp.join(home, ".local", "bin")
   ].filter(Boolean) : [
@@ -191,8 +628,8 @@ function findCopilotCLIPath() {
     pp.join(home, ".asdf", "bin"),
     pp.join(home, ".npm-global", "bin"),
     pp.join(home, "bin"),
-    ...nvmCandidateDirs(home),
-    ...fnmCandidateDirs(home)
+    ...getNvmCandidateDirs(home),
+    ...getFnmCandidateDirs(home)
   ];
   for (const dir of candidateDirs) {
     for (const name of binaryNames) {
@@ -208,7 +645,7 @@ function findCopilotCLIPath() {
       if (isExistingFile(p)) return p;
     }
   }
-  for (const dir of dedupePaths(parsePathEntries(getEnvValue("PATH")))) {
+  for (const dir of dedupePaths(parsePathEntries2(getEnvValue2("PATH")))) {
     for (const name of binaryNames) {
       const p = pp.join(dir, name);
       if (isExistingFile(p)) return p;
@@ -221,7 +658,7 @@ function resolveCmdShim(cmdPath) {
   if (!cmdPath.toLowerCase().endsWith(".cmd")) return null;
   try {
     const pp = platformPath();
-    const content = fs.readFileSync(cmdPath, "utf8");
+    const content = fs3.readFileSync(cmdPath, "utf8");
     const cmdDir = pp.dirname(cmdPath);
     for (const line of content.split(/\r?\n/)) {
       const m = line.match(/"([^"]+\.(?:js|cjs|mjs))"\s+%\*/i);
@@ -271,7 +708,7 @@ function resolveNpmPackageEntry(cliPath, npmPackage) {
     if (!isExistingFile(manifestPath)) continue;
     let bin;
     try {
-      bin = JSON.parse(fs.readFileSync(manifestPath, "utf8")).bin;
+      bin = JSON.parse(fs3.readFileSync(manifestPath, "utf8")).bin;
     } catch (e) {
       continue;
     }
@@ -301,438 +738,13 @@ function resolveProviderEntry(cliPath, npmPackage) {
   if (sibling) return [sibling, []];
   return null;
 }
-var fs, os, path;
+var fs3, os2, path3;
 var init_copilotCli = __esm({
   "src/utils/copilotCli.ts"() {
-    fs = __toESM(require("fs"));
-    os = __toESM(require("os"));
-    path = __toESM(require("path"));
-  }
-});
-
-// src/utils/path.ts
-function getVaultPath(app) {
-  const adapter = app.vault.adapter;
-  if ("basePath" in adapter) {
-    return adapter.basePath;
-  }
-  return null;
-}
-function getEnvValue2(key) {
-  const hasKey = (name) => Object.prototype.hasOwnProperty.call(process.env, name);
-  if (hasKey(key)) {
-    return process.env[key];
-  }
-  if (process.platform !== "win32") {
-    return void 0;
-  }
-  const upper = key.toUpperCase();
-  if (hasKey(upper)) {
-    return process.env[upper];
-  }
-  const lower = key.toLowerCase();
-  if (hasKey(lower)) {
-    return process.env[lower];
-  }
-  const matchKey = Object.keys(process.env).find((name) => name.toLowerCase() === key.toLowerCase());
-  return matchKey ? process.env[matchKey] : void 0;
-}
-function expandEnvironmentVariables(value) {
-  if (!value.includes("%") && !value.includes("$") && !value.includes("!")) {
-    return value;
-  }
-  const isWindows4 = process.platform === "win32";
-  let expanded = value;
-  expanded = expanded.replace(/%([A-Za-z_][A-Za-z0-9_]*(?:\([A-Za-z0-9_]+\))?[A-Za-z0-9_]*)%/g, (match, name) => {
-    const envValue = getEnvValue2(name);
-    return envValue !== void 0 ? envValue : match;
-  });
-  if (isWindows4) {
-    expanded = expanded.replace(/!([A-Za-z_][A-Za-z0-9_]*)!/g, (match, name) => {
-      const envValue = getEnvValue2(name);
-      return envValue !== void 0 ? envValue : match;
-    });
-    expanded = expanded.replace(/\$env:([A-Za-z_][A-Za-z0-9_]*)/gi, (match, name) => {
-      const envValue = getEnvValue2(name);
-      return envValue !== void 0 ? envValue : match;
-    });
-  }
-  expanded = expanded.replace(/\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name1, name2) => {
-    const key = name1 != null ? name1 : name2;
-    if (!key) return match;
-    const envValue = getEnvValue2(key);
-    return envValue !== void 0 ? envValue : match;
-  });
-  return expanded;
-}
-function expandHomePath2(p) {
-  const expanded = expandEnvironmentVariables(p);
-  if (expanded === "~") {
-    return os2.homedir();
-  }
-  if (expanded.startsWith("~/")) {
-    return path2.join(os2.homedir(), expanded.slice(2));
-  }
-  if (expanded.startsWith("~\\")) {
-    return path2.join(os2.homedir(), expanded.slice(2));
-  }
-  return expanded;
-}
-function stripSurroundingQuotes2(value) {
-  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-function isPathPlaceholder2(value) {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (trimmed === "$PATH" || trimmed === "${PATH}") return true;
-  return trimmed.toUpperCase() === "%PATH%";
-}
-function parsePathEntries2(pathValue) {
-  if (!pathValue) {
-    return [];
-  }
-  const delimiter = process.platform === "win32" ? ";" : ":";
-  return pathValue.split(delimiter).map((segment) => stripSurroundingQuotes2(segment.trim())).filter((segment) => segment.length > 0 && !isPathPlaceholder2(segment)).map((segment) => translateMsysPath(expandHomePath2(segment)));
-}
-function resolveRealPath(p) {
-  var _a;
-  const realpathFn = (_a = fs2.realpathSync.native) != null ? _a : fs2.realpathSync;
-  try {
-    return realpathFn(p);
-  } catch (e) {
-    const absolute = path2.resolve(p);
-    let current = absolute;
-    const suffix = [];
-    while (true) {
-      try {
-        if (fs2.existsSync(current)) {
-          const resolvedExisting = realpathFn(current);
-          return suffix.length > 0 ? path2.join(resolvedExisting, ...suffix.reverse()) : resolvedExisting;
-        }
-      } catch (e2) {
-      }
-      const parent = path2.dirname(current);
-      if (parent === current) {
-        return absolute;
-      }
-      suffix.push(path2.basename(current));
-      current = parent;
-    }
-  }
-}
-function translateMsysPath(value) {
-  var _a;
-  if (process.platform !== "win32") {
-    return value;
-  }
-  const msysMatch = value.match(/^\/([a-zA-Z])(\/.*)?$/);
-  if (msysMatch) {
-    const driveLetter = msysMatch[1].toUpperCase();
-    const restOfPath = (_a = msysMatch[2]) != null ? _a : "";
-    return `${driveLetter}:${restOfPath.replace(/\//g, "\\")}`;
-  }
-  return value;
-}
-function normalizePathBeforeResolution(p) {
-  const expanded = expandHomePath2(p);
-  return translateMsysPath(expanded);
-}
-function normalizeWindowsPathPrefix(value) {
-  if (process.platform !== "win32") {
-    return value;
-  }
-  const normalized = translateMsysPath(value);
-  if (normalized.startsWith("\\\\?\\UNC\\")) {
-    return `\\\\${normalized.slice("\\\\?\\UNC\\".length)}`;
-  }
-  if (normalized.startsWith("\\\\?\\")) {
-    return normalized.slice("\\\\?\\".length);
-  }
-  return normalized;
-}
-function normalizePathForFilesystem(value) {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
-  const expanded = normalizePathBeforeResolution(value);
-  let normalized = expanded;
-  try {
-    normalized = process.platform === "win32" ? path2.win32.normalize(expanded) : path2.normalize(expanded);
-  } catch (e) {
-    normalized = expanded;
-  }
-  return normalizeWindowsPathPrefix(normalized);
-}
-function normalizePathForComparison(value) {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
-  const expanded = normalizePathBeforeResolution(value);
-  let normalized = expanded;
-  try {
-    normalized = process.platform === "win32" ? path2.win32.normalize(expanded) : path2.normalize(expanded);
-  } catch (e) {
-    normalized = expanded;
-  }
-  normalized = normalizeWindowsPathPrefix(normalized);
-  normalized = normalized.replace(/\\/g, "/").replace(/\/+$/, "");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function isPathWithinVault(candidatePath, vaultPath) {
-  const vaultReal = normalizePathForComparison(resolveRealPath(vaultPath));
-  const normalizedPath = normalizePathBeforeResolution(candidatePath);
-  const absCandidate = path2.isAbsolute(normalizedPath) ? normalizedPath : path2.resolve(vaultPath, normalizedPath);
-  const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
-  return resolvedCandidate === vaultReal || resolvedCandidate.startsWith(vaultReal + "/");
-}
-var fs2, os2, path2;
-var init_path = __esm({
-  "src/utils/path.ts"() {
-    fs2 = __toESM(require("fs"));
-    os2 = __toESM(require("os"));
-    path2 = __toESM(require("path"));
-  }
-});
-
-// src/utils/env.ts
-function getHomeDir() {
-  return process.env.HOME || process.env.USERPROFILE || "";
-}
-function getExtraBinaryPaths() {
-  const home = getHomeDir();
-  if (isWindows) {
-    const paths = [];
-    const localAppData = process.env.LOCALAPPDATA;
-    const appData = process.env.APPDATA;
-    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
-    const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
-    const programData = process.env.ProgramData || "C:\\ProgramData";
-    if (appData) {
-      paths.push(path3.join(appData, "npm"));
-    }
-    if (localAppData) {
-      paths.push(path3.join(localAppData, "Programs", "nodejs"));
-      paths.push(path3.join(localAppData, "Programs", "node"));
-    }
-    paths.push(path3.join(programFiles, "nodejs"));
-    paths.push(path3.join(programFilesX86, "nodejs"));
-    const nvmSymlink = process.env.NVM_SYMLINK;
-    if (nvmSymlink) {
-      paths.push(nvmSymlink);
-    }
-    const nvmHome = process.env.NVM_HOME;
-    if (nvmHome) {
-      paths.push(nvmHome);
-    } else if (appData) {
-      paths.push(path3.join(appData, "nvm"));
-    }
-    const voltaHome = process.env.VOLTA_HOME;
-    if (voltaHome) {
-      paths.push(path3.join(voltaHome, "bin"));
-    } else if (home) {
-      paths.push(path3.join(home, ".volta", "bin"));
-    }
-    const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
-    if (fnmMultishell) {
-      paths.push(fnmMultishell);
-    }
-    const fnmDir = process.env.FNM_DIR;
-    if (fnmDir) {
-      paths.push(fnmDir);
-    } else if (localAppData) {
-      paths.push(path3.join(localAppData, "fnm"));
-    }
-    const chocolateyInstall = process.env.ChocolateyInstall;
-    if (chocolateyInstall) {
-      paths.push(path3.join(chocolateyInstall, "bin"));
-    } else {
-      paths.push(path3.join(programData, "chocolatey", "bin"));
-    }
-    const scoopDir = process.env.SCOOP;
-    if (scoopDir) {
-      paths.push(path3.join(scoopDir, "shims"));
-      paths.push(path3.join(scoopDir, "apps", "nodejs", "current", "bin"));
-      paths.push(path3.join(scoopDir, "apps", "nodejs", "current"));
-    } else if (home) {
-      paths.push(path3.join(home, "scoop", "shims"));
-      paths.push(path3.join(home, "scoop", "apps", "nodejs", "current", "bin"));
-      paths.push(path3.join(home, "scoop", "apps", "nodejs", "current"));
-    }
-    paths.push(path3.join(programFiles, "Docker", "Docker", "resources", "bin"));
-    if (home) {
-      paths.push(path3.join(home, ".local", "bin"));
-    }
-    return paths;
-  } else {
-    const paths = [
-      "/usr/local/bin",
-      "/opt/homebrew/bin",
-      // macOS ARM Homebrew
-      "/usr/bin",
-      "/bin"
-    ];
-    const voltaHome = process.env.VOLTA_HOME;
-    if (voltaHome) {
-      paths.push(path3.join(voltaHome, "bin"));
-    }
-    const asdfRoot = process.env.ASDF_DATA_DIR || process.env.ASDF_DIR;
-    if (asdfRoot) {
-      paths.push(path3.join(asdfRoot, "shims"));
-      paths.push(path3.join(asdfRoot, "bin"));
-    }
-    const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
-    if (fnmMultishell) {
-      paths.push(fnmMultishell);
-    }
-    const fnmDir = process.env.FNM_DIR;
-    if (fnmDir) {
-      paths.push(fnmDir);
-    }
-    if (home) {
-      paths.push(path3.join(home, ".local", "bin"));
-      paths.push(path3.join(home, ".docker", "bin"));
-      paths.push(path3.join(home, ".volta", "bin"));
-      paths.push(path3.join(home, ".asdf", "shims"));
-      paths.push(path3.join(home, ".asdf", "bin"));
-      paths.push(path3.join(home, ".fnm"));
-      const nvmBin = process.env.NVM_BIN;
-      if (nvmBin) {
-        paths.push(nvmBin);
-      }
-    }
-    return paths;
-  }
-}
-function findNodeDirectory() {
-  const searchPaths = getExtraBinaryPaths();
-  const currentPath = process.env.PATH || "";
-  const pathDirs = parsePathEntries2(currentPath);
-  const allPaths = [...searchPaths, ...pathDirs];
-  for (const dir of allPaths) {
-    if (!dir) continue;
-    try {
-      const nodePath = path3.join(dir, NODE_EXECUTABLE);
-      if (fs3.existsSync(nodePath)) {
-        const stat = fs3.statSync(nodePath);
-        if (stat.isFile()) {
-          return dir;
-        }
-      }
-    } catch (e) {
-    }
-  }
-  return null;
-}
-function cliPathRequiresNode(cliPath) {
-  const jsExtensions = [".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx"];
-  const lower = cliPath.toLowerCase();
-  if (jsExtensions.some((ext) => lower.endsWith(ext))) {
-    return true;
-  }
-  try {
-    if (!fs3.existsSync(cliPath)) {
-      return false;
-    }
-    const stat = fs3.statSync(cliPath);
-    if (!stat.isFile()) {
-      return false;
-    }
-    let fd = null;
-    try {
-      fd = fs3.openSync(cliPath, "r");
-      const buffer = Buffer.alloc(200);
-      const bytesRead = fs3.readSync(fd, buffer, 0, buffer.length, 0);
-      const header = buffer.slice(0, bytesRead).toString("utf8");
-      return header.startsWith("#!") && header.toLowerCase().includes("node");
-    } finally {
-      if (fd !== null) {
-        try {
-          fs3.closeSync(fd);
-        } catch (e) {
-        }
-      }
-    }
-  } catch (e) {
-    return false;
-  }
-}
-function getEnhancedPath(additionalPaths, cliPath) {
-  const extraPaths = getExtraBinaryPaths().filter((p) => p);
-  const currentPath = process.env.PATH || "";
-  const segments = [];
-  if (additionalPaths) {
-    segments.push(...parsePathEntries2(additionalPaths));
-  }
-  let cliDirHasNode = false;
-  if (cliPath) {
-    try {
-      const cliDir = path3.dirname(cliPath);
-      const nodeInCliDir = path3.join(cliDir, NODE_EXECUTABLE);
-      if (fs3.existsSync(nodeInCliDir)) {
-        const stat = fs3.statSync(nodeInCliDir);
-        if (stat.isFile()) {
-          segments.push(cliDir);
-          cliDirHasNode = true;
-        }
-      }
-    } catch (e) {
-    }
-  }
-  if (cliPath && cliPathRequiresNode(cliPath) && !cliDirHasNode) {
-    const nodeDir = findNodeDirectory();
-    if (nodeDir) {
-      segments.push(nodeDir);
-    }
-  }
-  segments.push(...extraPaths);
-  if (currentPath) {
-    segments.push(...parsePathEntries2(currentPath));
-  }
-  const seen = /* @__PURE__ */ new Set();
-  const unique = segments.filter((p) => {
-    const normalized = isWindows ? p.toLowerCase() : p;
-    if (seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
-  });
-  return unique.join(PATH_SEPARATOR);
-}
-function parseEnvironmentVariables(input) {
-  const result = {};
-  for (const line of input.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex > 0) {
-      const key = trimmed.substring(0, eqIndex).trim();
-      let value = trimmed.substring(eqIndex + 1).trim();
-      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-        value = value.slice(1, -1);
-      }
-      if (key) {
-        const tokenKeys = /* @__PURE__ */ new Set(["GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"]);
-        const normalizedPlaceholder = value.toLowerCase();
-        if (tokenKeys.has(key) && (normalizedPlaceholder === "your_api_key_here" || normalizedPlaceholder === "your-key" || normalizedPlaceholder.includes("your_api_key") || normalizedPlaceholder.includes("your_github_token") || normalizedPlaceholder.includes("your_copilot_token"))) {
-          continue;
-        }
-        result[key] = value;
-      }
-    }
-  }
-  return result;
-}
-var fs3, path3, isWindows, PATH_SEPARATOR, NODE_EXECUTABLE;
-var init_env = __esm({
-  "src/utils/env.ts"() {
     fs3 = __toESM(require("fs"));
+    os2 = __toESM(require("os"));
     path3 = __toESM(require("path"));
-    init_path();
-    isWindows = process.platform === "win32";
-    PATH_SEPARATOR = isWindows ? ";" : ":";
-    NODE_EXECUTABLE = isWindows ? "node.exe" : "node";
+    init_env();
   }
 });
 
@@ -896,7 +908,7 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
 function findProviderCliPath(id, customPath = "") {
   const configured = customPath.trim();
   if (configured) {
-    const resolved = expandHomePath2(configured);
+    const resolved = expandHomePath(configured);
     return isFile(resolved) ? resolved : null;
   }
   const descriptor = getProviderDescriptor(id);
@@ -1321,6 +1333,13 @@ function checkProviderSetupStatus(providerId) {
   const descriptor = getProviderDescriptor(providerId);
   return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
 }
+function verifyProviderInstall(providerId) {
+  const cliPath = findProviderCliPath(providerId);
+  return cliPath ? { success: true, cliPath } : {
+    success: false,
+    error: "\uC124\uCE58\uB294 \uC644\uB8CC\uB410\uC9C0\uB9CC \uC124\uCE58\uB41C CLI\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. Obsidian\uC744 \uB2E4\uC2DC \uC2DC\uC791\uD55C \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+  };
+}
 async function installCopilotCLI(onProgress) {
   const npmPath = findNpmPath();
   if (!npmPath) {
@@ -1343,9 +1362,8 @@ async function installCopilotCLI(onProgress) {
       if (line) stderrLines.push(line);
     });
     proc.on("close", (code) => {
-      var _a2;
       if (code === 0) {
-        resolve6({ success: true, cliPath: (_a2 = findCopilotCLIPath()) != null ? _a2 : void 0 });
+        resolve6(verifyProviderInstall("copilot"));
       } else {
         resolve6({
           success: false,
@@ -1407,8 +1425,13 @@ function startProviderInstall(providerId, onProgress) {
   });
   child.on("error", (error) => finish(stopping != null ? stopping : { success: false, error: error.message }));
   child.on("close", (code) => {
-    var _a2;
-    return finish(stopping != null ? stopping : code === 0 ? { success: true, cliPath: (_a2 = findProviderCliPath(providerId)) != null ? _a2 : void 0 } : { success: false, error: errors.join("\n") || `npm exited with code ${code != null ? code : "?"}` });
+    if (stopping) {
+      finish(stopping);
+    } else if (code === 0) {
+      finish(verifyProviderInstall(providerId));
+    } else {
+      finish({ success: false, error: errors.join("\n") || `npm exited with code ${code != null ? code : "?"}` });
+    }
   });
   const stop = (result) => {
     var _a2;
@@ -4229,11 +4252,11 @@ function getExportInstructions(allowedExportPaths) {
   if (!allowedExportPaths || allowedExportPaths.length === 0) {
     return "";
   }
-  const uniquePaths = Array.from(new Set(allowedExportPaths.map((p) => p.trim()).filter(Boolean)));
-  if (uniquePaths.length === 0) {
+  const uniquePaths2 = Array.from(new Set(allowedExportPaths.map((p) => p.trim()).filter(Boolean)));
+  if (uniquePaths2.length === 0) {
     return "";
   }
-  const formattedPaths = uniquePaths.map((p) => `- ${p}`).join("\n");
+  const formattedPaths = uniquePaths2.map((p) => `- ${p}`).join("\n");
   return `
 
 ## Allowed Export Paths
@@ -4253,11 +4276,11 @@ function getExternalContextInstructions(externalContextPaths) {
   if (!externalContextPaths || externalContextPaths.length === 0) {
     return "";
   }
-  const uniquePaths = Array.from(new Set(externalContextPaths.map((p) => p.trim()).filter(Boolean)));
-  if (uniquePaths.length === 0) {
+  const uniquePaths2 = Array.from(new Set(externalContextPaths.map((p) => p.trim()).filter(Boolean)));
+  if (uniquePaths2.length === 0) {
     return "";
   }
-  const formattedPaths = uniquePaths.map((p) => {
+  const formattedPaths = uniquePaths2.map((p) => {
     const normalized = p.replace(/\\/g, "/").replace(/\/+$/, "");
     const segments = normalized.split("/");
     const folderName = segments[segments.length - 1] || p;
@@ -21145,7 +21168,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     const validateCliPath = (value) => {
       const trimmed = value.trim();
       if (!trimmed || trimmed === pathDescriptor.command) return null;
-      const expandedPath = expandHomePath2(trimmed);
+      const expandedPath = expandHomePath(trimmed);
       if (!fs13.existsSync(expandedPath)) return "Path does not exist";
       return fs13.statSync(expandedPath).isFile() ? null : "Path is a directory, not a file";
     };
