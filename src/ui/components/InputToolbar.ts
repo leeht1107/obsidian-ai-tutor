@@ -76,8 +76,7 @@ export interface ToolbarCallbacks {
   getNativeProviderModels?: (provider: Exclude<ProviderId, 'copilot'>) => Promise<ProviderModelOption[]>;
   onThinkingBudgetChange: (budget: ThinkingBudget) => Promise<void>;
   onPermissionModeChange: (mode: PermissionMode) => Promise<void>;
-  onOpenQuiz?: () => Promise<void>;
-  onOpenSocratic?: () => Promise<void>;
+  onOpenLearning?: () => Promise<void>;
   getSettings: () => ToolbarSettings;
   getEnvironmentVariables?: () => string;
   isAgentInitiatedPlanMode?: () => boolean;
@@ -693,64 +692,30 @@ export class PermissionToggle {
   }
 }
 
-export class QuizLauncherButton {
+export class LearningLauncherButton {
   private container: HTMLElement;
   private callbacks: ToolbarCallbacks;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
     this.callbacks = callbacks;
-    this.container = parentEl.createDiv({ cls: 'ocop-quiz-launcher' });
+    this.container = parentEl.createDiv({ cls: 'ocop-learning-launcher' });
     this.render();
   }
 
   private render() {
     this.container.empty();
     const button = this.container.createEl('button', {
-      cls: 'ocop-quiz-launcher-btn',
-      text: '📝 퀴즈',
-      attr: { 'aria-label': 'Open guided quiz setup' },
+      cls: 'ocop-learning-launcher-btn mod-cta',
+      text: '✨ 학습 시작',
+      attr: {
+        'aria-label': '학습 시작',
+        title: '퀴즈 또는 소크라테스식 대화를 시작합니다',
+      },
     });
     button.type = 'button';
     button.addEventListener('click', async () => {
-      await this.callbacks.onOpenQuiz?.();
+      await this.callbacks.onOpenLearning?.();
     });
-  }
-}
-
-export class SocraticLauncherButton {
-  private container: HTMLElement;
-  private callbacks: ToolbarCallbacks;
-  private buttonEl: HTMLButtonElement | null = null;
-
-  constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
-    this.callbacks = callbacks;
-    this.container = parentEl.createDiv({ cls: 'ocop-socratic-launcher' });
-    this.render();
-  }
-
-  private render() {
-    this.container.empty();
-    const button = this.container.createEl('button', {
-      cls: 'ocop-socratic-launcher-btn',
-      text: '🧠 학습 모드',
-      attr: { 'aria-label': '소크라테스 대화 시작', title: '질문 중심 학습 대화로 전환' },
-    }) as HTMLButtonElement;
-    button.type = 'button';
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        await this.callbacks.onOpenSocratic?.();
-      } finally {
-        button.disabled = false;
-      }
-    });
-    this.buttonEl = button;
-  }
-
-  setActive(active: boolean): void {
-    if (!this.buttonEl) return;
-    this.buttonEl.classList.toggle('is-active', active);
-    this.buttonEl.textContent = active ? '🧠 학습 중' : '🧠 학습 모드';
   }
 }
 
@@ -1089,8 +1054,6 @@ export function createInputToolbar(
   externalContextSelector: ExternalContextSelector;
   webSearchToggle: WebSearchToggle;
   permissionToggle: PermissionToggle;
-  quizLauncherButton: QuizLauncherButton;
-  socraticLauncherButton: SocraticLauncherButton;
 } {
   const primaryToolbarEl = parentEl.createDiv({ cls: 'ocop-toolbar-primary' });
   const secondaryToolbarEl = parentEl.createDiv({ cls: 'ocop-toolbar-secondary' });
@@ -1100,8 +1063,7 @@ export function createInputToolbar(
   const externalContextSelector = new ExternalContextSelector(secondaryToolbarEl);
   const webSearchToggle = new WebSearchToggle(secondaryToolbarEl);
   const permissionToggle = new PermissionToggle(secondaryToolbarEl, callbacks);
-  const quizLauncherButton = new QuizLauncherButton(learningGroupEl, callbacks);
-  const socraticLauncherButton = new SocraticLauncherButton(learningGroupEl, callbacks);
+  new LearningLauncherButton(learningGroupEl, callbacks);
 
   return {
     modelSelector,
@@ -1111,7 +1073,5 @@ export function createInputToolbar(
     externalContextSelector,
     webSearchToggle,
     permissionToggle,
-    quizLauncherButton,
-    socraticLauncherButton,
   };
 }

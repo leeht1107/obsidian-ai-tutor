@@ -50,6 +50,7 @@ export interface QuizSessionState {
   scopeLabel: string;
   focusText?: string;
   difficulty?: '하' | '중' | '상';
+  questionStyle?: 'material' | 'application';
   sourceInstruction?: string;
 }
 

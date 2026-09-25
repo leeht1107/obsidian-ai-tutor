@@ -1,10 +1,12 @@
 export type QuizDifficulty = '하' | '중' | '상';
+export type QuizQuestionStyle = 'material' | 'application';
 
 export interface QuizPromptInput {
   questionCount: number | string;
   difficulty: QuizDifficulty;
   scopeInstruction: string;
   focusText?: string;
+  questionStyle?: QuizQuestionStyle;
 }
 
 export interface QuizDisplayInput {
@@ -12,18 +14,21 @@ export interface QuizDisplayInput {
   questionCount: number | string;
   difficulty: QuizDifficulty;
   focusText?: string;
+  questionStyle?: QuizQuestionStyle;
 }
 
 export interface ParsedQuizDisplayContent {
   totalQuestions: number;
   difficulty: QuizDifficulty;
   focusText?: string;
+  questionStyle?: QuizQuestionStyle;
 }
 
 export interface QuizContinuationPromptInput {
   currentQuestion: number;
   totalQuestions: number;
   difficulty?: QuizDifficulty;
+  questionStyle?: QuizQuestionStyle;
   sourceInstruction?: string;
   focusText?: string;
   questionContext?: QuizQuestionContext;
@@ -52,7 +57,8 @@ export function shouldEnableQuizExternalTools(difficulty: QuizDifficulty): boole
 }
 
 export function buildQuizDisplayContent(input: QuizDisplayInput): string {
-  return ['/quiz', input.displayScope, `${input.questionCount}문제`, input.difficulty, input.focusText || '전체 범위']
+  return ['/quiz', input.displayScope, `${input.questionCount}문제`, input.difficulty,
+    input.questionStyle === 'application' ? '연계 응용' : '', input.focusText || '전체 범위']
     .filter(Boolean)
     .join(' · ');
 }
@@ -72,10 +78,13 @@ export function parseQuizDisplayContent(displayContent?: string): ParsedQuizDisp
     return null;
   }
 
-  const focusLabel = parts.slice(countIndex + 2).join(' · ').trim();
+  const afterDifficulty = parts.slice(countIndex + 2);
+  const questionStyle = afterDifficulty.includes('연계 응용') ? 'application' : undefined;
+  const focusLabel = afterDifficulty.filter((part) => part !== '연계 응용').join(' · ').trim();
   return {
     totalQuestions,
     difficulty,
+    questionStyle,
     focusText: focusLabel && focusLabel !== '전체 범위' ? focusLabel : undefined,
   };
 }
@@ -83,13 +92,20 @@ export function parseQuizDisplayContent(displayContent?: string): ParsedQuizDisp
 export function buildQuizPrompt(input: QuizPromptInput): string {
   const difficultyInstruction = DIFFICULTY_INSTRUCTIONS[input.difficulty];
   const questionCount = String(input.questionCount);
+  const questionStyleInstruction = input.questionStyle === 'application'
+    ? [
+      'For every question, apply concepts from the selected material to fresh scenarios; the learning objective and correct reasoning must still come from those concepts.',
+      'Do not require unstated outside facts. For difficulty 상, preserve the existing official-source web-search supplementation behavior and include any outside context needed to answer directly in the question.',
+    ].join(' ')
+    : '';
 
   return [
     `Create a ${questionCount}-question quiz in Korean.`,
     input.scopeInstruction,
     difficultyInstruction,
     input.focusText ? `Focus especially on this topic: ${input.focusText}.` : '',
-    'Use a deliberate mix of question formats: multiple-choice, short-answer, true/false, and multi-select.',
+    'Randomly vary the primary concept, question format, and reasoning approach on each new quiz. Do not follow a fixed question template or always begin with the same concept/example; when earlier quiz questions are visible in this conversation, avoid reusing them.',
+    questionStyleInstruction,
     'Ask exactly one question at a time.',
     'After the student answers, immediately tell them whether they are correct, explain why in Korean, and then move to the next question.',
     'Format each question in clean markdown.',
@@ -136,6 +152,7 @@ export function buildQuizContinuationPrompt(input: QuizContinuationPromptInput):
     difficulty,
     sourceInstruction,
     focusText,
+    questionStyle,
     questionContext,
   } = input;
   const questionToGrade = questionContext?.questionNumber ?? currentQuestion;
@@ -157,6 +174,9 @@ export function buildQuizContinuationPrompt(input: QuizContinuationPromptInput):
     sourceInstruction,
     difficultyInstruction,
     focusText ? `Continue focusing on this topic: ${focusText}.` : '',
+    questionStyle === 'application'
+      ? 'For every next question, apply concepts from the selected material to fresh scenarios; the learning objective and correct reasoning must still come from those concepts. Do not require unstated outside facts. For difficulty 상, preserve the existing official-source web-search supplementation behavior and include any outside context needed to answer directly in the question.'
+      : '',
     'Continue the SAME quiz scope. Do not switch to unrelated general knowledge topics.',
     'If the source material is referenced with @ note paths, use those same notes as the only ground truth before creating the next question.',
     'Use this EXACT structure for the next question: Line 1: "## {N}/{T}번 문제". Line 2: blank. Line 3: "#### {question text}". Line 4: blank. Lines 5+: answer choices or "(자유 서술)".',

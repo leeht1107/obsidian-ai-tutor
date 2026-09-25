@@ -1,9 +1,11 @@
 import {
   buildQuizContinuationPrompt,
   buildQuizHintPrompt,
+  buildQuizPrompt,
   buildSocraticContinuationPrompt,
   buildSocraticPrompt,
   DIFFICULTY_INSTRUCTIONS,
+  getSocraticModeInstruction,
   inferSocraticSupportLevel,
   normalizeQuizMarkdown,
   parseQuizDisplayContent,
@@ -28,6 +30,42 @@ describe('learning helpers', () => {
         difficulty: '중',
         focusText: undefined,
       });
+    });
+
+    it('preserves the related-application mode when recovering a quiz from its display label', () => {
+      expect(parseQuizDisplayContent('/quiz · 현재 노트 · db.md · 5문제 · 중 · 연계 응용 · 정규화')).toEqual({
+        totalQuestions: 5,
+        difficulty: '중',
+        questionStyle: 'application',
+        focusText: '정규화',
+      });
+    });
+  });
+
+  describe('quiz prompt variety', () => {
+    it('asks every new quiz to vary question formats and reasoning', () => {
+      const prompt = buildQuizPrompt({
+        questionCount: 5,
+        difficulty: '중',
+        scopeInstruction: 'Use only the current note as ground truth source material: @db.md',
+      });
+
+      expect(prompt).toContain('@db.md');
+      expect(prompt).toContain('Randomly vary the primary concept, question format, and reasoning approach');
+      expect(prompt).toContain('Do not follow a fixed question template');
+    });
+
+    it('applies selected concepts to fresh scenarios without requiring outside facts', () => {
+      const prompt = buildQuizPrompt({
+        questionCount: 5,
+        difficulty: '중',
+        scopeInstruction: 'Use only the current note as ground truth source material: @db.md',
+        questionStyle: 'application',
+      });
+
+      expect(prompt).toContain('apply concepts from the selected material to fresh scenarios');
+      expect(prompt).toContain('Do not require unstated outside facts');
+      expect(prompt).toContain('preserve the existing official-source web-search supplementation behavior');
     });
   });
 
@@ -59,6 +97,19 @@ describe('learning helpers', () => {
       expect(prompt).toContain('Continue the SAME quiz scope');
       expect(prompt).toContain('## {N}/{T}번 문제');
       expect(prompt).toContain('CTE vs VIEW');
+    });
+
+    it('keeps related-application mode for every question in a quiz', () => {
+      const prompt = buildQuizContinuationPrompt({
+        currentQuestion: 1,
+        totalQuestions: 3,
+        difficulty: '중',
+        sourceInstruction: 'Use only the current note as ground truth source material: @db.md',
+        questionStyle: 'application',
+      });
+
+      expect(prompt).toContain('apply concepts from the selected material to fresh scenarios');
+      expect(prompt).toContain('Do not require unstated outside facts');
     });
 
     it('includes exact previous quiz question context when grading a bare answer', () => {
@@ -162,15 +213,120 @@ describe('learning helpers', () => {
       expect(prompt).toContain('Mark\'s digital teaching twin');
       expect(prompt).toContain('Korean AI 조교');
       expect(prompt).toContain('SOURCE BOUNDARY');
-      expect(prompt).toContain('질문만 반복하지도 마세요');
+      expect(prompt).toContain('Do not run a twenty-questions game or hide facts');
+      expect(prompt).toContain('개념 설명을 직접 요청하면 질문으로 미루지 말고 바로 답하세요');
       expect(prompt).toContain('START: Begin with a warm, brief greeting');
       expect(prompt).not.toContain('Your FIRST response should jump straight');
     });
 
-    it('raises support level for stuck learners and lowers it for strong answers', () => {
+    it('lets a focused learner name the confusing point before diagnosing a prerequisite gap', () => {
+      const prompt = buildSocraticPrompt({
+        scopeInstruction: 'The current note: @statistics.md',
+        focusText: '조건부확률',
+      });
+
+      expect(prompt).toContain('If the student is missing a prerequisite needed for the selected topic');
+      expect(prompt).toContain('identify the smallest missing idea and show how it connects to the target');
+      expect(prompt).toContain('조건부확률');
+      expect(prompt).toContain('Invite the student to name the exact point they find unclear or ask their question directly');
+      expect(prompt).toContain('Do not assume the difficulty is a missing prerequisite');
+      expect(prompt).not.toContain('one gentle diagnostic question');
+      expect(prompt).not.toContain('which part of the material they want to explore');
+    });
+
+    it('keeps a focused answer concise without a hard cap that truncates compound questions', () => {
+      const prompt = buildSocraticPrompt({
+        scopeInstruction: 'The current note: @statistics.md',
+        focusText: '표본분산과 불편추정량',
+      });
+
+      expect(prompt).toContain('Keep the first response concise');
+      expect(prompt).toContain('For a direct question with multiple parts, briefly give the gist of each part, then unpack one at a time');
+      expect(prompt).toContain('do not stack full examples, definitions, and derivations for every part in one answer');
+      expect(prompt).not.toContain('Keep the first response to 2-3 sentences');
+    });
+
+    it('guides a learner from their confusion with a flexible bridge and distinguishes background from lecture claims', () => {
+      const prompt = buildSocraticPrompt({
+        scopeInstruction: 'The current note: @statistics.md',
+      });
+
+      expect(prompt).toContain('Start from the learner\'s stated question and current reasoning');
+      expect(prompt).toContain('Choose the simplest useful definition, example, contrast, or worked step');
+      expect(prompt).toContain('Treat illustrations as scaffolding, not proof');
+      expect(prompt).toContain('clarify assumptions and distinguish what the case shows from what can be generalized');
+      expect(prompt).toContain('label general-knowledge background clearly');
+    });
+
+    it('uses general teaching principles without hardcoding a subject-specific explanation', () => {
+      const prompt = buildSocraticPrompt({ scopeInstruction: 'The current note: @statistics.md' });
+
+      expect(prompt).toContain('If the selected material names a formal term without defining it, give its plain-language definition');
+      expect(prompt).toContain('show how it connects to the target before relying on an unfamiliar term or rule');
+      expect(prompt).toContain('When asked why a rule or result holds, make the shortest supporting reasoning visible');
+      expect(prompt).toContain('distinguish what the case shows from what can be generalized');
+      expect(prompt).not.toContain('expected-value');
+      expect(prompt).not.toContain('repeated-sampling');
+      expect(prompt).not.toContain('n−1');
+      expect(prompt).not.toContain('sample variance');
+      expect(prompt).not.toContain('E[Σ(Xᵢ−X̄)²]');
+    });
+
+    it('closes the session with a reflection point instead of a contradictory open question', () => {
+      const prompt = buildSocraticPrompt({ scopeInstruction: 'The current note: @statistics.md' });
+      const summaryPrompt = buildSocraticContinuationPrompt({ isSummaryPhase: true });
+
+      expect(prompt).toContain('Include at most one reflection point under “더 탐구해볼 점”; phrase it as a statement, not a question');
+      expect(prompt).not.toContain('End with one open question for further reflection');
+      expect(summaryPrompt).toContain('Do NOT ask any more questions. Close the session.');
+    });
+
+    it('keeps acknowledgments and follow-up questions natural instead of mandatory', () => {
+      const prompt = buildSocraticPrompt({ scopeInstruction: 'The current note: @statistics.md' });
+
+      expect(prompt).toContain('Use a natural, specific acknowledgment when it fits');
+      expect(prompt).toContain('do not add routine praise');
+      expect(prompt).not.toContain('From the SECOND response onward, open each response');
+    });
+
+    it('uses kind examples for prerequisites and concepts the selected material underexplains', () => {
+      const prompt = buildSocraticPrompt({
+        scopeInstruction: 'The current note: @statistics.md',
+      });
+
+      expect(prompt).toContain('the student is missing a prerequisite needed for the selected topic or asks about a concept the notes mention but do not explain sufficiently');
+      expect(prompt).toContain('ground truth for course-specific claims');
+      expect(prompt).toContain('Choose the simplest useful definition, example, contrast, or worked step');
+      expect(prompt).toContain('개념 설명을 직접 요청하면 질문으로 미루지 말고 바로 답하세요');
+    });
+
+    it('keeps kind explanations available in Socratic continuations', () => {
+      const prompt = buildSocraticContinuationPrompt({
+        isSummaryPhase: false,
+        sourceInstruction: 'The current note: @statistics.md',
+      });
+
+      expect(prompt).toContain('the student is missing a prerequisite needed for the selected topic or asks about a concept the notes mention but do not explain sufficiently');
+      expect(prompt).toContain('Choose the simplest useful definition, example, contrast, or worked step');
+      expect(prompt).toContain('label general-knowledge background clearly');
+      expect(prompt).toContain('Use Acknowledge → Guide → Probe as a flexible pattern, not a checklist');
+      expect(prompt).not.toContain('then ask one probing question.');
+    });
+
+    it('raises support for explicit stuck signals and treats long replies as a challenge hint', () => {
       expect(inferSocraticSupportLevel(1, '모르겠어요')).toBe(2);
       expect(inferSocraticSupportLevel(2, '정답 알려줘')).toBe(3);
       expect(inferSocraticSupportLevel(2, 'CTE는 단일 문장 안에서만 유효하고 VIEW는 카탈로그에 저장되므로 세션과 팀 단위 재사용성에서 차이가 납니다. 그래서 일회성 가독성은 CTE, 반복 재사용과 권한 관리는 VIEW가 더 적합합니다.')).toBe(1);
+    });
+
+    it('treats a length-based challenge level as a suggestion, not proof of mastery', () => {
+      expect(getSocraticModeInstruction(0)).toContain('A longer response alone is not evidence of mastery');
+      expect(getSocraticModeInstruction(0)).toContain('verify the reasoning is accurate before raising difficulty');
+    });
+
+    it('does not force a follow-up question when a learner needs an explanation', () => {
+      expect(getSocraticModeInstruction(2)).toContain('ask one easier next-step question only when it helps');
+      expect(getSocraticModeInstruction(3)).toContain('ask one small answerable question only when it helps');
     });
 
     it('detects indented summary markers', () => {

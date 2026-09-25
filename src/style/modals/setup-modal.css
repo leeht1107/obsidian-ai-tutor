@@ -1,4 +1,123 @@
-/* Shared layout for the quiz and socratic setup modals. */
+/* Shared layout for the quiz and socratic learning setup. */
+
+.ocop-learning-setup-modal .modal-content {
+  width: min(560px, 88vw);
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.ocop-learning-setup-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 12px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+}
+
+.ocop-learning-setup-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ocop-learning-setup-tab.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+}
+
+.ocop-learning-setup-tab.is-active::after {
+  content: '✓';
+  font-size: 0.9em;
+  font-weight: 700;
+}
+
+.ocop-learning-setup-tab:focus-visible,
+.ocop-learning-question-style:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+.ocop-learning-setup-intro {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--interactive-accent);
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+}
+
+.ocop-learning-setup-intro p,
+.ocop-learning-prerequisite-note p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ocop-learning-setup-intro p {
+  font-size: var(--font-ui-small);
+}
+
+.ocop-learning-prerequisite-note {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.ocop-learning-prerequisite-note strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-normal);
+}
+
+.ocop-learning-prerequisite-note p {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.ocop-learning-question-styles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.ocop-learning-question-style {
+  display: flex;
+  min-height: 76px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ocop-learning-question-style span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+}
+
+.ocop-learning-question-style.is-active {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
 
 .ocop-setup-modal-buttons {
   display: flex;
@@ -30,4 +149,10 @@
 
 .ocop-quiz-note-item:hover {
   background: var(--background-modifier-hover);
+}
+
+@media (max-width: 480px) {
+  .ocop-learning-question-styles {
+    grid-template-columns: 1fr;
+  }
 }

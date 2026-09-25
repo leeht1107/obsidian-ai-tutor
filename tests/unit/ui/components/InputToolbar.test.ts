@@ -1,4 +1,4 @@
-import { PermissionToggle } from '../../../../src/ui/components/InputToolbar';
+import { LearningLauncherButton, PermissionToggle } from '../../../../src/ui/components/InputToolbar';
 
 /** Minimal Obsidian element stand-in — same shape used by ModelSelectorEffort.test.ts. */
 const makeElement = (): any => {
@@ -70,6 +70,26 @@ const build = (overrides: any = {}) => {
     },
   };
 };
+
+describe('LearningLauncherButton', () => {
+  it('opens the shared learning setup from one clearly labeled action', async () => {
+    const parent = makeElement();
+    const callbacks = { onOpenLearning: jest.fn().mockResolvedValue(undefined) };
+    new LearningLauncherButton(parent, callbacks as any);
+
+    expect(parent.children).toHaveLength(1);
+    expect(parent.children[0].elementOptions?.cls).toBe('ocop-learning-launcher');
+    const button = parent.children[0].children[0];
+    expect(button.elementOptions).toMatchObject({
+      text: '✨ 학습 시작',
+      attr: { 'aria-label': '학습 시작', title: '퀴즈 또는 소크라테스식 대화를 시작합니다' },
+    });
+
+    await button.clickAndSettle();
+
+    expect(callbacks.onOpenLearning).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('PermissionToggle - bash expansion busy lock', () => {
   it('toggle() while busy does not change permissionMode or call onPermissionModeChange', async () => {

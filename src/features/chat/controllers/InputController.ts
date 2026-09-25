@@ -16,6 +16,7 @@ import {
   inferSocraticSupportLevel,
   parseQuizDisplayContent,
   type QuizQuestionContext,
+  type QuizQuestionStyle,
 } from '../../../core/learning';
 import { resolveEffectivePermissionMode } from '../../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
@@ -29,12 +30,12 @@ import {
   type ImageContextManager,
   InstructionModal,
   type InstructionModeManager,
+  LearningSetupModal,
+  type LearningSetupResult,
   type PlanBanner,
-  QuizSetupModal,
   showAskUserQuestionPanel,
   showPlanApprovalPanel,
   showQuizAnswerPanel,
-  SocraticSetupModal,
 } from '../../../ui';
 import { prependCurrentNote, prependCurrentNoteContent } from '../../../utils/context';
 import { type EditorSelectionContext, prependEditorContext } from '../../../utils/editor';
@@ -116,6 +117,7 @@ interface QuizSessionInit {
   scopeLabel: string;
   focusText?: string;
   difficulty?: '하' | '중' | '상';
+  questionStyle?: QuizQuestionStyle;
   sourceInstruction?: string;
 }
 
@@ -234,7 +236,52 @@ export class InputController {
       totalQuestions: parsed.totalQuestions,
       scopeLabel: displayContent ?? '/quiz',
       focusText: parsed.focusText,
+      questionStyle: parsed.questionStyle,
     };
+  }
+
+  private async sendLearningSetupResult(
+    result: LearningSetupResult,
+    options: {
+      promptPrefix?: string;
+      hidden?: boolean;
+      editorContextOverride?: EditorSelectionContext | null;
+    },
+  ) {
+    const sharedOptions = {
+      content: result.prompt,
+      displayContentOverride: result.displayContent,
+      promptPrefix: options.promptPrefix,
+      hidden: options.hidden,
+      editorContextOverride: options.editorContextOverride,
+    };
+
+    if (result.mode === 'quiz') {
+      if (result.enableExternalTools) {
+        this.enableQuizExternalTools();
+      }
+      await this.sendMessage({
+        ...sharedOptions,
+        quizSessionInit: {
+          totalQuestions: result.totalQuestions,
+          scopeLabel: result.displayContent,
+          focusText: result.focusText,
+          difficulty: result.difficulty,
+          questionStyle: result.questionStyle,
+          sourceInstruction: result.sourceInstruction,
+        },
+      });
+      return;
+    }
+
+    await this.sendMessage({
+      ...sharedOptions,
+      socraticSessionInit: {
+        scopeLabel: result.displayContent,
+        focusText: result.focusText,
+        sourceInstruction: result.sourceInstruction,
+      },
+    });
   }
 
   // ============================================
@@ -268,42 +315,29 @@ export class InputController {
 
     if (content === '/quiz' || content.startsWith('/quiz ')) {
       const quizFocusText = content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
-      const quizModal = new QuizSetupModal(plugin.app, fileContextManager?.getCurrentNotePath() || null, quizFocusText);
-      const quizResult = await quizModal.openAndWait();
-      if (!quizResult) {
+      const quizModal = new LearningSetupModal(plugin.app, fileContextManager?.getCurrentNotePath() || null, 'quiz', quizFocusText);
+      const learningResult = await quizModal.openAndWait();
+      if (!learningResult) {
         return;
-      }
-
-      if (quizResult.enableExternalTools) {
-        this.enableQuizExternalTools();
       }
 
       if (shouldUseInput) {
         inputEl.value = '';
       }
 
-      await this.sendMessage({
-        content: quizResult.prompt,
-        displayContentOverride: quizResult.displayContent,
+      await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
         hidden: options?.hidden,
         editorContextOverride: options?.editorContextOverride,
-        quizSessionInit: {
-          totalQuestions: quizResult.totalQuestions,
-          scopeLabel: quizResult.displayContent,
-          focusText: quizResult.focusText,
-          difficulty: quizResult.difficulty,
-          sourceInstruction: quizResult.sourceInstruction,
-        },
       });
       return;
     }
 
     if (content === '/socratic' || content.startsWith('/socratic ')) {
       const socraticFocusText = content === '/socratic' ? '' : content.slice('/socratic'.length).trim();
-      const socraticModal = new SocraticSetupModal(plugin.app, fileContextManager?.getCurrentNotePath() || null, socraticFocusText);
-      const socraticResult = await socraticModal.openAndWait();
-      if (!socraticResult) {
+      const socraticModal = new LearningSetupModal(plugin.app, fileContextManager?.getCurrentNotePath() || null, 'socratic', socraticFocusText);
+      const learningResult = await socraticModal.openAndWait();
+      if (!learningResult) {
         return;
       }
 
@@ -311,17 +345,10 @@ export class InputController {
         inputEl.value = '';
       }
 
-      await this.sendMessage({
-        content: socraticResult.prompt,
-        displayContentOverride: socraticResult.displayContent,
+      await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
         hidden: options?.hidden,
         editorContextOverride: options?.editorContextOverride,
-        socraticSessionInit: {
-          scopeLabel: socraticResult.displayContent,
-          focusText: socraticResult.focusText,
-          sourceInstruction: socraticResult.sourceInstruction,
-        },
       });
       return;
     }
@@ -378,6 +405,7 @@ export class InputController {
         scopeLabel: quizSessionInit.scopeLabel,
         focusText: quizSessionInit.focusText,
         difficulty: quizSessionInit.difficulty,
+        questionStyle: quizSessionInit.questionStyle,
         sourceInstruction: quizSessionInit.sourceInstruction,
       };
     }
@@ -571,6 +599,7 @@ export class InputController {
           currentQuestion: quizSession.currentQuestion,
           totalQuestions: quizSession.totalQuestions,
           difficulty: quizSession.difficulty,
+          questionStyle: quizSession.questionStyle,
           sourceInstruction: quizSession.sourceInstruction,
           focusText: quizSession.focusText,
           questionContext,

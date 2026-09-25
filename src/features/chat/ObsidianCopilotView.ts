@@ -20,19 +20,19 @@ import {
   ImageContextManager,
   type InstructionModeManager,
   InstructionModeManager as InstructionModeManagerClass,
+  LearningSetupModal,
+  type LearningSetupMode,
   type ModelSelector,
   type PermissionToggle,
   PlanBanner,
   QUIZ_STUCK_ANSWER,
   SlashCommandDropdown,
   SocraticBanner,
-  type SocraticLauncherButton,
   type ThinkingBudgetSelector,
   TodoPanel,
   toToolbarSettings,
   type WebSearchToggle,
 } from '../../ui';
-import { QuizSetupModal, SocraticSetupModal } from '../../ui';
 import { MentionHighlighter } from '../../ui/components/MentionHighlighter';
 import { BlanketWriteConsentModal } from '../../ui/modals';
 import { getVaultPath } from '../../utils/path';
@@ -89,7 +89,6 @@ export class ObsidianCopilotView extends ItemView {
   private contextUsageMeter: ContextUsageMeter | null = null;
   private planBanner: PlanBanner | null = null;
   private socraticBanner: SocraticBanner | null = null;
-  private socraticLauncherButton: SocraticLauncherButton | null = null;
   private todoPanel: TodoPanel | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianCopilotPlugin) {
@@ -282,6 +281,45 @@ export class ObsidianCopilotView extends ItemView {
       }
     );
 
+    const launchLearningSetup = async (initialMode: LearningSetupMode) => {
+      const modal = new LearningSetupModal(
+        this.plugin.app,
+        this.fileContextManager?.getCurrentNotePath() || null,
+        initialMode,
+      );
+      const result = await modal.openAndWait();
+      if (!result) return;
+
+      if (result.mode === 'quiz') {
+        if (result.enableExternalTools) {
+          this.webSearchToggle?.setEnabled(true);
+        }
+        await this.inputController?.sendMessage({
+          content: result.prompt,
+          displayContentOverride: result.displayContent,
+          quizSessionInit: {
+            totalQuestions: result.totalQuestions,
+            scopeLabel: result.displayContent,
+            focusText: result.focusText,
+            difficulty: result.difficulty,
+            questionStyle: result.questionStyle,
+            sourceInstruction: result.sourceInstruction,
+          },
+        });
+        return;
+      }
+
+      await this.inputController?.sendMessage({
+        content: result.prompt,
+        displayContentOverride: result.displayContent,
+        socraticSessionInit: {
+          scopeLabel: result.displayContent,
+          focusText: result.focusText,
+          sourceInstruction: result.sourceInstruction,
+        },
+      });
+    };
+
     const inputToolbar = this.inputWrapper.createDiv({ cls: 'ocop-input-toolbar' });
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
       getSettings: () => toToolbarSettings(this.plugin.settings),
@@ -375,50 +413,7 @@ export class ObsidianCopilotView extends ItemView {
 
         this.updatePlanModeUiState();
       },
-      onOpenQuiz: async () => {
-        const quizModal = new QuizSetupModal(this.plugin.app, this.fileContextManager?.getCurrentNotePath() || null);
-        const quizResult = await quizModal.openAndWait();
-        if (!quizResult) {
-          return;
-        }
-
-        if (quizResult.enableExternalTools) {
-          this.webSearchToggle?.setEnabled(true);
-        }
-
-        await this.inputController?.sendMessage({
-          content: quizResult.prompt,
-          displayContentOverride: quizResult.displayContent,
-          quizSessionInit: {
-            totalQuestions: quizResult.totalQuestions,
-            scopeLabel: quizResult.displayContent,
-            focusText: quizResult.focusText,
-            difficulty: quizResult.difficulty,
-            sourceInstruction: quizResult.sourceInstruction,
-          },
-        });
-      },
-      onOpenSocratic: async () => {
-        const socraticModal = new SocraticSetupModal(
-          this.plugin.app,
-          this.fileContextManager?.getCurrentNotePath() || null,
-          ''
-        );
-        const socraticResult = await socraticModal.openAndWait();
-        if (!socraticResult) {
-          return;
-        }
-
-        await this.inputController?.sendMessage({
-          content: socraticResult.prompt,
-          displayContentOverride: socraticResult.displayContent,
-          socraticSessionInit: {
-            scopeLabel: socraticResult.displayContent,
-            focusText: socraticResult.focusText,
-            sourceInstruction: socraticResult.sourceInstruction,
-          },
-        });
-      },
+      onOpenLearning: () => launchLearningSetup('quiz'),
     });
 
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
@@ -442,7 +437,6 @@ export class ObsidianCopilotView extends ItemView {
     this.webSearchToggle = toolbarComponents.webSearchToggle;
     this.webSearchToggle.setEnabled(this.plugin.settings.enableWebSearch);
     this.permissionToggle = toolbarComponents.permissionToggle;
-    this.socraticLauncherButton = toolbarComponents.socraticLauncherButton;
 
     this.externalContextSelector.setOnChange(() => {
       this.fileContextManager?.preScanExternalContexts();
@@ -508,7 +502,6 @@ export class ObsidianCopilotView extends ItemView {
       {
         onNewConversation: () => {
           this.socraticBanner?.hide();
-          this.socraticLauncherButton?.setActive(false);
         },
       }
     );
@@ -539,11 +532,9 @@ export class ObsidianCopilotView extends ItemView {
       getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);
-        this.socraticLauncherButton?.setActive(true);
       },
       hideSocraticBanner: () => {
         this.socraticBanner?.hide();
-        this.socraticLauncherButton?.setActive(false);
       },
       generateId: () => this.generateId(),
       resetContextMeter: () => this.contextUsageMeter?.update(null),
