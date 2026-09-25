@@ -42,6 +42,7 @@ jest.mock('@/core/providers/providerRegistry', () => ({
 
 import { App } from 'obsidian';
 
+import { findProviderCliPath } from '@/core/providers/providerRegistry';
 import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager, startNodeInstall } from '@/core/setup/nodeInstall';
 import { checkProviderConnection } from '@/core/setup/providerConnection';
@@ -58,6 +59,7 @@ const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
 const startLogin = startProviderLogin as jest.MockedFunction<typeof startProviderLogin>;
 const recipe = getLoginRecipe as jest.MockedFunction<typeof getLoginRecipe>;
 const connection = checkProviderConnection as jest.MockedFunction<typeof checkProviderConnection>;
+const findCliPath = findProviderCliPath as jest.MockedFunction<typeof findProviderCliPath>;
 
 /**
  * The shared obsidian mock hands back one element for every createEl call, so a
@@ -172,6 +174,7 @@ function pendingInstall() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  findCliPath.mockImplementation(() => '/usr/local/bin/cli');
   setupStatus.mockReturnValue({ cliFound: false, npmFound: true, status: 'ready' });
   install.mockReturnValue({ cancel: jest.fn(), done: Promise.resolve({ success: true, cliPath: '/usr/local/bin/cli' }) });
   detectPm.mockReturnValue(null);
@@ -187,6 +190,28 @@ beforeEach(() => {
 });
 
 describe('the chooser only starts work when the student confirms', () => {
+  it('marks installed providers as connection-only and skips their install step', async () => {
+    setupStatus.mockImplementation((provider) => ({
+      cliFound: provider === 'claude',
+      npmFound: true,
+      status: 'ready',
+    }));
+    findCliPath.mockImplementation((provider) => provider === 'claude' ? '/usr/local/bin/claude' : null);
+    const { wizard, root } = makeWizard();
+
+    wizard.render();
+
+    expect(findByText(root, '이미 설치됨 · 연결 확인만 진행')).toBeDefined();
+    const claudeBox = descendants(root).filter((el: El) => el.cls === 'ocop-setup-choice-box')[1];
+    expect(claudeBox.disabled).toBe(false);
+    toggle(claudeBox, true);
+    click(findByText(root, '선택한 AI 설정 시작'));
+    await flush();
+
+    expect(install).not.toHaveBeenCalled();
+    expect(connection).toHaveBeenCalledWith('claude', expect.any(Object));
+  });
+
   it('installs nothing while boxes are being ticked', () => {
     const { wizard, root } = makeWizard();
 
@@ -196,25 +221,25 @@ describe('the chooser only starts work when the student confirms', () => {
     expect(install).not.toHaveBeenCalled();
   });
 
-  it('starts the queue when 설치 시작 is pressed', async () => {
+  it('starts the queue when 선택한 AI 설정 시작 is pressed', async () => {
     const { wizard, root } = makeWizard();
 
     wizard.render();
     const boxes = descendants(root).filter((el: El) => el.cls === 'ocop-setup-choice-box');
     toggle(boxes[1], true); // claude
-    click(findByText(root, '설치 시작'));
+    click(findByText(root, '선택한 AI 설정 시작'));
     await flush();
 
     expect(install).toHaveBeenCalledWith('claude', expect.any(Function));
   });
 
-  it('runs one queue when 설치 시작 is double-clicked', async () => {
+  it('runs one queue when 선택한 AI 설정 시작 is double-clicked', async () => {
     const { wizard, root } = makeWizard();
 
     wizard.render();
     const boxes = descendants(root).filter((el: El) => el.cls === 'ocop-setup-choice-box');
     toggle(boxes[1], true);
-    const start = findByText(root, '설치 시작');
+    const start = findByText(root, '선택한 AI 설정 시작');
     // Both handlers fire before the first queue yields.
     click(start);
     click(start);
@@ -223,11 +248,11 @@ describe('the chooser only starts work when the student confirms', () => {
     expect(install).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps 설치 시작 disabled until something is ticked', () => {
+  it('keeps 설정 시작 disabled until something is ticked', () => {
     const { wizard, root } = makeWizard();
 
     wizard.render();
-    const start = findByText(root, '설치 시작');
+    const start = findByText(root, '선택한 AI 설정 시작');
     expect(start.disabled).toBe(true);
 
     toggle(descendants(root).filter((el: El) => el.cls === 'ocop-setup-choice-box')[0], true);

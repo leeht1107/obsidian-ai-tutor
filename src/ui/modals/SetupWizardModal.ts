@@ -89,7 +89,7 @@ export class SetupWizardModal extends Modal {
   // Only the first-run chooser builds a queue. The `target` path — CLI not found
   // mid-chat, "연결" in Settings — still runs chooseProvider() untouched.
 
-  /** Ticked on the chooser; nothing runs until 설치 시작 is pressed. */
+  /** Ticked on the chooser; nothing runs until 설정 시작 is pressed. */
   private readonly selected = new Set<ProviderId>();
   /** The providers the student asked for, in install order. */
   private queue: ProviderId[] = [];
@@ -126,7 +126,7 @@ export class SetupWizardModal extends Modal {
   private loggedQueueOutcome = false;
   /** One connection probe at a time, so a stale answer cannot settle a later step. */
   private recheckBusy = false;
-  /** One queue at a time: a second 설치 시작 would clobber the first one's state. */
+  /** One queue at a time: a second 설정 시작 would clobber the first one's state. */
   private startingQueue = false;
 
   /**
@@ -185,6 +185,9 @@ export class SetupWizardModal extends Modal {
       box.type = 'checkbox';
       box.checked = this.selected.has(provider);
       row.createEl('span', { text: getProviderDescriptor(provider).label, cls: 'ocop-setup-choice-label' });
+      if (findProviderCliPath(provider)) {
+        row.createEl('span', { text: '이미 설치됨 · 연결 확인만 진행', cls: 'ocop-setup-choice-status' });
+      }
       box.addEventListener('change', () => {
         if (box.checked) this.selected.add(provider);
         else this.selected.delete(provider);
@@ -192,7 +195,7 @@ export class SetupWizardModal extends Modal {
         start.disabled = this.selected.size === 0;
       });
     }
-    const start = wrap.createEl('button', { text: '설치 시작', cls: 'mod-cta ocop-setup-action-btn' });
+    const start = wrap.createEl('button', { text: '선택한 AI 설정 시작', cls: 'mod-cta ocop-setup-action-btn' });
     start.disabled = this.selected.size === 0;
     start.addEventListener('click', () => { void this.beginQueue(); });
   }

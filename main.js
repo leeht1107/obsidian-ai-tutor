@@ -1965,7 +1965,7 @@ var init_SetupWizardModal = __esm({
         // ── Multi-provider queue ────────────────────────────────────────────────────
         // Only the first-run chooser builds a queue. The `target` path — CLI not found
         // mid-chat, "연결" in Settings — still runs chooseProvider() untouched.
-        /** Ticked on the chooser; nothing runs until 설치 시작 is pressed. */
+        /** Ticked on the chooser; nothing runs until 설정 시작 is pressed. */
         this.selected = /* @__PURE__ */ new Set();
         /** The providers the student asked for, in install order. */
         this.queue = [];
@@ -1999,7 +1999,7 @@ var init_SetupWizardModal = __esm({
         this.loggedQueueOutcome = false;
         /** One connection probe at a time, so a stale answer cannot settle a later step. */
         this.recheckBusy = false;
-        /** One queue at a time: a second 설치 시작 would clobber the first one's state. */
+        /** One queue at a time: a second 설정 시작 would clobber the first one's state. */
         this.startingQueue = false;
       }
       onOpen() {
@@ -2066,13 +2066,16 @@ var init_SetupWizardModal = __esm({
           box.type = "checkbox";
           box.checked = this.selected.has(provider);
           row.createEl("span", { text: getProviderDescriptor(provider).label, cls: "ocop-setup-choice-label" });
+          if (findProviderCliPath(provider)) {
+            row.createEl("span", { text: "\uC774\uBBF8 \uC124\uCE58\uB428 \xB7 \uC5F0\uACB0 \uD655\uC778\uB9CC \uC9C4\uD589", cls: "ocop-setup-choice-status" });
+          }
           box.addEventListener("change", () => {
             if (box.checked) this.selected.add(provider);
             else this.selected.delete(provider);
             start.disabled = this.selected.size === 0;
           });
         }
-        const start = wrap.createEl("button", { text: "\uC124\uCE58 \uC2DC\uC791", cls: "mod-cta ocop-setup-action-btn" });
+        const start = wrap.createEl("button", { text: "\uC120\uD0DD\uD55C AI \uC124\uC815 \uC2DC\uC791", cls: "mod-cta ocop-setup-action-btn" });
         start.disabled = this.selected.size === 0;
         start.addEventListener("click", () => {
           void this.beginQueue();
