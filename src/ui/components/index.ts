@@ -20,7 +20,6 @@ export {
   ExternalContextSelector,
   ModelSelector,
   PermissionToggle,
-  type SocraticLauncherButton,
   ThinkingBudgetSelector,
   type ToolbarCallbacks,
   type ToolbarSettings,

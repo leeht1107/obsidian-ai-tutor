@@ -517,7 +517,7 @@ describe('InputController - Message Queue', () => {
 
     it('infers quiz session state for toolbar-launched quiz prompts', async () => {
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
-      const displayContent = '/quiz · 현재 노트 · db.md · 4문제 · 중 · 정규화';
+      const displayContent = '/quiz · 현재 노트 · db.md · 4문제 · 중 · 연계 응용 · 정규화';
 
       await controller.sendMessage({
         content: 'Generated quiz prompt',
@@ -529,6 +529,7 @@ describe('InputController - Message Queue', () => {
         currentQuestion: 1,
         scopeLabel: displayContent,
         focusText: '정규화',
+        questionStyle: 'application',
       });
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).not.toContain('You are continuing an active quiz');
@@ -553,6 +554,23 @@ describe('InputController - Message Queue', () => {
       expect(prompt).toContain('Continue the SAME quiz scope');
       expect(prompt).toContain('## {N}/{T}번 문제');
       expect(deps.state.quizSession?.currentQuestion).toBe(2);
+    });
+
+    it('preserves related-application mode when an active quiz continues', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      deps.state.quizSession = Object.assign({
+        totalQuestions: 5,
+        currentQuestion: 1,
+        scopeLabel: '/quiz · 현재 노트 · db.md · 5문제 · 중 · 연계 응용 · 전체 범위',
+        difficulty: '중' as const,
+        sourceInstruction: 'Use only the current note as ground truth source material: @db.md',
+      }, { questionStyle: 'application' as const });
+
+      await controller.sendMessage({ content: 'C' });
+
+      const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
+      expect(prompt).toContain('apply concepts from the selected material to fresh scenarios');
+      expect(deps.state.quizSession).toHaveProperty('questionStyle', 'application');
     });
 
     it('injects the exact previous quiz question when grading a bare answer after progression', async () => {

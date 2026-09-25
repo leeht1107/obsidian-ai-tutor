@@ -12,6 +12,11 @@ export {
   InstructionModal,
   type InstructionModalCallbacks,
 } from './InstructionConfirmModal';
-export { QuizSetupModal, type QuizSetupResult } from './QuizSetupModal';
-export { SocraticSetupModal, type SocraticSetupResult } from './SocraticSetupModal';
+export {
+  LearningSetupModal,
+  type LearningSetupMode,
+  type LearningSetupResult,
+  type QuizSetupResult,
+  type SocraticSetupResult,
+} from './LearningSetupModal';
 export { UnsafeAgyAgentConsentModal } from './UnsafeAgyAgentConsentModal';

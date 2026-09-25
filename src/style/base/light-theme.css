@@ -66,17 +66,6 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.theme-light .ocop-quiz-launcher-btn {
-  color: #0c4a6e;
-  border-color: color-mix(in srgb, #0284c7 28%, var(--background-modifier-border));
-  background: color-mix(in srgb, #0284c7 8%, var(--background-secondary));
-}
-
-.theme-light .ocop-quiz-launcher-btn:hover {
-  background: color-mix(in srgb, #0284c7 14%, var(--background-secondary));
-  border-color: #0284c7;
-}
-
 .theme-light .ocop-file-chip {
   background: var(--background-secondary);
 }
