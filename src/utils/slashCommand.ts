@@ -4,6 +4,17 @@
  * Core parsing logic for slash command YAML frontmatter and warning formatting.
  */
 
+/** Shared slash-tool policy used by chat and inline edit. */
+export function resolveSlashAllowedTools(command: { allowedTools?: string[]; content: string }): string[] | undefined {
+  if (command.allowedTools !== undefined) return command.allowedTools;
+  return parseSlashCommandContent(command.content).allowedTools;
+}
+
+export function slashAllowsInlineBash(allowedTools?: string[]): boolean {
+  if (allowedTools === undefined) return true;
+  return allowedTools.some((tool) => tool.trim().toLowerCase() === 'bash');
+}
+
 /** Formats expansion errors for display. */
 export function formatSlashCommandWarnings(errors: string[]): string {
   const maxItems = 3;
