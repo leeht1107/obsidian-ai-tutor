@@ -60,10 +60,18 @@ function slashAllowsInlineBash(allowedTools?: string[]): boolean {
   return allowedTools.some((tool) => SHARED_BASH_TOOL_NAMES.has(tool.trim().toLowerCase()));
 }
 
+function sharedToolKey(tool: string): string {
+  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
+  if (normalized === 'read' || normalized === 'view') return 'view';
+  if (normalized === 'websearch') return 'websearch';
+  if (normalized === 'webfetch') return 'webfetch';
+  return normalized;
+}
+
 function intersectAllowedTools(existing: string[] | undefined, next: string[]): string[] {
   if (existing === undefined) return next;
-  const nextSet = new Set(next.map((tool) => tool.toLowerCase()));
-  return existing.filter((tool) => nextSet.has(tool.toLowerCase()));
+  const nextSet = new Set(next.map(sharedToolKey));
+  return existing.filter((tool) => nextSet.has(sharedToolKey(tool)));
 }
 
 const CURRENT_NOTE_ONLY_PATTERNS = [
@@ -777,8 +785,11 @@ ${promptToSend}`;
       if (!skipPostCompletionFollowups) {
         await this.activatePendingPlanMode();
 
-        // Generate AI title after first complete exchange (user + assistant)
-        await this.triggerTitleGeneration();
+        // A failed/interrupted first turn has no trustworthy assistant answer to title,
+        // and must not launch a second provider request after the primary one was rejected.
+        if (streamOutcome === 'completed') {
+          await this.triggerTitleGeneration();
+        }
 
         this.processQueuedMessage();
       }
