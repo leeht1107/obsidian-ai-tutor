@@ -529,6 +529,7 @@ describe('InlineEditController - bash expansion busy flag', () => {
     };
     const editorView: any = {
       state: { doc: { line: jest.fn().mockReturnValue({ from: 0 }) } },
+      dispatch: jest.fn(),
     };
     const editor: any = {};
     const editContext: InlineEditContext = { mode: 'cursor', cursorContext: { line: 0, column: 0 } as any };
@@ -574,6 +575,30 @@ describe('InlineEditController - bash expansion busy flag', () => {
     expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
     expect(editText).not.toHaveBeenCalled();
     expect(handleError).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
+  });
+
+  it('never executes local inline bash in Inline Edit even when Agent mode and Bash are allowed', async () => {
+    let bashOptions: any;
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'bash-ok', args: [] }),
+      expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+        bashOptions = options.bash;
+        return Promise.resolve({ expandedPrompt: '[Inline bash disabled]', allowedTools: ['Bash'], errors: [] });
+      }),
+    };
+    const { controller, inputEl } = buildController({
+      slashCommands: [{ id: 'bash-ok', name: 'bash-ok', content: 'Run local shell', allowedTools: ['Bash'] }],
+    });
+    const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Done' });
+    (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/bash-ok';
+
+    await (controller as any).generate();
+
+    expect(bashOptions.enabled).toBe(false);
+    expect(editText).toHaveBeenCalledWith(expect.objectContaining({ allowedTools: ['Bash'] }));
   });
 
   it('blocks inline bash and forwards the allowlist for Copilot inline edit', async () => {
@@ -732,6 +757,71 @@ describe('InlineEditController - bash expansion busy flag', () => {
 
     expect(continueConversation).not.toHaveBeenCalled();
     expect(handleError).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
+  });
+
+  it('does not start the provider after reject while slash expansion is still pending', async () => {
+    let resolveExpansion!: (value: any) => void;
+    const expansionPromise = new Promise<any>((resolve) => { resolveExpansion = resolve; });
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'slow', args: [] }),
+      expandCommand: jest.fn().mockReturnValue(expansionPromise),
+    };
+    const { controller, inputEl } = buildController({
+      slashCommands: [{ id: 'slow', name: 'slow', content: 'Slow expansion' }],
+    });
+    const editText = jest.fn();
+    const cancel = jest.fn();
+    const resetConversation = jest.fn();
+    (controller as any).inlineEditService = {
+      editText,
+      continueConversation: jest.fn(),
+      cancel,
+      resetConversation,
+    };
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/slow';
+
+    const pending = (controller as any).generate();
+    expect(slashCommandManager.expandCommand).toHaveBeenCalled();
+
+    controller.reject();
+    resolveExpansion({ expandedPrompt: 'late expansion', errors: [] });
+    await pending;
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(editText).not.toHaveBeenCalled();
+  });
+
+  it('ignores a provider result that returns after the controller was rejected', async () => {
+    let resolveResult!: (value: any) => void;
+    const resultPromise = new Promise<any>((resolve) => { resolveResult = resolve; });
+    const { controller, inputEl } = buildController();
+    const editText = jest.fn().mockReturnValue(resultPromise);
+    const cancel = jest.fn();
+    const resetConversation = jest.fn();
+    const showDiffInPlace = jest.fn();
+    const handleError = jest.fn();
+    (controller as any).inlineEditService = {
+      editText,
+      continueConversation: jest.fn(),
+      cancel,
+      resetConversation,
+    };
+    (controller as any).showDiffInPlace = showDiffInPlace;
+    (controller as any).handleError = handleError;
+    inputEl.value = 'rewrite';
+
+    const pending = (controller as any).generate();
+    expect(editText).toHaveBeenCalled();
+
+    controller.reject();
+    resolveResult({ success: true, editedText: 'late result' });
+    await pending;
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(showDiffInPlace).not.toHaveBeenCalled();
+    expect(handleError).not.toHaveBeenCalled();
   });
 
   it('sets the busy flag during expandCommand and clears it even when expandCommand throws', async () => {

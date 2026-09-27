@@ -138,6 +138,38 @@ describe('InlineEditService - isolated provider ownership', () => {
     expect(retryPrompt).not.toContain('User:\nSection 2');
   });
 
+  it('trims bounded clarification context without orphaning a user reply', async () => {
+    const plugin = buildPlugin();
+    let call = 0;
+    const agent = buildAgent(() => (async function* () {
+      call += 1;
+      if (call === 1) yield 'Question 1?';
+      else if (call === 2) yield 'Question 2?';
+      else if (call === 3) yield 'Question 3?';
+      else yield '<replacement>done</replacement>';
+    })());
+    const service = new InlineEditService(plugin, () => agent as any);
+
+    await service.editText({
+      mode: 'selection',
+      instruction: 'rewrite',
+      notePath: 'notes/a.md',
+      selectedText: 'initial text',
+    });
+    await service.continueConversation('Answer 1');
+    await service.continueConversation('Answer 2');
+    await service.continueConversation('Answer 3');
+
+    const finalPrompt = agent.streamQuery.mock.calls[3][0] as string;
+    expect(finalPrompt).toContain('initial text');
+    expect(finalPrompt).not.toContain('Question 1?');
+    expect(finalPrompt).not.toContain('User:\nAnswer 1');
+    expect(finalPrompt).toContain('Assistant:\nQuestion 2?');
+    expect(finalPrompt).toContain('User:\nAnswer 2');
+    expect(finalPrompt).toContain('Assistant:\nQuestion 3?');
+    expect(finalPrompt).toContain('User:\nAnswer 3');
+  });
+
   it('releases the toggle even when the isolated stream throws', async () => {
     const plugin = buildPlugin();
     const agent = buildAgent(() => (async function* () {
