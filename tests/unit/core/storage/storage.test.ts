@@ -393,7 +393,7 @@ Do something`;
       expect(parsed.promptContent).toBe('Just a prompt without frontmatter');
     });
 
-    it('preserves an explicitly empty allowed-tools block as deny-all', () => {
+    it('preserves an explicitly empty allowed-tools block without widening it', () => {
       const content = [
         '---',
         'allowed-tools:',
@@ -465,7 +465,7 @@ Prompt`;
 
       const serialized = serializeCommandHelper(command);
 
-      expect(serialized).toContain('allowed-tools:\n---');
+      expect(serialized).toContain('allowed-tools: []');
       expect(parseSlashCommandContent(serialized).allowedTools).toEqual([]);
     });
 
@@ -490,7 +490,7 @@ Prompt`;
       const savedPath = storage.getFilePath(command);
       const reloaded = await storage.loadFromFile(savedPath);
 
-      expect(files.get(savedPath)).toContain('allowed-tools:\n---');
+      expect(files.get(savedPath)).toContain('allowed-tools: []');
       expect(reloaded?.allowedTools).toEqual([]);
     });
 
@@ -1204,9 +1204,13 @@ function serializeCommandHelper(command: SlashCommand): string {
     lines.push(`argument-hint: ${yamlStringHelper(command.argumentHint)}`);
   }
   if (command.allowedTools !== undefined) {
-    lines.push('allowed-tools:');
-    for (const tool of command.allowedTools) {
-      lines.push(`  - ${tool}`);
+    if (command.allowedTools.length === 0) {
+      lines.push('allowed-tools: []');
+    } else {
+      lines.push('allowed-tools:');
+      for (const tool of command.allowedTools) {
+        lines.push(`  - ${tool}`);
+      }
     }
   }
   if (command.model) {
