@@ -32,7 +32,7 @@ describe('ask mode', () => {
     // request, quiz or not. The prompt goes last, out of the variadic flag's reach.
     expect(buildNativeProviderCommand('claude', 'hi', '', '', 'ask').args)
       .toEqual(['-p', '--disallowedTools', 'Write,Edit,Bash',
-        '--output-format', 'stream-json', '--verbose', 'hi']);
+        '--tools', 'default', '--output-format', 'stream-json', '--verbose', 'hi']);
   });
 
   it('adds nothing for agy, which cannot write headless in the first place', () => {
@@ -48,6 +48,15 @@ describe('ask mode', () => {
     expect(buildNativeProviderCommand('codex', 'hi', '', '', 'ask').args)
       .toEqual(['exec', '--skip-git-repo-check',
         '-s', 'read-only', '-c', 'approval_policy="never"', '--json', 'hi']);
+  });
+
+  it('disables native Web tools for Claude and Codex when Web is off', () => {
+    const claude = buildNativeProviderCommand('claude', 'hi', '', '', 'ask', false, false).args;
+    expect(claude).toContain('--disallowedTools');
+    expect(claude).toContain('Write,Edit,Bash,WebSearch,WebFetch');
+    expect(claude).not.toContain('--tools');
+    const codex = buildNativeProviderCommand('codex', 'hi', '', '', 'ask', false, false).args;
+    expect(codex).toContain('web_search="disabled"');
   });
 });
 
@@ -74,7 +83,7 @@ describe('agent mode', () => {
     // workspace" — while claude's only open-ended lever stays open-ended.
     expect(buildNativeProviderCommand('claude', 'hi', '', '', 'agent').args)
       .toEqual(['-p', '--permission-mode', 'bypassPermissions',
-        '--output-format', 'stream-json', '--verbose', 'hi']);
+        '--tools', 'default', '--output-format', 'stream-json', '--verbose', 'hi']);
     expect(buildNativeProviderCommand('codex', 'hi', '', '', 'agent').args)
       .toEqual(['exec', '--skip-git-repo-check',
         '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hi']);

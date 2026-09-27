@@ -115,6 +115,7 @@ describe('the copilot path leaves a record of what the student was shown', () =>
       providerCliPaths: { claude: process.platform === 'win32' ? 'C:\\Users\\s\\claude.exe' : '/usr/local/bin/claude' },
       blanketWriteAcknowledged: ['claude'],
     });
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/usr/local/bin/claude');
     jest.spyOn(childProcess, 'spawn').mockImplementation(() => {
       throw new Error(`spawn failed with ${TOKEN}`);
     });

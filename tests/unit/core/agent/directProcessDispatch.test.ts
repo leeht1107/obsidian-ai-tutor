@@ -102,6 +102,7 @@ function makeService(
     settings: {
       ...DEFAULT_SETTINGS,
       selectedProvider: provider,
+      enableWebSearch: true,
       providerCliPaths: { [provider]: fixturePath },
       ...settingsOverrides,
     },

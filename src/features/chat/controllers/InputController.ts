@@ -168,10 +168,6 @@ export class InputController {
     void this.sendMessage({ content });
   }
 
-  private enableQuizExternalTools(): void {
-    this.deps.getWebSearchToggle()?.setEnabled?.(true);
-  }
-
   private getLatestQuizQuestionContext(
     currentQuestion: number,
     totalQuestions: number
@@ -257,9 +253,6 @@ export class InputController {
     };
 
     if (result.mode === 'quiz') {
-      if (result.enableExternalTools) {
-        this.enableQuizExternalTools();
-      }
       await this.sendMessage({
         ...sharedOptions,
         quizSessionInit: {
@@ -312,6 +305,11 @@ export class InputController {
     let content = (contentOverride ?? inputEl.value).trim();
     const hasImages = imageContextManager?.hasImages() ?? false;
     if (!content && !hasImages) return;
+    const quizSessionInit = options?.quizSessionInit ?? this.inferQuizSessionInit(options?.displayContentOverride);
+    const socraticSessionInit = options?.socraticSessionInit;
+    const learningRequest = Boolean(
+      quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
+    );
 
     if (content === '/quiz' || content.startsWith('/quiz ')) {
       const quizFocusText = content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
@@ -392,9 +390,6 @@ export class InputController {
     if (shouldUseInput) {
       inputEl.value = '';
     }
-
-    const quizSessionInit = options?.quizSessionInit ?? this.inferQuizSessionInit(options?.displayContentOverride);
-    const socraticSessionInit = options?.socraticSessionInit;
 
     if (quizSessionInit) {
       this.exitQuizMode();
@@ -506,7 +501,8 @@ export class InputController {
                 // The raw setting is not enough: a provider still awaiting blanket-write
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
-                enabled: plugin.settings.enableInlineBash
+                enabled: !learningRequest
+                  && plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
                     plugin.settings.permissionMode,
                     plugin.settings.selectedProvider,
@@ -644,9 +640,6 @@ ${promptToSend}`;
 
     // Add web search toggle state
     const webSearchEnabled = this.deps.getWebSearchToggle()?.isEnabled() ?? false;
-    const learningRequest = Boolean(
-      quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
-    );
     queryOptions = {
       ...queryOptions,
       enableWebSearch: webSearchEnabled,

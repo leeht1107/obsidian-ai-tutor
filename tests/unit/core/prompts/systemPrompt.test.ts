@@ -94,6 +94,23 @@ describe('systemPrompt', () => {
       expect(prompt).not.toContain('full read/write access');
       expect(prompt).not.toContain('External contexts** | Full access');
     });
+
+    it('does not describe Write, Edit, or Bash as available on an Ask/read-only request', () => {
+      const prompt = buildSystemPrompt({ permissionMode: 'ask', enableWebSearch: false });
+      const toolsLine = prompt.split('\n').find((line) => line.startsWith('Standard tools'));
+      expect(toolsLine).toBeDefined();
+      expect(toolsLine).not.toMatch(/Write|Edit|Bash/);
+      expect(toolsLine).not.toMatch(/WebSearch|WebFetch/);
+      expect(prompt).toContain('Web search is unavailable for this request.');
+      expect(prompt).not.toContain('search for latest news');
+    });
+
+    it('describes the Agent tool surface and includes Web only when enabled', () => {
+      const prompt = buildSystemPrompt({ permissionMode: 'agent', enableWebSearch: true });
+      const toolsLine = prompt.split('\n').find((line) => line.startsWith('Standard tools'));
+      expect(toolsLine).toMatch(/Write.*Edit.*Bash/);
+      expect(toolsLine).toMatch(/WebSearch.*WebFetch/);
+    });
   });
 
   describe('subagent instructions (AGENT mode only — spawning a subagent is a mutation-capable action)', () => {

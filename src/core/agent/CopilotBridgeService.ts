@@ -12,7 +12,6 @@ import { buildContextFromHistory } from '../../utils/session';
 import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
-  findProviderCliPath,
   getConfiguredProviderCliPath,
   getProviderDescriptor,
   getStaticProviderModels,
@@ -511,6 +510,7 @@ export class CopilotBridgeService {
       vaultPath,
       hasEditorContext,
       planMode: queryOptions?.planMode,
+      enableWebSearch: queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch,
       appendedPlan: this.approvedPlanContent ?? undefined,
       permissionMode: permissionMode ?? this.effectivePermissionMode(
         this.plugin.settings.selectedProvider as ProviderId,
@@ -729,8 +729,7 @@ export class CopilotBridgeService {
     };
     const args = discovery[provider];
     if (!args) return [];
-    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
-    const cliPath = findProviderCliPath(provider, configuredPath);
+    const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
     if (!cliPath) throw new Error(`${provider} CLI not found`);
     // Discovery has to resolve the CLI exactly as dispatch does. Windows cannot
     // launch a .cmd shim through execFile at all, and there is no shell here to
@@ -1003,8 +1002,17 @@ export class CopilotBridgeService {
     queryOptions?: QueryOptions
   ): AsyncGenerator<StreamChunk> {
     const provider = this.plugin.settings.selectedProvider as ProviderId;
-    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
-    const cliPath = findProviderCliPath(provider, configuredPath);
+    const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
+    if (provider === 'agy' && !enableWebSearch) {
+      const notice = 'Agy는 요청별 Web 검색 끄기를 지원하지 않아 요청을 실행하지 않았습니다. Web 검색을 켜거나 다른 provider를 선택해 주세요.';
+      if (this.shownPermissionNotices.get(provider) !== notice) {
+        this.shownPermissionNotices.set(provider, notice);
+        this.onPermissionNotice?.(notice);
+      }
+      yield { type: 'error', content: notice };
+      return;
+    }
+    const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
     if (!cliPath) {
       this.logError({ provider, stage: 'resolve', message: 'CLI not found on PATH or at the configured path' });
       yield { type: 'error', content: `${provider} CLI not found. Open Settings to complete setup.` };
@@ -1048,7 +1056,15 @@ export class CopilotBridgeService {
       this.shownPermissionNotices.set(provider, notice);
       this.onPermissionNotice?.(notice);
     }
-    const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode, Boolean(queryOptions?.readOnly));
+    const native = buildNativeProviderCommand(
+      provider,
+      fullPrompt,
+      selection.model,
+      selection.effort,
+      permissionMode,
+      Boolean(queryOptions?.readOnly),
+      enableWebSearch,
+    );
     // The prompt carries note content, so it must stay one argv element. A shell
     // would flatten it into a command string where `&` and `|` are operators.
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);

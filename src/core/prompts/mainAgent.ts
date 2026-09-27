@@ -21,6 +21,8 @@ export interface SystemPromptSettings {
   appendedPlan?: string;
   /** Current permission mode. Subagent instructions are AGENT-only (they spawn CLI processes). */
   permissionMode?: PermissionMode;
+  /** Effective per-request Web availability passed through from dispatch options. */
+  enableWebSearch?: boolean;
 }
 
 /** Task (Subagents) instructions — AGENT mode only, since spawning a subagent is a mutation-capable action. */
@@ -62,9 +64,24 @@ Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`descript
 }
 
 /** Returns the base system prompt with core instructions. */
-function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode): string {
+function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode, enableWebSearch = true): string {
   const vaultInfo = vaultPath ? `\n\nVault absolute path: ${vaultPath}` : '';
   const subagentInstructions = permissionMode === 'agent' ? getSubagentInstructions() : '';
+  const readOnly = permissionMode === 'ask' || permissionMode === 'plan';
+  const toolNames = readOnly
+    ? ['Read', 'Glob', 'Grep', 'LS', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])]
+    : ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'LS', 'Bash', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])];
+  const toolsInstruction = `Standard tools (${toolNames.join(', ')}) work as expected.`;
+  const webSearchInstructions = enableWebSearch
+    ? `### WebSearch
+
+Use WebSearch strictly according to the following logic:
+
+1. **Static/Historical**: Rely on internal knowledge for established facts, history, or older code libraries.
+2. **Dynamic/Recent**: Search for latest news, versions, docs, events in the current/previous year, and volatile data.
+3. **Date Awareness**: If the user says "yesterday", calculate the date relative to Current Date.
+4. **Ambiguity**: If unsure whether knowledge is outdated, search.`
+    : '### WebSearch\n\nWeb search is unavailable for this request.';
 
   return `## Time Context
 
@@ -147,7 +164,7 @@ Examples:
 
 ## Tool Usage Guidelines
 
-Standard tools (Read, Write, Edit, Glob, Grep, LS, Bash, WebSearch, WebFetch, Skills) work as expected.
+${toolsInstruction}
 
 If the current provider exposes the \`AskUserQuestion\` tool, use it for structured user questions.
 If \`AskUserQuestion\` is not available in the current provider/tool surface, ask one concise plain-text question directly in chat and stop after the question.
@@ -173,17 +190,7 @@ Before taking action, explicitly THINK about:
 - **LS**: Uses "." for vault root.
 - **WebFetch**: For text/HTML/PDF only. Avoid binaries.
 
-### WebSearch
-
-Use WebSearch strictly according to the following logic:
-
-1.  **Static/Historical**: Rely on internal knowledge for established facts, history, or older code libraries.
-2.  **Dynamic/Recent**: **MUST** search for:
-    - "Latest" news, versions, docs.
-    - Events in the current/previous year.
-    - Volatile data (prices, weather).
-3.  **Date Awareness**: If user says "yesterday", calculate the date relative to **Current Date**.
-4.  **Ambiguity**: If unsure if knowledge is outdated, SEARCH.
+${webSearchInstructions}
 ${subagentInstructions}
 ### TodoWrite
 
@@ -360,7 +367,11 @@ You are in **plan mode** - a read-only exploration phase before implementation.
 
 /** Builds the complete system prompt with optional custom settings. */
 export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
-  let prompt = getBaseSystemPrompt(settings.vaultPath, settings.permissionMode);
+  let prompt = getBaseSystemPrompt(
+    settings.vaultPath,
+    settings.planMode ? 'plan' : settings.permissionMode,
+    settings.enableWebSearch ?? true,
+  );
 
   // Stable content (ordered for context cache optimization)
   prompt += getImageInstructions(settings.mediaFolder || '');
@@ -377,10 +388,7 @@ export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
   }
 
   if (settings.planMode) {
-    prompt = prompt.replace(
-      'Standard tools (Read, Write, Edit, Glob, Grep, LS, Bash, WebSearch, WebFetch, Skills) work as expected.',
-      'Standard tools (Read, Glob, Grep, LS, WebSearch, WebFetch) work as expected. Write, Edit, and Bash are disabled in plan mode.'
-    );
+    prompt = prompt.replace(/^(Standard tools \(.+\) work as expected\.)$/m, '$1 Write, Edit, and Bash are disabled in plan mode.');
     prompt += getPlanModeInstructions();
   }
 

@@ -300,6 +300,7 @@ export function buildNativeProviderCommand(
   effort = '',
   permissionMode: NativePermissionMode = 'ask',
   forcedReadOnly = false,
+  enableWebSearch = true,
 ): { command: string; args: string[] } {
   const selectedModel = model.trim();
   // A level this CLI never validated is dropped rather than passed through: agy aborts the
@@ -327,7 +328,7 @@ export function buildNativeProviderCommand(
     // `--permission-mode` takes a single value, but it sits in the same slot so the
     // invariant holds whichever branch is taken. `bypassPermissions` is claude's only
     // open-ended lever — an accepted residual risk of the locked decision, not an oversight.
-    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', 'Write,Edit,Bash'] : ['--permission-mode', 'bypassPermissions']), '--output-format', 'stream-json', '--verbose', prompt] };
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', enableWebSearch ? 'Write,Edit,Bash' : 'Write,Edit,Bash,WebSearch,WebFetch'] : ['--permission-mode', 'bypassPermissions', ...(!enableWebSearch ? ['--disallowedTools', 'WebSearch,WebFetch'] : [])]), ...(enableWebSearch ? ['--tools', 'default'] : []), '--output-format', 'stream-json', '--verbose', prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
@@ -336,7 +337,7 @@ export function buildNativeProviderCommand(
     // made codex answer "Blocked". `workspace-write` is a real boundary — it refused
     // `$HOME` as "outside the permitted workspace" — but note `/tmp` is a documented
     // writable root, so a `/tmp` target does not test it.
-    case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '-s', readOnly ? 'read-only' : 'workspace-write', '-c', 'approval_policy="never"', '--json', prompt] };
+    case 'codex': return { command: 'codex', args: ['exec', '--skip-git-repo-check', ...modelArgs, ...(selectedEffort ? ['-c', `model_reasoning_effort="${selectedEffort}"`] : []), '-s', readOnly ? 'read-only' : 'workspace-write', '-c', 'approval_policy="never"', ...(!enableWebSearch ? ['-c', 'web_search="disabled"'] : []), '--json', prompt] };
     // agy cannot use a writing tool headless — it has no way to ask permission — so
     // read-only is its default and this flag is the only thing that lifts it.
     case 'agy': return { command: 'agy', args: [...(readOnly ? [] : ['--dangerously-skip-permissions']), ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), '--output-format', 'json', '-p', prompt] };
@@ -400,9 +401,10 @@ export function getConfiguredProviderCliPath(settings: ProviderCliPathSettings, 
     || '';
 }
 
-/** Resolve configured or discovered paths through the same expansion and file checks. */
+/** Prefer a valid configured path, falling back to PATH when that setting is stale. */
 export function resolveProviderCliPath(settings: ProviderCliPathSettings, id: ProviderId): string | null {
-  return findProviderCliPath(id, getConfiguredProviderCliPath(settings, id));
+  const configured = getConfiguredProviderCliPath(settings, id);
+  return (configured && findProviderCliPath(id, configured)) || findProviderCliPath(id);
 }
 
 function isFile(candidate: string): boolean {

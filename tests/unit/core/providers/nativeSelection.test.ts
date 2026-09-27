@@ -30,7 +30,7 @@ describe('chat toolbar picks reaching the CLI', () => {
     expect(selection).toEqual({ provider: 'claude', model: '', effort: 'high' });
     expect(buildNativeProviderCommand('claude', 'hi', '', 'high', 'agent').args)
       .toEqual(['-p', '--effort', 'high', '--permission-mode', 'bypassPermissions',
-        '--output-format', 'stream-json', '--verbose', 'hi']);
+        '--tools', 'default', '--output-format', 'stream-json', '--verbose', 'hi']);
   });
 
   it('lets a per-request model override the stored one', () => {

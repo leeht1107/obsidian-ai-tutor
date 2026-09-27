@@ -291,9 +291,6 @@ export class ObsidianCopilotView extends ItemView {
       if (!result) return;
 
       if (result.mode === 'quiz') {
-        if (result.enableExternalTools) {
-          this.webSearchToggle?.setEnabled(true);
-        }
         await this.inputController?.sendMessage({
           content: result.prompt,
           displayContentOverride: result.displayContent,

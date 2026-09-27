@@ -26,7 +26,7 @@ const write = (dir: string, name: string, body: string): string => {
 const makeService = (cliPath: string, vault: string) =>
   new CopilotBridgeService(
     {
-      settings: { ...DEFAULT_SETTINGS, selectedProvider: 'agy', providerCliPaths: { agy: cliPath } },
+      settings: { ...DEFAULT_SETTINGS, selectedProvider: 'agy', enableWebSearch: true, providerCliPaths: { agy: cliPath } },
       app: { vault: { adapter: { basePath: vault } } },
       getActiveEnvironmentVariables: () => '',
     } as unknown as ObsidianCopilotPlugin

@@ -497,6 +497,38 @@ describe('InputController - Message Queue', () => {
       expect(seenBashOptions.enabled).toBe(false);
     });
 
+    it.each(['quiz', 'socratic'] as const)(
+      'blocks inline bash in an active %s session before expanding a slash command',
+      async (mode) => {
+        deps.plugin.settings.permissionMode = 'agent';
+        (deps.plugin.settings as any).selectedProvider = 'copilot';
+        (deps.plugin.settings as any).enableInlineBash = true;
+        const slashCommandManager = {
+          setCommands: jest.fn(),
+          detectCommand: jest.fn().mockReturnValue({ commandName: 'greet', args: [] }),
+          expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+            expect(options.bash.enabled).toBe(false);
+            return Promise.resolve({ expandedPrompt: 'expanded', errors: [] });
+          }),
+        };
+        deps.getSlashCommandManager = () => slashCommandManager as any;
+        deps.plugin.settings.slashCommands = [{ id: 'greet', name: 'greet', content: 'hi !`echo hi`' }];
+        deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+        if (mode === 'quiz') {
+          deps.state.quizSession = { totalQuestions: 2, currentQuestion: 1, scopeLabel: 'quiz' };
+        } else {
+          deps.state.socraticSession = {
+            maxDepth: 4, currentDepth: 1, scopeLabel: 'socratic', supportLevel: 1, isSummaryPhase: false,
+          };
+        }
+
+        await controller.sendMessage({ content: '/greet' });
+
+        expect(slashCommandManager.expandCommand).toHaveBeenCalled();
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+      }
+    );
+
     it('locks the toggle for the whole duration a provider request is streaming, not just inline bash', async () => {
       let busy = false;
       let busyMidStream: boolean | null = null;
@@ -524,7 +556,7 @@ describe('InputController - Message Queue', () => {
         displayContentOverride: displayContent,
       });
 
-      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
 
       expect(deps.state.quizSession).toEqual({
         totalQuestions: 4,
@@ -549,7 +581,7 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage({ content: 'C' });
 
-      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
 
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).toContain('You are continuing an active quiz');
@@ -642,7 +674,7 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
 
-      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
 
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).toContain('QUIZ HINT REQUEST');
@@ -653,19 +685,26 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.quizSession?.currentQuestion).toBe(2);
     });
 
-    it('enables web search for high-difficulty quiz launches', () => {
+    it('keeps the global web toggle unchanged for high-difficulty quiz setup', async () => {
       const setEnabled = jest.fn();
+      const isEnabled = jest.fn().mockReturnValue(false);
       deps = createMockDeps({
         getWebSearchToggle: () => ({
-          isEnabled: jest.fn().mockReturnValue(false),
+          isEnabled,
           setEnabled,
         }),
       });
       controller = new InputController(deps);
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
-      (controller as any).enableQuizExternalTools();
+      await (controller as any).sendLearningSetupResult({
+        mode: 'quiz', prompt: 'quiz prompt', displayContent: 'quiz display', totalQuestions: 2,
+        difficulty: '상', enableExternalTools: true,
+      }, {});
 
-      expect(setEnabled).toHaveBeenCalledWith(true);
+      expect(setEnabled).not.toHaveBeenCalled();
+      expect(isEnabled).toHaveBeenCalled();
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: false });
     });
 
     describe('Mode switching cleanup', () => {
@@ -676,6 +715,7 @@ describe('InputController - Message Queue', () => {
         deps = createMockDeps({
           getMessagesEl: () => messagesEl,
           showSocraticBanner,
+          getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(true) }),
         });
         controller = new InputController(deps);
         deps.state.quizSession = {
@@ -697,7 +737,7 @@ describe('InputController - Message Queue', () => {
           },
         });
 
-        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: true });
 
         const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
         expect(prompt).not.toContain('You are continuing an active quiz.');
@@ -729,7 +769,7 @@ describe('InputController - Message Queue', () => {
 
         await controller.sendMessage({ content: '모르겠어요' });
 
-        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
 
         const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
         expect(prompt).toContain('[SOCRATIC SESSION');

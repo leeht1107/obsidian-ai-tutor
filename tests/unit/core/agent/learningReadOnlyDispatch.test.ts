@@ -42,8 +42,10 @@ describe('learning request permission boundary', () => {
     provider: 'claude' | 'codex' | 'agy' | 'copilot',
     pathSetting: 'modern' | 'legacy' = 'modern',
     acknowledged = true,
-  ): Promise<{ args: string[]; notices: string[] }> {
+    enableWebSearch = true,
+  ): Promise<{ args: string[]; notices: string[]; spawned: boolean }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
+    if (fs.existsSync(captured)) fs.unlinkSync(captured);
     const cli = fixture(provider, captured);
     const notices: string[] = [];
     const service = new CopilotBridgeService({
@@ -63,9 +65,10 @@ describe('learning request permission boundary', () => {
 
     for await (const chunk of service.query('learning prompt', undefined, undefined, {
       readOnly: true,
-      enableWebSearch: true,
+      enableWebSearch,
     })) { void chunk; }
-    return { args: fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/), notices };
+    const spawned = fs.existsSync(captured);
+    return { args: spawned ? fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/) : [], notices, spawned };
   }
 
   it.each(providers)('passes read-only flags on the actual %s request dispatch', async (provider) => {
@@ -91,5 +94,35 @@ describe('learning request permission boundary', () => {
     const { args, notices } = await run('claude', 'modern', false);
     expect(args).toContain('--disallowedTools');
     expect(notices).toEqual([]);
+  });
+
+  it('fails closed for Agy with Web off before spawn and explains the toolbar choice', async () => {
+    const { args, notices, spawned } = await run('agy', 'modern', true, false);
+    expect(spawned).toBe(false);
+    expect(args).toEqual([]);
+    expect(notices.join(' ')).toMatch(/Web 검색/);
+    expect(notices.join(' ')).toMatch(/실행하지 않았습니다/);
+  });
+
+  it('keeps Agy runnable when Web is on', async () => {
+    const { args, spawned } = await run('agy', 'modern', true, true);
+    expect(spawned).toBe(true);
+    expect(args).toContain('--output-format');
+  });
+
+  it('passes the toolbar Web state into native Claude and Codex argv', async () => {
+    const claudeOff = await run('claude', 'modern', true, false);
+    expect(claudeOff.args).toContain('Write,Edit,Bash,WebSearch,WebFetch');
+    const claudeOn = await run('claude', 'modern', true, true);
+    const claudeDisallowedToolsIndex = claudeOn.args.indexOf('--disallowedTools');
+    expect(claudeOn.args[claudeDisallowedToolsIndex + 1]).toBe('Write,Edit,Bash');
+    expect(claudeOn.args).toContain('--tools');
+    expect(claudeOn.args[claudeOn.args.indexOf('--tools') + 1]).toBe('default');
+    expect(claudeOff.args).not.toContain('--tools');
+
+    const codexOff = await run('codex', 'modern', true, false);
+    expect(codexOff.args).toContain('web_search="disabled"');
+    const codexOn = await run('codex', 'modern', true, true);
+    expect(codexOn.args).not.toContain('web_search="disabled"');
   });
 });

@@ -25,7 +25,7 @@ describe('provider model + effort capability', () => {
       expect(buildNativeProviderCommand('claude', 'hello', 'opus', 'high', 'agent').args).toEqual([
         '-p', '--model', 'opus', '--effort', 'high',
         '--permission-mode', 'bypassPermissions',
-        '--output-format', 'stream-json', '--verbose', 'hello',
+        '--tools', 'default', '--output-format', 'stream-json', '--verbose', 'hello',
       ]);
     });
 

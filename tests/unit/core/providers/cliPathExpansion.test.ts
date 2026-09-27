@@ -17,7 +17,7 @@ describe('findProviderCliPath with a configured path', () => {
   let cli: string;
 
   beforeAll(() => {
-    dir = fs.mkdtempSync(path.join(os.homedir(), '.ocop-clipath-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), '.ocop-clipath-'));
     cli = path.join(dir, 'copilot');
     fs.writeFileSync(cli, '#!/bin/sh\n');
     fs.chmodSync(cli, 0o755);
@@ -29,12 +29,12 @@ describe('findProviderCliPath with a configured path', () => {
     expect(findProviderCliPath('copilot', tildePath)).toBe(cli);
   });
 
-  it('still rejects a configured path that does not exist', () => {
-    expect(findProviderCliPath('copilot', path.join(dir, 'nope'))).toBeNull();
-  });
-
   it('leaves an absolute path alone', () => {
     expect(findProviderCliPath('copilot', cli)).toBe(cli);
+  });
+
+  it('keeps a caller-supplied missing probe path strict', () => {
+    expect(findProviderCliPath('copilot', path.join(dir, 'missing-probe'))).toBeNull();
   });
 
   it('resolves configured provider paths consistently, including the legacy Copilot field', () => {
@@ -42,5 +42,34 @@ describe('findProviderCliPath with a configured path', () => {
     expect(getConfiguredProviderCliPath(legacy, 'copilot')).toBe(cli);
     expect(resolveProviderCliPath(legacy, 'copilot')).toBe(cli);
     expect(resolveProviderCliPath({ providerCliPaths: { copilot: cli } }, 'copilot')).toBe(cli);
+  });
+
+  it('keeps a valid configured CLI path ahead of PATH discovery', () => {
+    const discoveredDir = path.join(dir, 'discovered');
+    fs.mkdirSync(discoveredDir);
+    const discovered = path.join(discoveredDir, 'copilot');
+    fs.writeFileSync(discovered, '#!/bin/sh\n');
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${discoveredDir}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      expect(resolveProviderCliPath({ providerCliPaths: { copilot: cli } }, 'copilot')).toBe(cli);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it('falls back to PATH when the configured CLI path is stale', () => {
+    const discoveredDir = path.join(dir, 'path-bin');
+    fs.mkdirSync(discoveredDir);
+    const discovered = path.join(discoveredDir, 'copilot');
+    fs.writeFileSync(discovered, '#!/bin/sh\n');
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${discoveredDir}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      expect(resolveProviderCliPath({ providerCliPaths: { copilot: path.join(dir, 'stale') } }, 'copilot'))
+        .toBe(discovered);
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });

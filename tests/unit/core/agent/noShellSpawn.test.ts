@@ -138,9 +138,10 @@ describe('the refusal message tells the truth about each provider', () => {
   function serviceFor(provider: string, cliPath: string): CopilotBridgeService {
     const fakePlugin = {
       settings: {
-        ...DEFAULT_SETTINGS,
-        selectedProvider: provider,
-        providerCliPaths: { [provider]: cliPath },
+      ...DEFAULT_SETTINGS,
+      selectedProvider: provider,
+      enableWebSearch: true,
+      providerCliPaths: { [provider]: cliPath },
         blanketWriteAcknowledged: [provider],
       },
       app: { vault: { adapter: { basePath: 'C:\\vault' } } },

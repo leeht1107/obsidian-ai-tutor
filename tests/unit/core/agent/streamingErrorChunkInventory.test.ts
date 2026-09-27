@@ -24,7 +24,9 @@ import * as path from 'path';
 const SOURCE = path.join(__dirname, '../../../../src/core/agent/CopilotBridgeService.ts');
 
 /**
- * 12 sites, as of 0.1.22, every one of them logged where a log is reachable:
+ * 13 sites: the original 12 logged branches plus the deliberate Agy Web-OFF refusal:
+ * it both emits a chat error chunk and shows a Notice before refusing to spawn. The
+ * dedicated learningReadOnlyDispatch test verifies the Notice and no-spawn contract.
  *
  * - 1 inside the copilot event translator (a `result` event carrying a non-zero
  *   exit code). A pure function with no access to the log; the `close` handler
@@ -36,7 +38,7 @@ const SOURCE = path.join(__dirname, '../../../../src/core/agent/CopilotBridgeSer
  * - 5 on the copilot path: nothing runnable resolved, a synchronous `spawn`
  *   throw, the asynchronous `error` event, exit, and empty-answer.
  */
-const KNOWN_ERROR_CHUNK_SITES = 12;
+const KNOWN_ERROR_CHUNK_SITES = 13;
 
 describe('streaming error chunks', () => {
   it('has not grown a new construction site without someone deciding about the log', () => {
