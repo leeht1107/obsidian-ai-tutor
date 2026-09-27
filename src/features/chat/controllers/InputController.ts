@@ -1212,6 +1212,11 @@ ${content}
     if (!plugin.settings.enableAutoTitleGeneration) {
       return;
     }
+    // Agy cannot technically enforce Web-off. Auto-title is non-essential, so keep
+    // the local fallback title instead of issuing a background request with weaker privacy.
+    if (plugin.settings.selectedProvider === 'agy') {
+      return;
+    }
 
     // Fire async AI title generation only if service and content available
     const titleService = this.deps.getTitleGenerationService();
