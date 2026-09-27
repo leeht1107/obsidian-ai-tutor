@@ -859,6 +859,12 @@ export class CopilotBridgeService {
       capabilities.allowAllTools,
       queryOptions,
     );
+    if (queryOptions?.allowedTools !== undefined && queryOptions.allowedTools.length === 0) {
+      const message = '도구를 전혀 허용하지 않는 실행은 현재 Copilot CLI에서 안전하게 표현할 수 없어 요청을 실행하지 않았습니다. 허용 도구를 하나 이상 지정하거나 제한을 제거해 주세요.';
+      this.logError({ provider: 'copilot', stage: 'internal', message });
+      yield { type: 'error', content: message };
+      return;
+    }
     const finalTools = resolveCopilotAllowedTools(
       permissionMode,
       queryOptions?.allowedTools,
