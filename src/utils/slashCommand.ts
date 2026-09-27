@@ -16,11 +16,14 @@ export function slashAllowsInlineBash(allowedTools?: string[]): boolean {
 }
 
 function sharedSlashToolKey(tool: string): string {
-  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
-  if (normalized === 'read' || normalized === 'view') return 'view';
-  if (normalized === 'websearch') return 'websearch';
-  if (normalized === 'webfetch') return 'webfetch';
-  return normalized;
+  const trimmed = tool.trim().toLowerCase();
+  const knownAlias = trimmed.replace(/[-_]/g, '');
+  if (knownAlias === 'read' || knownAlias === 'view') return 'view';
+  if (knownAlias === 'websearch') return 'websearch';
+  if (knownAlias === 'webfetch') return 'webfetch';
+  // Unknown/MCP tool names are identities, not spelling variants. Removing '-'/'_'
+  // here can collapse distinct provider permissions into the same key.
+  return trimmed;
 }
 
 /**

@@ -65,6 +65,11 @@ const hideInlineEdit = StateEffect.define<null>();
 // Singleton
 let activeController: InlineEditController | null = null;
 
+/** Plugin-lifecycle ownership hook for the isolated Inline Edit provider child. */
+export function cancelActiveInlineEdit(): void {
+  activeController?.reject();
+}
+
 // Diff widget that replaces the selection
 class DiffWidget extends WidgetType {
   constructor(private diffHtml: string, private controller: InlineEditController) {

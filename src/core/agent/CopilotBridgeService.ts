@@ -434,6 +434,8 @@ export class CopilotBridgeService {
    * id must never be handed to --resume. */
   private sessionConfirmedByCli = false;
   private wasInterrupted = false;
+  /** Monotonic cancellation token for await boundaries before a provider child exists. */
+  private requestEpoch = 0;
   /**
    * Which provider handled the previous turn — any provider, not just copilot. Set once
    * per turn in `buildPromptWithHistory`, the single choke point both the copilot and
@@ -830,7 +832,14 @@ export class CopilotBridgeService {
     }
 
     const cwd = this.getWorkingDirectory();
+    const requestEpoch = this.requestEpoch;
     const capabilities = await this.getCliCapabilities(copilotPath);
+    if (requestEpoch !== this.requestEpoch) {
+      // cancel() may happen while the capability probe owns the only child process.
+      // Never continue from that stale await into a new provider spawn.
+      yield { type: 'done' };
+      return;
+    }
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
     const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode || queryOptions?.readOnly));
     const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
@@ -1606,6 +1615,7 @@ export class CopilotBridgeService {
   }
 
   cancel(): void {
+    this.requestEpoch += 1;
     this.wasInterrupted = true;
     if (this.plugin.settings.selectedProvider === 'copilot') {
       // A stopped Copilot turn may already have added a partial answer to its session.

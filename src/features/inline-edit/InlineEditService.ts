@@ -71,8 +71,7 @@ export class InlineEditService {
 
   async editText(request: InlineEditRequest): Promise<InlineEditResult> {
     const prompt = this.buildPrompt(request);
-    this.conversation = [{ role: 'user', content: prompt }];
-    return this.sendConversation(request.allowedTools);
+    return this.sendTurn(prompt, request.allowedTools, true);
   }
 
   async continueConversation(
@@ -84,29 +83,43 @@ export class InlineEditService {
     if (contextFiles && contextFiles.length > 0) {
       prompt = prependContextFiles(message, contextFiles);
     }
-    this.conversation.push({ role: 'user', content: prompt });
-    this.trimConversation();
-    return this.sendConversation(allowedTools);
+    return this.sendTurn(prompt, allowedTools, false);
   }
 
-  private trimConversation(): void {
-    if (this.conversation.length <= MAX_INLINE_EDIT_FOLLOWUP_TURNS + 1) return;
-    const first = this.conversation[0];
-    this.conversation = [first, ...this.conversation.slice(-MAX_INLINE_EDIT_FOLLOWUP_TURNS)];
+  private trimConversation(turns: InlineEditTurn[]): InlineEditTurn[] {
+    if (turns.length <= MAX_INLINE_EDIT_FOLLOWUP_TURNS + 1) return turns;
+    const first = turns[0];
+    return [first, ...turns.slice(-MAX_INLINE_EDIT_FOLLOWUP_TURNS)];
   }
 
-  private buildConversationPrompt(): string {
-    if (this.conversation.length === 1) return this.conversation[0].content;
-    const transcript = this.conversation
+  private buildConversationPrompt(turns: InlineEditTurn[]): string {
+    if (turns.length === 1) return turns[0].content;
+    const transcript = turns
       .map((turn) => `${turn.role === 'user' ? 'User' : 'Assistant'}:\n${turn.content}`)
       .join('\n\n');
     return `<inline_edit_conversation>\n${transcript}\n</inline_edit_conversation>`;
   }
 
-  private async sendConversation(allowedTools?: string[]): Promise<InlineEditResult> {
+  private async sendTurn(
+    prompt: string,
+    allowedTools: string[] | undefined,
+    resetConversation: boolean
+  ): Promise<InlineEditResult> {
+    const base = resetConversation ? [] : this.conversation;
+    const candidate = this.trimConversation([
+      ...base,
+      { role: 'user', content: prompt },
+    ]);
+    return this.sendConversation(candidate, allowedTools);
+  }
+
+  private async sendConversation(
+    candidate: InlineEditTurn[],
+    allowedTools?: string[]
+  ): Promise<InlineEditResult> {
     this.abortController = new AbortController();
     const systemPrompt = getInlineEditSystemPrompt();
-    const prompt = this.buildConversationPrompt();
+    const prompt = this.buildConversationPrompt(candidate);
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
 
     // The CLI child spawns with whatever permission mode was current when the stream
@@ -119,6 +132,9 @@ export class InlineEditService {
 
       for await (const chunk of this.agentService.streamQuery(fullPrompt, {
         allowedTools,
+        // Inline Edit is a proposal surface: provider tools must never mutate files
+        // before the user accepts the rendered diff.
+        readOnly: true,
         // Continuity is local and explicit above. Never let a provider-side Copilot
         // session become hidden state that disappears when the provider changes.
         skipResume: true,
@@ -130,9 +146,14 @@ export class InlineEditService {
       }
 
       const result = this.parseResponse(responseText);
-      if (result.success && result.clarification) {
-        this.conversation.push({ role: 'assistant', content: result.clarification });
-        this.trimConversation();
+      if (result.success) {
+        const committed = [...candidate];
+        if (result.clarification) {
+          committed.push({ role: 'assistant', content: result.clarification });
+        }
+        // Commit only after a successful provider turn. Failed/cancelled attempts must
+        // not become part of the continuity SSOT or evict older valid context.
+        this.conversation = this.trimConversation(committed);
       }
       return result;
     } catch (error) {
