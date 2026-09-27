@@ -15,12 +15,26 @@ describe('learning request permission boundary', () => {
   afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
   function fixture(provider: string, captured: string): string {
-    const cli = path.join(dir, `${provider}.sh`);
-    const code = provider === 'copilot'
-      ? `if [ "$1" = "--help" ]; then printf '%s\\n' '--allow-all-tools --available-tools --output-format json --no-ask-user'; exit 0; fi\nprintf '%s\\n' "$@" > '${captured}'\nprintf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}' '{"type":"result","exitCode":0}'\n`
-      : `printf '%s\\n' "$@" > '${captured}'\nprintf '%s\\n' '${provider === 'agy' ? '{"status":"SUCCESS","response":"ok","denied_actions":[]}' : '{"delta":{"text":"ok"}}'}'\n`;
-    fs.writeFileSync(cli, `#!/bin/sh\n${code}`);
-    fs.chmodSync(cli, 0o755);
+    const script = path.join(dir, `${provider}.js`);
+    const cli = process.platform === 'win32' ? path.join(dir, `${provider}.cmd`) : script;
+    const code = [
+      'const fs = require("fs");',
+      `const provider = ${JSON.stringify(provider)};`,
+      `const captured = ${JSON.stringify(captured)};`,
+      'const args = process.argv.slice(2);',
+      'if (provider === "copilot" && args[0] === "--help") { console.log("--allow-all-tools --available-tools --output-format json --no-ask-user"); process.exit(0); }',
+      'fs.writeFileSync(captured, args.join("\\n"));',
+      'if (provider === "copilot") { console.log(JSON.stringify({ type: "assistant.message_delta", data: { deltaContent: "ok" } })); console.log(JSON.stringify({ type: "result", exitCode: 0 })); }',
+      'else if (provider === "agy") console.log(JSON.stringify({ status: "SUCCESS", response: "ok", denied_actions: [] }));',
+      'else console.log(JSON.stringify({ delta: { text: "ok" } }));',
+    ].join('\n');
+    fs.writeFileSync(script, code);
+    if (process.platform === 'win32') {
+      fs.writeFileSync(cli, `@ECHO OFF\r\n"%_prog%" "%~dp0\\${provider}.js" %*\r\n`);
+    } else {
+      fs.writeFileSync(script, `#!/usr/bin/env node\n${code}`);
+      fs.chmodSync(cli, 0o755);
+    }
     return cli;
   }
 

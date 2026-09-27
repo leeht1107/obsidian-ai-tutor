@@ -14,9 +14,15 @@ describe('configured provider paths across setup and readiness', () => {
 
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'configured-provider-'));
-    cli = path.join(dir, 'claude');
-    fs.writeFileSync(cli, '#!/bin/sh\nprintf \'{"loggedIn":true}\\n\'\n');
-    fs.chmodSync(cli, 0o755);
+    const script = path.join(dir, 'claude.js');
+    fs.writeFileSync(script, 'console.log(JSON.stringify({ loggedIn: true }));\n');
+    cli = process.platform === 'win32' ? path.join(dir, 'claude.cmd') : script;
+    if (process.platform === 'win32') {
+      fs.writeFileSync(cli, '@ECHO OFF\r\n"%_prog%" "%~dp0\\claude.js" %*\r\n');
+    } else {
+      fs.writeFileSync(script, '#!/usr/bin/env node\nconsole.log(JSON.stringify({ loggedIn: true }));\n');
+      fs.chmodSync(cli, 0o755);
+    }
   });
   afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
