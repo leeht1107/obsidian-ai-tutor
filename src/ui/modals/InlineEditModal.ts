@@ -11,9 +11,6 @@ import { MarkdownView, Notice } from 'obsidian';
 import * as path from 'path';
 
 import { SlashCommandManager } from '../../core/commands';
-import { resolveEffectivePermissionMode } from '../../core/providers/providerRegistry';
-import { isCommandBlocked } from '../../core/security/BlocklistChecker';
-import { getBashToolBlockedCommands } from '../../core/types';
 import { type InlineEditMode, InlineEditService } from '../../features/inline-edit/InlineEditService';
 import type ObsidianCopilotPlugin from '../../main';
 import { type CursorContext } from '../../utils/editor';
@@ -23,7 +20,6 @@ import {
   formatSlashCommandWarnings,
   intersectSlashAllowedTools,
   resolveSlashAllowedTools,
-  slashAllowsInlineBash,
 } from '../../utils/slashCommand';
 import { MentionDropdownController } from '../components/file-context/mention/MentionDropdownController';
 import { hideSelectionHighlight, showSelectionHighlight } from '../components/SelectionHighlight';
@@ -290,6 +286,8 @@ export class InlineEditController {
   private mentionDropdown: MentionDropdownController | null = null;
   private attachedFiles: Set<string> = new Set();
   private conversationAllowedTools: string[] | undefined;
+  private lifecycleEpoch = 0;
+  private disposed = false;
 
   constructor(
     private app: App,
@@ -486,7 +484,8 @@ export class InlineEditController {
   }
 
   private async generate() {
-    if (!this.inputEl || !this.spinnerEl) return;
+    if (!this.inputEl || !this.spinnerEl || this.disposed) return;
+    const lifecycleEpoch = this.lifecycleEpoch;
     let userMessage = this.inputEl.value.trim();
     if (!userMessage) return;
     let requestAllowedTools: string[] | undefined;
@@ -518,27 +517,12 @@ export class InlineEditController {
           try {
             const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
               bash: {
-                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
-                // for approval there, it is replaced with the same placeholder used when
-                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
-                // The raw setting is not enough: a provider still awaiting blanket-write
-                // consent (reachable by switching providers while in Agent) must also keep
-                // bash read-only, or it runs with full authority while the toggle shows Ask.
-                enabled: slashAllowsInlineBash(requestAllowedTools)
-                  && this.plugin.settings.enableInlineBash
-                  && resolveEffectivePermissionMode(
-                    this.plugin.settings.permissionMode,
-                    this.plugin.settings.selectedProvider,
-                    this.plugin.settings.blanketWriteAcknowledged
-                  ) === 'agent',
-                shouldBlockCommand: (bashCommand) =>
-                  isCommandBlocked(
-                    bashCommand,
-                    getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
-                    this.plugin.settings.enableBlocklist
-                  ),
+                // Inline Edit is a proposal surface. Local shell expansion can mutate
+                // files before the diff is accepted, so it is never executable here.
+                enabled: false,
               },
             });
+            if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
             userMessage = expansion.expandedPrompt;
             this.conversationAllowedTools = requestAllowedTools;
 
@@ -601,6 +585,7 @@ export class InlineEditController {
       }
     }
 
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     this.spinnerEl.style.display = 'none';
 
     if (result.success) {
@@ -627,6 +612,10 @@ export class InlineEditController {
     } else {
       this.handleError(result.error || 'Error - try again');
     }
+  }
+
+  private isLifecycleCurrent(epoch: number): boolean {
+    return !this.disposed && epoch === this.lifecycleEpoch;
   }
 
   /** Show agent's clarification message. */
@@ -717,6 +706,7 @@ export class InlineEditController {
   }
 
   accept() {
+    if (this.disposed) return;
     const textToInsert = this.editedText ?? this.insertedText;
     if (textToInsert !== null) {
       // Convert CM6 positions back to Obsidian Editor positions
@@ -736,6 +726,7 @@ export class InlineEditController {
   }
 
   reject() {
+    if (this.disposed) return;
     this.cleanup({ keepSelectionHighlight: true });
     this.restoreSelectionHighlight();
     this.resolve({ decision: 'reject' });
@@ -750,6 +741,9 @@ export class InlineEditController {
   }
 
   private cleanup(options?: { keepSelectionHighlight?: boolean }) {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.lifecycleEpoch += 1;
     this.inlineEditService.cancel();
     this.inlineEditService.resetConversation();
     this.isConversing = false;

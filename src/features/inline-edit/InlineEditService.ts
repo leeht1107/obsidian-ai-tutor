@@ -47,7 +47,7 @@ export interface InlineEditResult {
 
 type InlineEditAgentService = Pick<CopilotBridgeService, 'streamQuery' | 'cancel'>;
 type InlineEditTurn = { role: 'user' | 'assistant'; content: string };
-const MAX_INLINE_EDIT_FOLLOWUP_TURNS = 4;
+const MAX_INLINE_EDIT_FOLLOWUP_MESSAGES = 4;
 
 export class InlineEditService {
   private plugin: ObsidianCopilotPlugin;
@@ -87,9 +87,15 @@ export class InlineEditService {
   }
 
   private trimConversation(turns: InlineEditTurn[]): InlineEditTurn[] {
-    if (turns.length <= MAX_INLINE_EDIT_FOLLOWUP_TURNS + 1) return turns;
+    if (turns.length <= MAX_INLINE_EDIT_FOLLOWUP_MESSAGES + 1) return turns;
     const first = turns[0];
-    return [first, ...turns.slice(-MAX_INLINE_EDIT_FOLLOWUP_TURNS)];
+    let tail = turns.slice(-MAX_INLINE_EDIT_FOLLOWUP_MESSAGES);
+    // Follow-up continuity is question/reply shaped. Never retain a user reply
+    // after trimming if the assistant clarification it answered was just removed.
+    if (tail[0]?.role === 'user') {
+      tail = tail.slice(1);
+    }
+    return [first, ...tail];
   }
 
   private buildConversationPrompt(turns: InlineEditTurn[]): string {
