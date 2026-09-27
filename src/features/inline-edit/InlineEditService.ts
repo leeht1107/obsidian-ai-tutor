@@ -70,7 +70,7 @@ export class InlineEditService {
     if (contextFiles && contextFiles.length > 0) {
       prompt = prependContextFiles(message, contextFiles);
     }
-    return this.sendMessage(prompt);
+    return this.sendMessage(prompt, allowedTools);
   }
 
   private async sendMessage(prompt: string, allowedTools?: string[]): Promise<InlineEditResult> {
