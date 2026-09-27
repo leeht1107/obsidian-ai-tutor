@@ -541,7 +541,7 @@ export class InputController {
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
                 enabled: !learningRequest
-                  && slashAllowsInlineBash(cmd.allowedTools)
+                  && slashAllowsInlineBash(parsedAllowedTools)
                   && plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
                     plugin.settings.permissionMode,
