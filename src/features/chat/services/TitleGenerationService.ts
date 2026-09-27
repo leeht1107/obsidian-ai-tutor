@@ -42,6 +42,16 @@ export class TitleGenerationService {
     assistantResponse: string,
     callback: TitleGenerationCallback
   ): Promise<void> {
+    // Defense in depth for direct callers: Agy cannot guarantee Web-off, and title
+    // generation is optional. Never start a provider request in that configuration.
+    if (this.plugin.settings.selectedProvider === 'agy') {
+      await this.safeCallback(callback, conversationId, {
+        success: false,
+        error: 'Automatic title generation is unavailable with Agy because Web-off cannot be enforced.',
+      });
+      return;
+    }
+
     const existingGeneration = this.activeGenerations.get(conversationId);
     if (existingGeneration) {
       existingGeneration.abortController.abort();
