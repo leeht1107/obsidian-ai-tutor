@@ -568,7 +568,7 @@ describe('InputController - Message Queue', () => {
       }) as any;
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
-      await controller.sendMessage({ content: '/grep-only 현재 노트' });
+      await controller.sendMessage({ content: '/grep-only' });
 
       const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
       expect(queryOptions.allowedTools).toEqual([]);
@@ -629,7 +629,7 @@ describe('InputController - Message Queue', () => {
       }) as any;
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
-      await controller.sendMessage({ content: '/read-only 현재 노트' });
+      await controller.sendMessage({ content: '/read-only' });
 
       const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
       expect(queryOptions.allowedTools).toEqual(['Read']);
@@ -1229,6 +1229,40 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.messages[0].hidden).toBe(true);
       expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
       expect(imageContextManager.clearImages).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['failed', [{ type: 'text', content: 'partial plan' }, { type: 'error', content: 'provider failed' }]],
+      ['interrupted', [{ type: 'text', content: 'partial plan' }]],
+    ] as const)('does not generate a title after a %s first plan turn', async (kind, chunks) => {
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+      deps.getTitleGenerationService = () => mockTitleService as any;
+      deps.state.currentConversationId = 'conv-plan';
+      deps.plugin.settings.enableAutoTitleGeneration = true;
+      deps.plugin.settings.permissionMode = 'plan';
+      deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
+        for (const chunk of chunks) {
+          yield chunk;
+          if (kind === 'interrupted' && chunk.type === 'text') {
+            deps.state.cancelRequested = true;
+          }
+        }
+      });
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation(async (chunk: any, msg: any) => {
+        if (chunk.type === 'text') msg.content += chunk.content;
+      });
+
+      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe(kind);
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+      expect(deps.plugin.updateConversation).not.toHaveBeenCalledWith(
+        'conv-plan',
+        { titleGenerationStatus: 'pending' }
+      );
     });
 
     it('restores ask, not agent, when exiting plan mode with no prior mode recorded', async () => {
