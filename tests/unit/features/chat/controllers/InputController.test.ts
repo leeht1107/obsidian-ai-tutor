@@ -488,6 +488,7 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage({ content: '/read-only' });
 
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
       expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
       expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
       expect(deps.state.messages[1].requestOutcome).toBe('failed');
@@ -506,9 +507,71 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage({ content: '/no-tools' });
 
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
       expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
       expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
       expect(deps.state.messages[1].requestOutcome).toBe('failed');
+    });
+
+    it('does not enable inline bash when a Copilot slash allowlist omits Bash', async () => {
+      deps.plugin.settings.permissionMode = 'agent';
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      (deps.plugin.settings as any).enableInlineBash = true;
+      let seenBashOptions: any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+          seenBashOptions = options.bash;
+          return Promise.resolve({ expandedPrompt: 'expanded', allowedTools: ['Read'], errors: [] });
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: 'inspect notes',
+        allowedTools: ['Read'],
+      }];
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      expect(seenBashOptions.enabled).toBe(false);
+    });
+
+    it('intersects current-note tools with an explicit slash allowlist instead of broadening it', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'grep-only', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: '현재 노트에서 찾아줘',
+          allowedTools: ['Grep'],
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'grep-only',
+        name: 'grep-only',
+        content: '현재 노트에서 찾아줘',
+        allowedTools: ['Grep'],
+      }];
+      (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('note body');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('db.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/grep-only 현재 노트' });
+
+      const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
+      expect(queryOptions.allowedTools).toEqual([]);
     });
 
     it('does not enable inline bash when permissionMode is agent but the selected provider still needs blanket-write consent', async () => {
