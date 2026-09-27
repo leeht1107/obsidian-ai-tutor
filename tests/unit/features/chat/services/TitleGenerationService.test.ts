@@ -47,6 +47,31 @@ describe('TitleGenerationService', () => {
     });
   });
 
+  it('does not start a provider request for Agy title generation', async () => {
+    const serviceFactory = jest.fn(() => ({
+      streamQuery: jest.fn(),
+      cancel: jest.fn(),
+    }));
+    const plugin = {
+      settings: {
+        selectedProvider: 'agy',
+        titleGenerationModel: '',
+      },
+      setBashExpansionActive: jest.fn(),
+    } as any;
+    const service = new TitleGenerationService(plugin, serviceFactory as any);
+    const callback = jest.fn().mockResolvedValue(undefined);
+
+    await service.generateTitle('conv-agy', 'prompt', 'response', callback);
+
+    expect(serviceFactory).not.toHaveBeenCalled();
+    expect(plugin.setBashExpansionActive).not.toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledWith('conv-agy', {
+      success: false,
+      error: expect.stringContaining('Web-off cannot be enforced'),
+    });
+  });
+
   it('locks the write-authority toggle while the title stream runs and releases it when done', async () => {
     // Title generation runs the same agentService.streamQuery child-process path as
     // chat/inline-edit/instruction-refine, so it must hold the counter the toggle reads.
