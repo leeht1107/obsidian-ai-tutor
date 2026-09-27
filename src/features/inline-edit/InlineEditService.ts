@@ -12,7 +12,11 @@ import { type CursorContext } from '../../utils/editor';
 
 export type InlineEditMode = 'selection' | 'cursor';
 
-export interface InlineEditSelectionRequest {
+interface InlineEditToolPolicy {
+  allowedTools?: string[];
+}
+
+export interface InlineEditSelectionRequest extends InlineEditToolPolicy {
   mode: 'selection';
   instruction: string;
   notePath: string;
@@ -22,7 +26,7 @@ export interface InlineEditSelectionRequest {
   contextFiles?: string[];
 }
 
-export interface InlineEditCursorRequest {
+export interface InlineEditCursorRequest extends InlineEditToolPolicy {
   mode: 'cursor';
   instruction: string;
   notePath: string;
@@ -54,10 +58,14 @@ export class InlineEditService {
 
   async editText(request: InlineEditRequest): Promise<InlineEditResult> {
     const prompt = this.buildPrompt(request);
-    return this.sendMessage(prompt);
+    return this.sendMessage(prompt, request.allowedTools);
   }
 
-  async continueConversation(message: string, contextFiles?: string[]): Promise<InlineEditResult> {
+  async continueConversation(
+    message: string,
+    contextFiles?: string[],
+    allowedTools?: string[]
+  ): Promise<InlineEditResult> {
     let prompt = message;
     if (contextFiles && contextFiles.length > 0) {
       prompt = prependContextFiles(message, contextFiles);
@@ -65,7 +73,7 @@ export class InlineEditService {
     return this.sendMessage(prompt);
   }
 
-  private async sendMessage(prompt: string): Promise<InlineEditResult> {
+  private async sendMessage(prompt: string, allowedTools?: string[]): Promise<InlineEditResult> {
     this.abortController = new AbortController();
     const systemPrompt = getInlineEditSystemPrompt();
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
@@ -78,7 +86,7 @@ export class InlineEditService {
     try {
       let responseText = '';
 
-      for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt)) {
+      for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt, { allowedTools })) {
         if (this.abortController?.signal.aborted) {
           return { success: false, error: 'Cancelled' };
         }
