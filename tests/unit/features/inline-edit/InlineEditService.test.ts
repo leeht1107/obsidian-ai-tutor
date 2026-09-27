@@ -39,7 +39,7 @@ describe('InlineEditService - isolated provider ownership', () => {
     expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
     expect(agent.streamQuery).toHaveBeenCalledWith(
       expect.stringContaining('refine this'),
-      { allowedTools: undefined, skipResume: true }
+      { allowedTools: undefined, readOnly: true, skipResume: true }
     );
     expect(busyMidStream).toBe(true);
     expect(busy).toBe(false);
@@ -65,7 +65,7 @@ describe('InlineEditService - isolated provider ownership', () => {
     expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
     expect(agent.streamQuery).toHaveBeenLastCalledWith(
       expect.any(String),
-      { allowedTools: ['Read'], skipResume: true }
+      { allowedTools: ['Read'], readOnly: true, skipResume: true }
     );
   });
 
@@ -100,6 +100,42 @@ describe('InlineEditService - isolated provider ownership', () => {
     expect(secondPrompt).toContain('Assistant:\nWhich section?');
     expect(secondPrompt).toContain('User:\nSection 2');
     expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a failed clarification reply into the local transcript', async () => {
+    const plugin = buildPlugin();
+    let call = 0;
+    const agent = buildAgent(() => (async function* () {
+      call += 1;
+      if (call === 1) {
+        yield 'Which section?';
+        return;
+      }
+      if (call === 2) {
+        throw new Error('provider failed');
+      }
+      yield '<replacement>new section</replacement>';
+    })());
+    const service = new InlineEditService(plugin, () => agent as any);
+
+    const first = await service.editText({
+      mode: 'selection',
+      instruction: 'rewrite this',
+      notePath: 'notes/a.md',
+      selectedText: 'old section',
+    });
+    expect(first).toEqual({ success: true, clarification: 'Which section?' });
+
+    const failed = await service.continueConversation('Section 2');
+    expect(failed).toEqual({ success: false, error: 'provider failed' });
+
+    const retry = await service.continueConversation('Section 3');
+    expect(retry).toEqual({ success: true, editedText: 'new section' });
+
+    const retryPrompt = agent.streamQuery.mock.calls[2][0] as string;
+    expect(retryPrompt).toContain('Assistant:\nWhich section?');
+    expect(retryPrompt).toContain('User:\nSection 3');
+    expect(retryPrompt).not.toContain('User:\nSection 2');
   });
 
   it('releases the toggle even when the isolated stream throws', async () => {

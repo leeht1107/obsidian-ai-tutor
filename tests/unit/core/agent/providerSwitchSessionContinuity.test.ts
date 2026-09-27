@@ -164,6 +164,33 @@ maybe('copilot session continuity across a provider switch', () => {
     expect(args).not.toContain('--resume');
   });
 
+  it('does not spawn the provider if cancel happens during the capability probe', async () => {
+    const probeStarted = path.join(dir, 'probe-started.txt');
+    const providerArgs = path.join(dir, 'provider-args.txt');
+    plugin.settings.copilotCliPath = write(dir, 'copilot-slow-probe.sh', [
+      'if [ "$1" = "--help" ]; then',
+      `  : > '${probeStarted}'`,
+      '  sleep 1',
+      '  printf "%s\\n" "--session-id <id> --output-format json --stream on"',
+      '  exit 0',
+      'fi',
+      `printf '%s\\n' "$@" > '${providerArgs}'`,
+      `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"should-not-run"}}'`,
+    ].join('\n'));
+
+    const pending = drain(service.query('cancel during probe'));
+    for (let i = 0; i < 100 && !fs.existsSync(probeStarted); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(fs.existsSync(probeStarted)).toBe(true);
+
+    service.cancel();
+    await pending;
+
+    expect(fs.existsSync(providerArgs)).toBe(false);
+    expect(service.getSessionId()).toBeNull();
+  });
+
   it('does not create a session id when explicit tools fail local preflight', async () => {
     const argsPath = path.join(dir, 'preflight-args.txt');
     plugin.settings.copilotCliPath = write(dir, 'copilot-preflight.sh', [
