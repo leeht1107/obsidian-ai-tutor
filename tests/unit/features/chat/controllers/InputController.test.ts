@@ -1233,7 +1233,7 @@ describe('InputController - Message Queue', () => {
 
     it.each([
       ['failed', [{ type: 'text', content: 'partial plan' }, { type: 'error', content: 'provider failed' }]],
-      ['interrupted', [{ type: 'text', content: 'partial plan' }]],
+      ['interrupted', [{ type: 'text', content: 'partial plan' }, { type: 'done' }]],
     ] as const)('does not generate a title after a %s first plan turn', async (kind, chunks) => {
       const mockTitleService = {
         generateTitle: jest.fn().mockResolvedValue(undefined),
