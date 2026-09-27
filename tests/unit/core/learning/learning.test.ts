@@ -11,7 +11,7 @@ import {
   parseQuizDisplayContent,
   parseQuizQuestionMeta,
   parseSocraticMeta,
-  shouldEnableQuizExternalTools,
+  shouldEnableQuizWebSearch,
 } from '@/core/learning';
 
 describe('learning helpers', () => {
@@ -69,11 +69,11 @@ describe('learning helpers', () => {
     });
   });
 
-  describe('quiz external tools', () => {
-    it('only enables external tools for high difficulty', () => {
-      expect(shouldEnableQuizExternalTools('상')).toBe(true);
-      expect(shouldEnableQuizExternalTools('중')).toBe(false);
-      expect(shouldEnableQuizExternalTools('하')).toBe(false);
+  describe('quiz Web-search policy', () => {
+    it('only enables web search for high difficulty', () => {
+      expect(shouldEnableQuizWebSearch('상')).toBe(true);
+      expect(shouldEnableQuizWebSearch('중')).toBe(false);
+      expect(shouldEnableQuizWebSearch('하')).toBe(false);
     });
   });
 
@@ -341,7 +341,7 @@ describe('learning helpers', () => {
  * Context7 was dropped from the quiz on 2026-09-05. It reached only two of the
  * four CLIs, so a 상 quiz answered differently depending on which AI a student
  * had selected. Web search covers all four and was already the only thing the
- * 상 difficulty actually switched on — `enableExternalTools` sets the web
+ * 상 difficulty actually switched on — `enableWebSearch` records the web
  * search toggle and never configured an MCP server.
  */
 describe('quiz difficulty instructions', () => {

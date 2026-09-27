@@ -48,6 +48,8 @@ export interface QueryOptions {
   planMode?: boolean;
   externalContextPaths?: string[];
   enableWebSearch?: boolean;
+  /** Reject providers that cannot guarantee Web search stays disabled for this request. */
+  requireWebSearchDisabled?: boolean;
   /** Force this request to use read-only provider permissions regardless of the toolbar mode. */
   readOnly?: boolean;
 }
@@ -1003,14 +1005,18 @@ export class CopilotBridgeService {
   ): AsyncGenerator<StreamChunk> {
     const provider = this.plugin.settings.selectedProvider as ProviderId;
     const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
+    if (provider === 'agy' && queryOptions?.requireWebSearchDisabled) {
+      const notice = 'Agy는 요청별 Web 검색 끄기를 보장할 수 없어 이 요청을 실행하지 않았습니다. 다른 provider를 선택해 주세요.';
+      this.onPermissionNotice?.(notice);
+      yield { type: 'error', content: notice };
+      return;
+    }
     if (provider === 'agy' && !enableWebSearch) {
-      const notice = 'Agy는 요청별 Web 검색 끄기를 지원하지 않아 요청을 실행하지 않았습니다. Web 검색을 켜거나 다른 provider를 선택해 주세요.';
+      const notice = 'Agy는 요청별 Web 검색을 강제로 끌 수 없어 Web 검색 설정이 꺼져 있어도 검색을 사용할 수 있습니다.';
       if (this.shownPermissionNotices.get(provider) !== notice) {
         this.shownPermissionNotices.set(provider, notice);
         this.onPermissionNotice?.(notice);
       }
-      yield { type: 'error', content: notice };
-      return;
     }
     const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
     if (!cliPath) {

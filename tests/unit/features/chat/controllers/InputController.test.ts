@@ -549,20 +549,21 @@ describe('InputController - Message Queue', () => {
 
     it('infers quiz session state for toolbar-launched quiz prompts', async () => {
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
-      const displayContent = '/quiz · 현재 노트 · db.md · 4문제 · 중 · 연계 응용 · 정규화';
+      const displayContent = '/quiz · 현재 노트 · db.md · 4문제 · 상 · 연계 응용 · 정규화';
 
       await controller.sendMessage({
         content: 'Generated quiz prompt',
         displayContentOverride: displayContent,
       });
 
-      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: true });
 
       expect(deps.state.quizSession).toEqual({
         totalQuestions: 4,
         currentQuestion: 1,
         scopeLabel: displayContent,
         focusText: '정규화',
+        difficulty: '상',
         questionStyle: 'application',
       });
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
@@ -685,26 +686,75 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.quizSession?.currentQuestion).toBe(2);
     });
 
-    it('keeps the global web toggle unchanged for high-difficulty quiz setup', async () => {
+    it('uses the Quiz setup result Web policy without changing the global toolbar toggle', async () => {
       const setEnabled = jest.fn();
-      const isEnabled = jest.fn().mockReturnValue(false);
       deps = createMockDeps({
-        getWebSearchToggle: () => ({
-          isEnabled,
-          setEnabled,
-        }),
+        getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(false), setEnabled }),
       });
       controller = new InputController(deps);
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
       await (controller as any).sendLearningSetupResult({
         mode: 'quiz', prompt: 'quiz prompt', displayContent: 'quiz display', totalQuestions: 2,
-        difficulty: '상', enableExternalTools: true,
+        difficulty: '상', enableWebSearch: true,
       }, {});
 
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: true });
       expect(setEnabled).not.toHaveBeenCalled();
-      expect(isEnabled).toHaveBeenCalled();
-      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: false });
+    });
+
+    it.each([false, true])('keeps ordinary chat governed by the global Web toggle (%s)', async (enabled) => {
+      deps = createMockDeps({
+        getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(enabled) }),
+      });
+      controller = new InputController(deps);
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: 'hello' });
+
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: enabled });
+    });
+
+    it.each([
+      ['하', false, false], ['하', true, false],
+      ['중', false, false], ['중', true, false],
+      ['상', false, true], ['상', true, true],
+    ] as const)('uses Quiz %s Web policy with global toggle %s', async (difficulty, globalToggle, expectedWebSearch) => {
+      for (const requestType of ['initial', 'continuation', 'hint'] as const) {
+        const setEnabled = jest.fn();
+        const isEnabled = jest.fn().mockReturnValue(globalToggle);
+        deps = createMockDeps({
+          getWebSearchToggle: () => ({ isEnabled, setEnabled }),
+        });
+        controller = new InputController(deps);
+        deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+        if (requestType === 'initial') {
+          await controller.sendMessage({
+            content: 'quiz prompt',
+            quizSessionInit: {
+              totalQuestions: 2,
+              scopeLabel: 'quiz display',
+              difficulty,
+            },
+          });
+        } else {
+          deps.state.quizSession = {
+            totalQuestions: 2,
+            currentQuestion: 1,
+            scopeLabel: 'quiz display',
+            difficulty,
+          };
+          await controller.sendMessage({ content: 'C', quizHintRequest: requestType === 'hint' });
+        }
+
+        const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
+        expect(queryOptions).toMatchObject({
+          enableWebSearch: expectedWebSearch,
+          ...(!expectedWebSearch ? { requireWebSearchDisabled: true } : {}),
+        });
+        expect(setEnabled).not.toHaveBeenCalled();
+      }
     });
 
     describe('Mode switching cleanup', () => {

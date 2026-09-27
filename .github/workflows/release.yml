@@ -11,8 +11,11 @@ on:
         required: true
 
 jobs:
-  macos-check:
-    runs-on: macos-latest
+  release-check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,7 +42,7 @@ jobs:
         run: npm run build
 
   release:
-    needs: macos-check
+    needs: release-check
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -59,19 +62,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # A tag push was reaching students without the suite ever running. The
-      # permission-flag tests are the only check on what these CLIs are allowed
-      # to do, so they gate the release as well as the pull request.
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test -- --runInBand
-
-      - name: Build
+      - name: Build release assets
         run: npm run build
 
       - name: Determine tag name

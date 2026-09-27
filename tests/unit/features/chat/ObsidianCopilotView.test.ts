@@ -6,10 +6,16 @@ import * as providerRegistry from '../../../../src/core/providers/providerRegist
 import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
 import * as readiness from '../../../../src/core/setup/providerReadiness';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
-import { createProviderSelector } from '../../../../src/features/chat/ObsidianCopilotView';
+import { createProviderSelector, getAgyWebSearchWarning } from '../../../../src/features/chat/ObsidianCopilotView';
 import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector, toToolbarSettings } from '../../../../src/ui/components/InputToolbar';
 
 describe('chat provider selector', () => {
+  it('shows the Agy Web limitation only while Agy is selected and Web is off', () => {
+    expect(getAgyWebSearchWarning('agy', false)).toMatch(/요청별로 강제로 끌 수 없습니다/);
+    expect(getAgyWebSearchWarning('agy', true)).toBeNull();
+    expect(getAgyWebSearchWarning('codex', false)).toBeNull();
+  });
+
   const makeElement = (): any => {
     const attributes: Record<string, string> = {};
     const element: any = {

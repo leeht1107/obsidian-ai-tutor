@@ -865,7 +865,7 @@ function resolveEffectivePermissionMode(mode, provider, blanketWriteAcknowledged
   const needsConsent = needsBlanketWriteConsent(provider, blanketWriteAcknowledged);
   return wantsReadOnly && supportsReadOnlyMode(provider) || needsConsent ? "ask" : "agent";
 }
-function buildNativeProviderCommand(id, prompt, model = "", effort = "", permissionMode = "ask", forcedReadOnly = false) {
+function buildNativeProviderCommand(id, prompt, model = "", effort = "", permissionMode = "ask", forcedReadOnly = false, enableWebSearch = true) {
   const selectedModel = model.trim();
   let selectedEffort = getProviderEffortLevels(id).includes(effort.trim()) ? effort.trim() : "";
   if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = "";
@@ -889,7 +889,7 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
     // invariant holds whichever branch is taken. `bypassPermissions` is claude's only
     // open-ended lever — an accepted residual risk of the locked decision, not an oversight.
     case "claude":
-      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", "Write,Edit,Bash"] : ["--permission-mode", "bypassPermissions"], "--output-format", "stream-json", "--verbose", prompt] };
+      return { command: "claude", args: ["-p", ...modelArgs, ...selectedEffort ? ["--effort", selectedEffort] : [], ...readOnly ? ["--disallowedTools", enableWebSearch ? "Write,Edit,Bash" : "Write,Edit,Bash,WebSearch,WebFetch"] : ["--permission-mode", "bypassPermissions", ...!enableWebSearch ? ["--disallowedTools", "WebSearch,WebFetch"] : []], ...enableWebSearch ? ["--tools", "default"] : [], "--output-format", "stream-json", "--verbose", prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
@@ -899,7 +899,7 @@ function buildNativeProviderCommand(id, prompt, model = "", effort = "", permiss
     // `$HOME` as "outside the permitted workspace" — but note `/tmp` is a documented
     // writable root, so a `/tmp` target does not test it.
     case "codex":
-      return { command: "codex", args: ["exec", "--skip-git-repo-check", ...modelArgs, ...selectedEffort ? ["-c", `model_reasoning_effort="${selectedEffort}"`] : [], "-s", readOnly ? "read-only" : "workspace-write", "-c", 'approval_policy="never"', "--json", prompt] };
+      return { command: "codex", args: ["exec", "--skip-git-repo-check", ...modelArgs, ...selectedEffort ? ["-c", `model_reasoning_effort="${selectedEffort}"`] : [], "-s", readOnly ? "read-only" : "workspace-write", "-c", 'approval_policy="never"', ...!enableWebSearch ? ["-c", 'web_search="disabled"'] : [], "--json", prompt] };
     // agy cannot use a writing tool headless — it has no way to ask permission — so
     // read-only is its default and this flag is the only thing that lifts it.
     case "agy":
@@ -941,7 +941,8 @@ function getConfiguredProviderCliPath(settings, id) {
   return ((_b = (_a = settings.providerCliPaths) == null ? void 0 : _a[id]) == null ? void 0 : _b.trim()) || (id === "copilot" ? (_c = settings.copilotCliPath) == null ? void 0 : _c.trim() : "") || "";
 }
 function resolveProviderCliPath(settings, id) {
-  return findProviderCliPath(id, getConfiguredProviderCliPath(settings, id));
+  const configured = getConfiguredProviderCliPath(settings, id);
+  return configured && findProviderCliPath(id, configured) || findProviderCliPath(id);
 }
 function isFile(candidate) {
   try {
@@ -4107,11 +4108,22 @@ Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`descript
 **Critical:** Never end response without retrieving async task results.
 `;
 }
-function getBaseSystemPrompt(vaultPath, permissionMode) {
+function getBaseSystemPrompt(vaultPath, permissionMode, enableWebSearch = true) {
   const vaultInfo = vaultPath ? `
 
 Vault absolute path: ${vaultPath}` : "";
   const subagentInstructions = permissionMode === "agent" ? getSubagentInstructions() : "";
+  const readOnly = permissionMode === "ask" || permissionMode === "plan";
+  const toolNames = readOnly ? ["Read", "Glob", "Grep", "LS", ...enableWebSearch ? ["WebSearch", "WebFetch"] : []] : ["Read", "Write", "Edit", "Glob", "Grep", "LS", "Bash", ...enableWebSearch ? ["WebSearch", "WebFetch"] : []];
+  const toolsInstruction = `Standard tools (${toolNames.join(", ")}) work as expected.`;
+  const webSearchInstructions = enableWebSearch ? `### WebSearch
+
+Use WebSearch strictly according to the following logic:
+
+1. **Static/Historical**: Rely on internal knowledge for established facts, history, or older code libraries.
+2. **Dynamic/Recent**: Search for latest news, versions, docs, events in the current/previous year, and volatile data.
+3. **Date Awareness**: If the user says "yesterday", calculate the date relative to Current Date.
+4. **Ambiguity**: If unsure whether knowledge is outdated, search.` : "### WebSearch\n\nWeb search is unavailable for this request.";
   return `## Time Context
 
 - **Current Date**: ${getTodayDate()}
@@ -4193,7 +4205,7 @@ Examples:
 
 ## Tool Usage Guidelines
 
-Standard tools (Read, Write, Edit, Glob, Grep, LS, Bash, WebSearch, WebFetch, Skills) work as expected.
+${toolsInstruction}
 
 If the current provider exposes the \`AskUserQuestion\` tool, use it for structured user questions.
 If \`AskUserQuestion\` is not available in the current provider/tool surface, ask one concise plain-text question directly in chat and stop after the question.
@@ -4219,17 +4231,7 @@ Before taking action, explicitly THINK about:
 - **LS**: Uses "." for vault root.
 - **WebFetch**: For text/HTML/PDF only. Avoid binaries.
 
-### WebSearch
-
-Use WebSearch strictly according to the following logic:
-
-1.  **Static/Historical**: Rely on internal knowledge for established facts, history, or older code libraries.
-2.  **Dynamic/Recent**: **MUST** search for:
-    - "Latest" news, versions, docs.
-    - Events in the current/previous year.
-    - Volatile data (prices, weather).
-3.  **Date Awareness**: If user says "yesterday", calculate the date relative to **Current Date**.
-4.  **Ambiguity**: If unsure if knowledge is outdated, SEARCH.
+${webSearchInstructions}
 ${subagentInstructions}
 ### TodoWrite
 
@@ -4383,25 +4385,26 @@ You are in **plan mode** - a read-only exploration phase before implementation.
 **After approval:** The plan is appended to your system prompt and you gain full tool access for implementation.`;
 }
 function buildSystemPrompt(settings = {}) {
-  var _a, _b;
-  let prompt = getBaseSystemPrompt(settings.vaultPath, settings.permissionMode);
+  var _a, _b, _c;
+  let prompt = getBaseSystemPrompt(
+    settings.vaultPath,
+    settings.planMode ? "plan" : settings.permissionMode,
+    (_a = settings.enableWebSearch) != null ? _a : true
+  );
   prompt += getImageInstructions(settings.mediaFolder || "");
   prompt += getExportInstructions(settings.allowedExportPaths || []);
   prompt += getExternalContextInstructions(settings.externalContextPaths || []);
-  if ((_a = settings.customPrompt) == null ? void 0 : _a.trim()) {
+  if ((_b = settings.customPrompt) == null ? void 0 : _b.trim()) {
     prompt += "\n\n## Custom Instructions\n\n" + settings.customPrompt.trim();
   }
   if (settings.hasEditorContext) {
     prompt += getEditorContextInstructions();
   }
   if (settings.planMode) {
-    prompt = prompt.replace(
-      "Standard tools (Read, Write, Edit, Glob, Grep, LS, Bash, WebSearch, WebFetch, Skills) work as expected.",
-      "Standard tools (Read, Glob, Grep, LS, WebSearch, WebFetch) work as expected. Write, Edit, and Bash are disabled in plan mode."
-    );
+    prompt = prompt.replace(/^(Standard tools \(.+\) work as expected\.)$/m, "$1 Write, Edit, and Bash are disabled in plan mode.");
     prompt += getPlanModeInstructions();
   }
-  if ((_b = settings.appendedPlan) == null ? void 0 : _b.trim()) {
+  if ((_c = settings.appendedPlan) == null ? void 0 : _c.trim()) {
     prompt += "\n\n## Approved Implementation Plan\n\n<plan>\n" + settings.appendedPlan.trim() + "\n</plan>";
     prompt += "\n\n**IMPORTANT:** Follow this plan exactly. The user has approved this implementation. Execute the steps in order.";
   }
@@ -4732,7 +4735,7 @@ var CopilotBridgeService = class {
     return provider === "agy" && !this.plugin.settings.allowUnsafeAgyAgent ? "ask" : resolved;
   }
   buildSystemPromptText(prompt, vaultPath, queryOptions, permissionMode) {
-    var _a;
+    var _a, _b;
     const hasEditorContext = prompt.includes("<editor_selection");
     return buildSystemPrompt({
       mediaFolder: this.plugin.settings.mediaFolder,
@@ -4742,7 +4745,8 @@ var CopilotBridgeService = class {
       vaultPath,
       hasEditorContext,
       planMode: queryOptions == null ? void 0 : queryOptions.planMode,
-      appendedPlan: (_a = this.approvedPlanContent) != null ? _a : void 0,
+      enableWebSearch: (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch,
+      appendedPlan: (_b = this.approvedPlanContent) != null ? _b : void 0,
       permissionMode: permissionMode != null ? permissionMode : this.effectivePermissionMode(
         this.plugin.settings.selectedProvider,
         Boolean(queryOptions == null ? void 0 : queryOptions.planMode)
@@ -4909,8 +4913,7 @@ User: ${injectedPrompt}`;
     };
     const args = discovery[provider];
     if (!args) return [];
-    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
-    const cliPath = findProviderCliPath(provider, configuredPath);
+    const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
     if (!cliPath) throw new Error(`${provider} CLI not found`);
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
     if (!entry) throw new Error(`${provider} CLI could not be run`);
@@ -5135,10 +5138,23 @@ ${remedy}`;
   }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     const provider = this.plugin.settings.selectedProvider;
-    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
-    const cliPath = findProviderCliPath(provider, configuredPath);
+    const enableWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
+    if (provider === "agy" && (queryOptions == null ? void 0 : queryOptions.requireWebSearchDisabled)) {
+      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9 \uB044\uAE30\uB97C \uBCF4\uC7A5\uD560 \uC218 \uC5C6\uC5B4 \uC774 \uC694\uCCAD\uC744 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 provider\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+      (_b = this.onPermissionNotice) == null ? void 0 : _b.call(this, notice2);
+      yield { type: "error", content: notice2 };
+      return;
+    }
+    if (provider === "agy" && !enableWebSearch) {
+      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9\uC744 \uAC15\uC81C\uB85C \uB04C \uC218 \uC5C6\uC5B4 Web \uAC80\uC0C9 \uC124\uC815\uC774 \uAEBC\uC838 \uC788\uC5B4\uB3C4 \uAC80\uC0C9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
+      if (this.shownPermissionNotices.get(provider) !== notice2) {
+        this.shownPermissionNotices.set(provider, notice2);
+        (_c = this.onPermissionNotice) == null ? void 0 : _c.call(this, notice2);
+      }
+    }
+    const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
     if (!cliPath) {
       this.logError({ provider, stage: "resolve", message: "CLI not found on PATH or at the configured path" });
       yield { type: "error", content: `${provider} CLI not found. Open Settings to complete setup.` };
@@ -5160,9 +5176,17 @@ ${remedy}`;
     const notice = needsConsent && !wantsReadOnly ? `${provider}\uC5D0 \uD30C\uC77C\uC744 \uACE0\uCE60 \uAD8C\uD55C\uC744 \uC8FC\uB824\uBA74 Ask/Agent \uD1A0\uAE00\uC744 \uB20C\uB7EC \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uC740 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : wantsReadOnly && !supportsReadOnlyMode(provider) ? `${provider}\uB294 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC81C\uD55C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uACE0\uCE60 \uC218 \uC788\uB294 \uC0C1\uD0DC\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : "";
     if (notice && this.shownPermissionNotices.get(provider) !== notice) {
       this.shownPermissionNotices.set(provider, notice);
-      (_a = this.onPermissionNotice) == null ? void 0 : _a.call(this, notice);
+      (_d = this.onPermissionNotice) == null ? void 0 : _d.call(this, notice);
     }
-    const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode, Boolean(queryOptions == null ? void 0 : queryOptions.readOnly));
+    const native = buildNativeProviderCommand(
+      provider,
+      fullPrompt,
+      selection.model,
+      selection.effort,
+      permissionMode,
+      Boolean(queryOptions == null ? void 0 : queryOptions.readOnly),
+      enableWebSearch
+    );
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);
     if (!entry) {
       this.logError({ provider, stage: "resolve", message: "No runnable executable could be resolved from this CLI path", cliPath });
@@ -5231,7 +5255,7 @@ ${remedy}`;
       if (chunk.type === "text" && chunk.content.trim()) validTextChunks += 1;
       pending.push(chunk);
     };
-    (_b = child.stdout) == null ? void 0 : _b.on("data", (data) => {
+    (_e = child.stdout) == null ? void 0 : _e.on("data", (data) => {
       var _a2;
       stdoutBytes += data.byteLength;
       lineBuffer += data.toString();
@@ -5249,7 +5273,7 @@ ${remedy}`;
       }
       signal();
     });
-    (_c = child.stderr) == null ? void 0 : _c.on("data", (data) => {
+    (_f = child.stderr) == null ? void 0 : _f.on("data", (data) => {
       stderrBytes += data.byteLength;
       if (errorOutput.length >= MAX_STDERR_CHARS) {
         stderrTruncated = true;
@@ -5271,7 +5295,7 @@ ${remedy}`;
       closed = true;
       signal();
     });
-    (_d = child.stdin) == null ? void 0 : _d.end();
+    (_g = child.stdin) == null ? void 0 : _g.end();
     try {
       while (!closed) {
         if (provider !== "agy") {
@@ -5347,7 +5371,7 @@ ${remedy}`;
         failureMessage = explainEmptyAnswer(provider, errorOutput, permissionMode);
       }
       if (failureCode) {
-        (_e = this.onOutcome) == null ? void 0 : _e.call(this, provider, "failed");
+        (_h = this.onOutcome) == null ? void 0 : _h.call(this, provider, "failed");
         const diagnostic = {
           code: failureCode,
           storedMode: mode,
@@ -5377,7 +5401,7 @@ ${remedy}`;
         });
         yield { type: "error", content: safeMessage };
       } else {
-        (_f = this.onOutcome) == null ? void 0 : _f.call(this, provider, "ok");
+        (_i = this.onOutcome) == null ? void 0 : _i.call(this, provider, "ok");
         while (pending.length) yield pending.shift();
       }
       yield { type: "done" };
@@ -13416,7 +13440,7 @@ var DIFFICULTY_INSTRUCTIONS = {
   "\uC911": "Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.",
   "\uC0C1": 'Create application-level questions that apply the core concepts to novel real-world scenarios (e.g., applying "data science project" concepts to "AI development project"). You may use web search to find related official documentation and supplement the questions. Do not be strictly bounded by the notes.'
 };
-function shouldEnableQuizExternalTools(difficulty) {
+function shouldEnableQuizWebSearch(difficulty) {
   return difficulty === "\uC0C1";
 }
 function buildQuizDisplayContent(input) {
@@ -13906,7 +13930,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
         questionStyle: this.questionStyle,
         sourceInstruction,
         focusText,
-        enableExternalTools: shouldEnableQuizExternalTools(this.difficulty),
+        enableWebSearch: shouldEnableQuizWebSearch(this.difficulty),
         prompt: buildQuizPrompt({
           questionCount: this.questionCount,
           difficulty: this.difficulty,
@@ -16382,10 +16406,6 @@ var InputController = class {
     if (!this.deps.state.socraticSession) return;
     void this.sendMessage({ content });
   }
-  enableQuizExternalTools() {
-    var _a, _b;
-    (_b = (_a = this.deps.getWebSearchToggle()) == null ? void 0 : _a.setEnabled) == null ? void 0 : _b.call(_a, true);
-  }
   getLatestQuizQuestionContext(currentQuestion, totalQuestions) {
     var _a;
     for (let i = this.deps.state.messages.length - 1; i >= 0; i -= 1) {
@@ -16435,6 +16455,8 @@ var InputController = class {
       totalQuestions: parsed.totalQuestions,
       scopeLabel: displayContent != null ? displayContent : "/quiz",
       focusText: parsed.focusText,
+      difficulty: parsed.difficulty,
+      enableWebSearch: shouldEnableQuizWebSearch(parsed.difficulty),
       questionStyle: parsed.questionStyle
     };
   }
@@ -16447,9 +16469,6 @@ var InputController = class {
       editorContextOverride: options.editorContextOverride
     };
     if (result.mode === "quiz") {
-      if (result.enableExternalTools) {
-        this.enableQuizExternalTools();
-      }
       await this.sendMessage({
         ...sharedOptions,
         quizSessionInit: {
@@ -16457,6 +16476,7 @@ var InputController = class {
           scopeLabel: result.displayContent,
           focusText: result.focusText,
           difficulty: result.difficulty,
+          enableWebSearch: result.enableWebSearch,
           questionStyle: result.questionStyle,
           sourceInstruction: result.sourceInstruction
         }
@@ -16477,7 +16497,7 @@ var InputController = class {
   // ============================================
   /** Sends a message with optional editor context override. */
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
@@ -16489,6 +16509,11 @@ var InputController = class {
     let content = (contentOverride != null ? contentOverride : inputEl.value).trim();
     const hasImages = (_a = imageContextManager == null ? void 0 : imageContextManager.hasImages()) != null ? _a : false;
     if (!content && !hasImages) return;
+    const quizSessionInit = (_b = options == null ? void 0 : options.quizSessionInit) != null ? _b : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
+    const socraticSessionInit = options == null ? void 0 : options.socraticSessionInit;
+    const learningRequest = Boolean(
+      quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
+    );
     if (content === "/quiz" || content.startsWith("/quiz ")) {
       const quizFocusText = content === "/quiz" ? "" : content.slice("/quiz".length).trim();
       const quizModal = new LearningSetupModal(plugin.app, (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null, "quiz", quizFocusText);
@@ -16535,7 +16560,7 @@ var InputController = class {
         state.queuedMessage.editorContext = editorContext2;
         state.queuedMessage.hidden = state.queuedMessage.hidden || (options == null ? void 0 : options.hidden);
         if (promptPrefix) {
-          state.queuedMessage.promptPrefix = (_b = state.queuedMessage.promptPrefix) != null ? _b : promptPrefix;
+          state.queuedMessage.promptPrefix = (_c = state.queuedMessage.promptPrefix) != null ? _c : promptPrefix;
         }
       } else {
         state.queuedMessage = {
@@ -16556,8 +16581,6 @@ var InputController = class {
     if (shouldUseInput) {
       inputEl.value = "";
     }
-    const quizSessionInit = (_c = options == null ? void 0 : options.quizSessionInit) != null ? _c : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
-    const socraticSessionInit = options == null ? void 0 : options.socraticSessionInit;
     if (quizSessionInit) {
       this.exitQuizMode();
       this.exitSocraticMode();
@@ -16655,7 +16678,7 @@ var InputController = class {
                 // The raw setting is not enough: a provider still awaiting blanket-write
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
-                enabled: plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
+                enabled: !learningRequest && plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
                   plugin.settings.permissionMode,
                   plugin.settings.selectedProvider,
                   plugin.settings.blanketWriteAcknowledged
@@ -16769,12 +16792,12 @@ ${promptToSend}`;
       };
     }
     const webSearchEnabled = (_i = (_h = this.deps.getWebSearchToggle()) == null ? void 0 : _h.isEnabled()) != null ? _i : false;
-    const learningRequest = Boolean(
-      quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
-    );
+    const quizRequest = Boolean(quizSessionInit || !socraticSessionInit && state.quizSession);
+    const quizWebSearchEnabled = quizRequest ? (_m = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _m : shouldEnableQuizWebSearch((_l = (_k = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _k : (_j = state.quizSession) == null ? void 0 : _j.difficulty) != null ? _l : "\uC911") : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
-      enableWebSearch: webSearchEnabled,
+      enableWebSearch: quizWebSearchEnabled,
+      ...quizRequest && !quizWebSearchEnabled ? { requireWebSearchDisabled: true } : {},
       readOnly: Boolean((queryOptions == null ? void 0 : queryOptions.readOnly) || learningRequest)
     };
     let wasInterrupted = false;
@@ -16808,9 +16831,9 @@ ${promptToSend}`;
       }
       if (state.socraticSession && !socraticSessionInit && !wasInterrupted) {
         const s = state.socraticSession;
-        if ((_j = assistantMsg.socraticTurn) == null ? void 0 : _j.isSummary) {
+        if ((_n = assistantMsg.socraticTurn) == null ? void 0 : _n.isSummary) {
           state.socraticSession = null;
-          (_l = (_k = this.deps).hideSocraticBanner) == null ? void 0 : _l.call(_k);
+          (_p = (_o = this.deps).hideSocraticBanner) == null ? void 0 : _p.call(_o);
         } else if (s.isSummaryPhase) {
         } else if (s.currentDepth >= s.maxDepth) {
           state.socraticSession = { ...s, isSummaryPhase: true };
@@ -20085,7 +20108,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       }
     );
     const launchLearningSetup = async (initialMode) => {
-      var _a, _b, _c, _d;
+      var _a, _b, _c;
       const modal = new LearningSetupModal(
         this.plugin.app,
         ((_a = this.fileContextManager) == null ? void 0 : _a.getCurrentNotePath()) || null,
@@ -20094,10 +20117,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       const result = await modal.openAndWait();
       if (!result) return;
       if (result.mode === "quiz") {
-        if (result.enableExternalTools) {
-          (_b = this.webSearchToggle) == null ? void 0 : _b.setEnabled(true);
-        }
-        await ((_c = this.inputController) == null ? void 0 : _c.sendMessage({
+        await ((_b = this.inputController) == null ? void 0 : _b.sendMessage({
           content: result.prompt,
           displayContentOverride: result.displayContent,
           quizSessionInit: {
@@ -20111,7 +20131,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         }));
         return;
       }
-      await ((_d = this.inputController) == null ? void 0 : _d.sendMessage({
+      await ((_c = this.inputController) == null ? void 0 : _c.sendMessage({
         content: result.prompt,
         displayContentOverride: result.displayContent,
         socraticSessionInit: {
@@ -20213,8 +20233,11 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       },
       onOpenLearning: () => launchLearningSetup("quiz")
     });
+    let updateAgyWebWarning = () => {
+    };
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
       var _a, _b, _c;
+      updateAgyWebWarning();
       (_a = this.modelSelector) == null ? void 0 : _a.updateDisplay();
       (_b = this.modelSelector) == null ? void 0 : _b.renderOptions();
       (_c = this.thinkingBudgetSelector) == null ? void 0 : _c.updateDisplay();
@@ -20236,6 +20259,15 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     this.webSearchToggle = toolbarComponents.webSearchToggle;
     this.webSearchToggle.setEnabled(this.plugin.settings.enableWebSearch);
     this.permissionToggle = toolbarComponents.permissionToggle;
+    const agyWebWarning = inputToolbar.createDiv({ cls: "ocop-agy-websearch-warning", attr: { role: "status" } });
+    updateAgyWebWarning = () => {
+      var _a, _b;
+      const warning = getAgyWebSearchWarning(this.plugin.settings.selectedProvider, (_b = (_a = this.webSearchToggle) == null ? void 0 : _a.isEnabled()) != null ? _b : this.plugin.settings.enableWebSearch);
+      agyWebWarning.setText(warning != null ? warning : "");
+      agyWebWarning.style.display = warning ? "" : "none";
+    };
+    updateAgyWebWarning();
+    inputToolbar.addEventListener("click", updateAgyWebWarning);
     this.externalContextSelector.setOnChange(() => {
       var _a;
       (_a = this.fileContextManager) == null ? void 0 : _a.preScanExternalContexts();
@@ -20575,6 +20607,10 @@ function resolveStoredQuizControl(target) {
   return null;
 }
 var PROVIDER_BUSY_NOTICE = "\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+var AGY_WEB_SEARCH_WARNING = "Agy\uB294 Web \uAC80\uC0C9\uC744 \uC694\uCCAD\uBCC4\uB85C \uAC15\uC81C\uB85C \uB04C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC774 \uAEBC\uC838 \uC788\uC5B4\uB3C4 \uAC80\uC0C9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
+function getAgyWebSearchWarning(provider, enableWebSearch) {
+  return provider === "agy" && !enableWebSearch ? AGY_WEB_SEARCH_WARNING : null;
+}
 function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick, handle) {
   const container = toolbar.createDiv({ cls: "ocop-provider-selector" });
   const button = container.createEl("button", { cls: "ocop-provider-btn", attr: { type: "button", "aria-label": "Choose AI provider", "aria-expanded": "false" } });

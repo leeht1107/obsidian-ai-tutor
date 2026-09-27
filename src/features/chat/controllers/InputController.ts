@@ -17,6 +17,7 @@ import {
   parseQuizDisplayContent,
   type QuizQuestionContext,
   type QuizQuestionStyle,
+  shouldEnableQuizWebSearch,
 } from '../../../core/learning';
 import { resolveEffectivePermissionMode } from '../../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
@@ -117,6 +118,7 @@ interface QuizSessionInit {
   scopeLabel: string;
   focusText?: string;
   difficulty?: '하' | '중' | '상';
+  enableWebSearch?: boolean;
   questionStyle?: QuizQuestionStyle;
   sourceInstruction?: string;
 }
@@ -232,6 +234,8 @@ export class InputController {
       totalQuestions: parsed.totalQuestions,
       scopeLabel: displayContent ?? '/quiz',
       focusText: parsed.focusText,
+      difficulty: parsed.difficulty,
+      enableWebSearch: shouldEnableQuizWebSearch(parsed.difficulty),
       questionStyle: parsed.questionStyle,
     };
   }
@@ -260,6 +264,7 @@ export class InputController {
           scopeLabel: result.displayContent,
           focusText: result.focusText,
           difficulty: result.difficulty,
+          enableWebSearch: result.enableWebSearch,
           questionStyle: result.questionStyle,
           sourceInstruction: result.sourceInstruction,
         },
@@ -640,9 +645,15 @@ ${promptToSend}`;
 
     // Add web search toggle state
     const webSearchEnabled = this.deps.getWebSearchToggle()?.isEnabled() ?? false;
+    const quizRequest = Boolean(quizSessionInit || (!socraticSessionInit && state.quizSession));
+    const quizWebSearchEnabled = quizRequest
+      ? quizSessionInit?.enableWebSearch
+        ?? shouldEnableQuizWebSearch(quizSessionInit?.difficulty ?? state.quizSession?.difficulty ?? '중')
+      : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
-      enableWebSearch: webSearchEnabled,
+      enableWebSearch: quizWebSearchEnabled,
+      ...(quizRequest && !quizWebSearchEnabled ? { requireWebSearchDisabled: true } : {}),
       readOnly: Boolean(queryOptions?.readOnly || learningRequest),
     };
 

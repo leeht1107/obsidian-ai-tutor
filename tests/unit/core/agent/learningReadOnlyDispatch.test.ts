@@ -43,6 +43,8 @@ describe('learning request permission boundary', () => {
     pathSetting: 'modern' | 'legacy' = 'modern',
     acknowledged = true,
     enableWebSearch = true,
+    requireWebSearchDisabled = false,
+    readOnly = true,
   ): Promise<{ args: string[]; notices: string[]; spawned: boolean }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
     if (fs.existsSync(captured)) fs.unlinkSync(captured);
@@ -64,8 +66,9 @@ describe('learning request permission boundary', () => {
     service.onPermissionNotice = (notice) => notices.push(notice);
 
     for await (const chunk of service.query('learning prompt', undefined, undefined, {
-      readOnly: true,
+      readOnly,
       enableWebSearch,
+      requireWebSearchDisabled,
     })) { void chunk; }
     const spawned = fs.existsSync(captured);
     return { args: spawned ? fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/) : [], notices, spawned };
@@ -96,8 +99,17 @@ describe('learning request permission boundary', () => {
     expect(notices).toEqual([]);
   });
 
-  it('fails closed for Agy with Web off before spawn and explains the toolbar choice', async () => {
-    const { args, notices, spawned } = await run('agy', 'modern', true, false);
+  it('lets ordinary Agy chat run with Web off and explains that search may still happen', async () => {
+    const { args, notices, spawned } = await run('agy', 'modern', true, false, false, false);
+    expect(spawned).toBe(true);
+    expect(args).toContain('--output-format');
+    expect(notices.join(' ')).toMatch(/Agy/);
+    expect(notices.join(' ')).toMatch(/Web 검색/);
+    expect(notices.join(' ')).toMatch(/강제로 끌 수 없어/);
+  });
+
+  it.each([false, true])('fails closed for a request that explicitly requires Web disabled when global Web is %s', async (enableWebSearch) => {
+    const { args, notices, spawned } = await run('agy', 'modern', true, enableWebSearch, true);
     expect(spawned).toBe(false);
     expect(args).toEqual([]);
     expect(notices.join(' ')).toMatch(/Web 검색/);

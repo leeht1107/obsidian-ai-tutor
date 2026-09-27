@@ -26,6 +26,17 @@ describe('LearningSetupModal', () => {
     expect(result.displayContent).not.toContain('연계 응용');
   });
 
+  it.each([
+    ['하', false],
+    ['중', false],
+    ['상', true],
+  ] as const)('returns the %s Web-search policy with its Quiz setup', (difficulty, enableWebSearch) => {
+    const modal = createModal('quiz');
+    (modal as any).difficulty = difficulty;
+
+    expect((modal as any).buildResult()).toMatchObject({ difficulty, enableWebSearch });
+  });
+
   it('keeps the related-application selection in the quiz result and display label', () => {
     const modal = createModal('quiz');
     (modal as any).questionStyle = 'application';

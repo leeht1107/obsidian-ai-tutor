@@ -12,7 +12,7 @@ import {
   type LearningScope,
   type QuizDifficulty,
   type QuizQuestionStyle,
-  shouldEnableQuizExternalTools,
+  shouldEnableQuizWebSearch,
   summarizeFolder,
   summarizeSelectedNotes,
 } from '../../core/learning';
@@ -28,8 +28,8 @@ export interface QuizSetupResult {
   questionStyle: QuizQuestionStyle;
   sourceInstruction: string;
   focusText?: string;
-  /** True when difficulty is '상' — caller should enable web search. */
-  enableExternalTools?: boolean;
+  /** Web search policy for this quiz difficulty. */
+  enableWebSearch: boolean;
 }
 
 export interface SocraticSetupResult {
@@ -331,7 +331,7 @@ export class LearningSetupModal extends Modal {
         questionStyle: this.questionStyle,
         sourceInstruction,
         focusText,
-        enableExternalTools: shouldEnableQuizExternalTools(this.difficulty),
+        enableWebSearch: shouldEnableQuizWebSearch(this.difficulty),
         prompt: buildQuizPrompt({
           questionCount: this.questionCount,
           difficulty: this.difficulty,

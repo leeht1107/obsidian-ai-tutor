@@ -413,7 +413,9 @@ export class ObsidianCopilotView extends ItemView {
       onOpenLearning: () => launchLearningSetup('quiz'),
     });
 
+    let updateAgyWebWarning = () => {};
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
+      updateAgyWebWarning();
       this.modelSelector?.updateDisplay();
       this.modelSelector?.renderOptions();
       this.thinkingBudgetSelector?.updateDisplay();
@@ -434,6 +436,16 @@ export class ObsidianCopilotView extends ItemView {
     this.webSearchToggle = toolbarComponents.webSearchToggle;
     this.webSearchToggle.setEnabled(this.plugin.settings.enableWebSearch);
     this.permissionToggle = toolbarComponents.permissionToggle;
+
+    const agyWebWarning = inputToolbar.createDiv({ cls: 'ocop-agy-websearch-warning', attr: { role: 'status' } });
+    updateAgyWebWarning = () => {
+      const warning = getAgyWebSearchWarning(this.plugin.settings.selectedProvider, this.webSearchToggle?.isEnabled() ?? this.plugin.settings.enableWebSearch);
+      agyWebWarning.setText(warning ?? '');
+      agyWebWarning.style.display = warning ? '' : 'none';
+    };
+    updateAgyWebWarning();
+    // WebSearchToggle owns its click handler; this parent listener observes the updated value.
+    inputToolbar.addEventListener('click', updateAgyWebWarning);
 
     this.externalContextSelector.setOnChange(() => {
       this.fileContextManager?.preScanExternalContexts();
@@ -784,6 +796,11 @@ export function resolveStoredQuizControl(target: Element | null): StoredQuizCont
 }
 
 const PROVIDER_BUSY_NOTICE = '실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.';
+const AGY_WEB_SEARCH_WARNING = 'Agy는 Web 검색을 요청별로 강제로 끌 수 없습니다. 설정이 꺼져 있어도 검색을 사용할 수 있습니다.';
+
+export function getAgyWebSearchWarning(provider: ProviderId, enableWebSearch: boolean): string | null {
+  return provider === 'agy' && !enableWebSearch ? AGY_WEB_SEARCH_WARNING : null;
+}
 
 export function createProviderSelector(
   toolbar: HTMLElement,

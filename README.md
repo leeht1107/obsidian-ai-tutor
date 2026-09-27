@@ -141,6 +141,7 @@ login command.
 | Quiz / Socratic learning modes | ✅ | ✅ | ✅ | ✅ |
 | Auto-install (npm) | ✅ | ✅ | ✅ | ❌ guided manual only |
 | Tool approvals, MCP, plan mode, live diffs | ✅ | native CLI output only | native CLI output only | native CLI output only |
+| Disable Web search for one request | ✅ | ✅ | ✅ | ❌ Agy may still search while the global Web toggle is off |
 | Dispatch model | 1 native CLI process per request, no shared runtime/proxy/relay | same | same | same |
 
 ---

@@ -133,6 +133,8 @@ export interface QueryOptions {
   externalContextPaths?: string[];
   /** Override global web search setting for this query. */
   enableWebSearch?: boolean;
+  /** Reject providers that cannot honor a request to keep web search disabled. */
+  requireWebSearchDisabled?: boolean;
   /** Force read-only provider permissions for this request regardless of the toolbar mode. */
   readOnly?: boolean;
 }

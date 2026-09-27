@@ -52,7 +52,7 @@ export const DIFFICULTY_INSTRUCTIONS: Record<QuizDifficulty, string> = {
   '상': 'Create application-level questions that apply the core concepts to novel real-world scenarios (e.g., applying "data science project" concepts to "AI development project"). You may use web search to find related official documentation and supplement the questions. Do not be strictly bounded by the notes.',
 };
 
-export function shouldEnableQuizExternalTools(difficulty: QuizDifficulty): boolean {
+export function shouldEnableQuizWebSearch(difficulty: QuizDifficulty): boolean {
   return difficulty === '상';
 }
 
