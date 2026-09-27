@@ -43,6 +43,7 @@ import { type EditorSelectionContext, prependEditorContext } from '../../../util
 import { appendMarkdownSnippet } from '../../../utils/markdown';
 import {
   formatSlashCommandWarnings,
+  intersectSlashAllowedTools,
   parseSlashCommandContent,
   resolveSlashAllowedTools,
   slashAllowsInlineBash,
@@ -58,20 +59,6 @@ import type { StreamController } from './StreamController';
 
 const PLAN_MODE_REQUEST_PREFIX =
   'User requested plan mode. Call EnterPlanMode before responding.';
-
-function sharedToolKey(tool: string): string {
-  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
-  if (normalized === 'read' || normalized === 'view') return 'view';
-  if (normalized === 'websearch') return 'websearch';
-  if (normalized === 'webfetch') return 'webfetch';
-  return normalized;
-}
-
-function intersectAllowedTools(existing: string[] | undefined, next: string[]): string[] {
-  if (existing === undefined) return next;
-  const nextSet = new Set(next.map(sharedToolKey));
-  return existing.filter((tool) => nextSet.has(sharedToolKey(tool)));
-}
 
 const CURRENT_NOTE_ONLY_PATTERNS = [
   /현재\s*노트/u,
@@ -522,7 +509,10 @@ export class InputController {
         );
         if (cmd) {
           const parsedCommand = parseSlashCommandContent(cmd.content);
-          slashTemplateCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(parsedCommand.promptContent);
+          const semanticPrompt = typeof slashCommandManager.expandSemanticPrompt === 'function'
+            ? slashCommandManager.expandSemanticPrompt(cmd, detected.args)
+            : parsedCommand.promptContent;
+          slashTemplateCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(semanticPrompt);
           const parsedAllowedTools = resolveSlashAllowedTools(cmd);
           slashAllowedToolsRequested = parsedAllowedTools !== undefined;
           if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
@@ -609,7 +599,7 @@ export class InputController {
           promptToSend = prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent);
           queryOptions = {
             ...queryOptions,
-            allowedTools: intersectAllowedTools(
+            allowedTools: intersectSlashAllowedTools(
               queryOptions?.allowedTools,
               ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
             ),

@@ -21,6 +21,7 @@ import { escapeHtml, normalizeInsertionText } from '../../utils/inlineEdit';
 import { getVaultPath, isPathWithinVault, normalizePathForFilesystem } from '../../utils/path';
 import {
   formatSlashCommandWarnings,
+  intersectSlashAllowedTools,
   resolveSlashAllowedTools,
   slashAllowsInlineBash,
 } from '../../utils/slashCommand';
@@ -495,13 +496,19 @@ export class InlineEditController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          requestAllowedTools = resolveSlashAllowedTools(cmd);
+          const nextAllowedTools = resolveSlashAllowedTools(cmd);
+          requestAllowedTools = this.isConversing
+            ? intersectSlashAllowedTools(this.conversationAllowedTools, nextAllowedTools)
+            : nextAllowedTools;
           if (requestAllowedTools !== undefined && this.plugin.settings.selectedProvider !== 'copilot') {
             this.handleError('This provider cannot enforce this slash command’s Allowed tools restriction. Use Copilot or remove the restriction.');
             return;
           }
+          if (requestAllowedTools !== undefined && requestAllowedTools.length === 0) {
+            this.handleError('This slash command has no tools in common with the existing inline-edit restriction.');
+            return;
+          }
 
-          this.conversationAllowedTools = requestAllowedTools;
           this.plugin.setBashExpansionActive(true);
           try {
             const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
@@ -528,6 +535,7 @@ export class InlineEditController {
               },
             });
             userMessage = expansion.expandedPrompt;
+            this.conversationAllowedTools = requestAllowedTools;
 
             if (expansion.errors.length > 0) {
               new Notice(formatSlashCommandWarnings(expansion.errors));

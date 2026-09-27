@@ -15,6 +15,28 @@ export function slashAllowsInlineBash(allowedTools?: string[]): boolean {
   return allowedTools.some((tool) => tool.trim().toLowerCase() === 'bash');
 }
 
+function sharedSlashToolKey(tool: string): string {
+  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
+  if (normalized === 'read' || normalized === 'view') return 'view';
+  if (normalized === 'websearch') return 'websearch';
+  if (normalized === 'webfetch') return 'webfetch';
+  return normalized;
+}
+
+/**
+ * Monotonic slash-tool policy: once a conversation is restricted, a later command
+ * may keep or narrow that policy but never widen it.
+ */
+export function intersectSlashAllowedTools(
+  existing: string[] | undefined,
+  next: string[] | undefined
+): string[] | undefined {
+  if (existing === undefined) return next;
+  if (next === undefined) return existing;
+  const nextSet = new Set(next.map(sharedSlashToolKey));
+  return existing.filter((tool) => nextSet.has(sharedSlashToolKey(tool)));
+}
+
 /** Formats expansion errors for display. */
 export function formatSlashCommandWarnings(errors: string[]): string {
   const maxItems = 3;

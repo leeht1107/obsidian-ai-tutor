@@ -154,6 +154,18 @@ export class SlashCommandManager {
   }
 
   /**
+   * Builds the semantic prompt used for scope detection: arguments are substituted,
+   * but inline bash and @file references are removed before either can execute/read.
+   */
+  expandSemanticPrompt(command: SlashCommand, args: string): string {
+    const parsed = parseSlashCommandContent(command.content);
+    return this.replaceArgumentPlaceholders(parsed.promptContent, args)
+      .replace(/!`[^`]+`/g, ' ')
+      .replace(/(^|[^\\w])@(?:"[^"]+"|'[^']+'|[^\\s]+\\.\\w+)/g, '$1 ')
+      .trim();
+  }
+
+  /**
    * Replaces argument placeholders in content.
    * Handles $ARGUMENTS (all args) and $1, $2, etc. (positional).
    */

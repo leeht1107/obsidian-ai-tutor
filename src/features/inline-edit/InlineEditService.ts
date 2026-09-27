@@ -5,6 +5,7 @@
  * Simplified from Claude SDK-based implementation.
  */
 
+import { CopilotBridgeService } from '../../core/agent/CopilotBridgeService';
 import { getInlineEditSystemPrompt } from '../../core/prompts/inlineEdit';
 import type ObsidianCopilotPlugin from '../../main';
 import { prependContextFiles } from '../../utils/context';
@@ -44,21 +45,34 @@ export interface InlineEditResult {
   error?: string;
 }
 
+type InlineEditAgentService = Pick<CopilotBridgeService, 'streamQuery' | 'cancel'>;
+type InlineEditTurn = { role: 'user' | 'assistant'; content: string };
+const MAX_INLINE_EDIT_FOLLOWUP_TURNS = 4;
+
 export class InlineEditService {
   private plugin: ObsidianCopilotPlugin;
   private abortController: AbortController | null = null;
+  private readonly agentService: InlineEditAgentService;
+  private conversation: InlineEditTurn[] = [];
 
-  constructor(plugin: ObsidianCopilotPlugin) {
+  constructor(
+    plugin: ObsidianCopilotPlugin,
+    serviceFactory: () => InlineEditAgentService = () => new CopilotBridgeService(plugin)
+  ) {
     this.plugin = plugin;
+    // Inline Edit owns its provider process/session. It must never mutate the main
+    // chat bridge's Copilot session or cancel a chat request.
+    this.agentService = serviceFactory();
   }
 
   resetConversation(): void {
-    // No-op for now (stateless)
+    this.conversation = [];
   }
 
   async editText(request: InlineEditRequest): Promise<InlineEditResult> {
     const prompt = this.buildPrompt(request);
-    return this.sendMessage(prompt, request.allowedTools);
+    this.conversation = [{ role: 'user', content: prompt }];
+    return this.sendConversation(allowedTools);
   }
 
   async continueConversation(
@@ -70,12 +84,29 @@ export class InlineEditService {
     if (contextFiles && contextFiles.length > 0) {
       prompt = prependContextFiles(message, contextFiles);
     }
-    return this.sendMessage(prompt, allowedTools);
+    this.conversation.push({ role: 'user', content: prompt });
+    this.trimConversation();
+    return this.sendConversation(allowedTools);
   }
 
-  private async sendMessage(prompt: string, allowedTools?: string[]): Promise<InlineEditResult> {
+  private trimConversation(): void {
+    if (this.conversation.length <= MAX_INLINE_EDIT_FOLLOWUP_TURNS + 1) return;
+    const first = this.conversation[0];
+    this.conversation = [first, ...this.conversation.slice(-MAX_INLINE_EDIT_FOLLOWUP_TURNS)];
+  }
+
+  private buildConversationPrompt(): string {
+    if (this.conversation.length === 1) return this.conversation[0].content;
+    const transcript = this.conversation
+      .map((turn) => `${turn.role === 'user' ? 'User' : 'Assistant'}:\n${turn.content}`)
+      .join('\n\n');
+    return `<inline_edit_conversation>\n${transcript}\n</inline_edit_conversation>`;
+  }
+
+  private async sendConversation(allowedTools?: string[]): Promise<InlineEditResult> {
     this.abortController = new AbortController();
     const systemPrompt = getInlineEditSystemPrompt();
+    const prompt = this.buildConversationPrompt();
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
 
     // The CLI child spawns with whatever permission mode was current when the stream
@@ -86,14 +117,24 @@ export class InlineEditService {
     try {
       let responseText = '';
 
-      for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt, { allowedTools })) {
+      for await (const chunk of this.agentService.streamQuery(fullPrompt, {
+        allowedTools,
+        // Continuity is local and explicit above. Never let a provider-side Copilot
+        // session become hidden state that disappears when the provider changes.
+        skipResume: true,
+      })) {
         if (this.abortController?.signal.aborted) {
           return { success: false, error: 'Cancelled' };
         }
         responseText += chunk;
       }
 
-      return this.parseResponse(responseText);
+      const result = this.parseResponse(responseText);
+      if (result.success && result.clarification) {
+        this.conversation.push({ role: 'assistant', content: result.clarification });
+        this.trimConversation();
+      }
+      return result;
     } catch (error) {
       console.error('[InlineEditService] Error:', error);
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -180,5 +221,7 @@ export class InlineEditService {
     if (this.abortController) {
       this.abortController.abort();
     }
+    // Abort the owned CLI child immediately; do not wait for another stream chunk.
+    this.agentService.cancel();
   }
 }
