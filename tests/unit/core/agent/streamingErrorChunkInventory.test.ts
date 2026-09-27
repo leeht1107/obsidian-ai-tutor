@@ -24,21 +24,22 @@ import * as path from 'path';
 const SOURCE = path.join(__dirname, '../../../../src/core/agent/CopilotBridgeService.ts');
 
 /**
- * 13 sites: the original logged branches plus an explicit-tool policy rejection. Agy Web-OFF no longer creates an error
+ * 14 sites: the original logged branches plus explicit-tool policy rejections. Agy Web-OFF no longer creates an error
  * chunk or refuses to spawn; its limitation is communicated with a Notice while
  * the request proceeds with Web available.
  *
  * - 1 inside the copilot event translator (a `result` event carrying a non-zero
  *   exit code). A pure function with no access to the log; the `close` handler
  *   records the same run, which is why it is the exception and not a gap.
- * - 3 at the request level: no copilot CLI configured, an explicit Copilot
- *   allowlist emptied by Web policy, and anything thrown on the plugin's side.
+ * - 4 at the request level: no copilot CLI configured, unsupported zero-tool
+ *   execution, an explicit Copilot allowlist emptied by Web policy, and anything
+ *   thrown on the plugin's side. Both policy rejections call logError before yielding.
  * - 4 on the native path: CLI not found, nothing runnable resolved, launch,
  *   and the shared structured-output failure branch.
  * - 5 on the copilot path: nothing runnable resolved, a synchronous `spawn`
  *   throw, the asynchronous `error` event, exit, and empty-answer.
  */
-const KNOWN_ERROR_CHUNK_SITES = 13;
+const KNOWN_ERROR_CHUNK_SITES = 14;
 
 describe('streaming error chunks', () => {
   it('has not grown a new construction site without someone deciding about the log', () => {
