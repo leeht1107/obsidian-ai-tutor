@@ -4690,7 +4690,7 @@ var CopilotBridgeService = class {
     this.capabilityProbePromises = /* @__PURE__ */ new Map();
     this.exitPlanModeCallback = null;
     /** The last permission notice shown per provider, so the same one is not repeated. */
-    this.shownPermissionNotices = /* @__PURE__ */ new Map();
+    this.shownPermissionNotices = /* @__PURE__ */ new Set();
     this.currentPlanFilePath = null;
     this.approvedPlanContent = null;
     this.askUserQuestionAnswers = /* @__PURE__ */ new Map();
@@ -5138,20 +5138,16 @@ ${remedy}`;
   }
   /** Direct native CLI seam for the non-Copilot providers. One request owns one child. */
   async *querySelectedProvider(prompt, conversationHistory, queryOptions) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const provider = this.plugin.settings.selectedProvider;
-    const enableWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
-    if (provider === "agy" && (queryOptions == null ? void 0 : queryOptions.requireWebSearchDisabled)) {
-      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9 \uB044\uAE30\uB97C \uBCF4\uC7A5\uD560 \uC218 \uC5C6\uC5B4 \uC774 \uC694\uCCAD\uC744 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 provider\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
-      (_b = this.onPermissionNotice) == null ? void 0 : _b.call(this, notice2);
-      yield { type: "error", content: notice2 };
-      return;
-    }
-    if (provider === "agy" && !enableWebSearch) {
-      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9\uC744 \uAC15\uC81C\uB85C \uB04C \uC218 \uC5C6\uC5B4 Web \uAC80\uC0C9 \uC124\uC815\uC774 \uAEBC\uC838 \uC788\uC5B4\uB3C4 \uAC80\uC0C9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
-      if (this.shownPermissionNotices.get(provider) !== notice2) {
-        this.shownPermissionNotices.set(provider, notice2);
-        (_c = this.onPermissionNotice) == null ? void 0 : _c.call(this, notice2);
+    const requestedWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
+    const enableWebSearch = provider === "agy" ? true : requestedWebSearch;
+    if (provider === "agy" && (!requestedWebSearch || (queryOptions == null ? void 0 : queryOptions.requireWebSearchDisabled))) {
+      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9 \uB044\uAE30\uB97C \uBCF4\uC7A5\uD560 \uC218 \uC5C6\uC5B4 Web \uAC80\uC0C9\uC744 \uCF20 \uC0C1\uD0DC\uB85C \uACC4\uC18D \uC9C4\uD589\uD569\uB2C8\uB2E4.";
+      const noticeKey = `${provider}:${notice2}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
+        (_b = this.onPermissionNotice) == null ? void 0 : _b.call(this, notice2);
       }
     }
     const cliPath = resolveProviderCliPath(this.plugin.settings, provider);
@@ -5170,13 +5166,16 @@ ${remedy}`;
       prompt,
       conversationHistory,
       this.getWorkingDirectory(),
-      queryOptions,
+      { ...queryOptions, enableWebSearch },
       permissionMode
     );
     const notice = needsConsent && !wantsReadOnly ? `${provider}\uC5D0 \uD30C\uC77C\uC744 \uACE0\uCE60 \uAD8C\uD55C\uC744 \uC8FC\uB824\uBA74 Ask/Agent \uD1A0\uAE00\uC744 \uB20C\uB7EC \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uC740 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : wantsReadOnly && !supportsReadOnlyMode(provider) ? `${provider}\uB294 \uC77D\uAE30 \uC804\uC6A9\uC73C\uB85C \uC81C\uD55C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uACE0\uCE60 \uC218 \uC788\uB294 \uC0C1\uD0DC\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4.` : "";
-    if (notice && this.shownPermissionNotices.get(provider) !== notice) {
-      this.shownPermissionNotices.set(provider, notice);
-      (_d = this.onPermissionNotice) == null ? void 0 : _d.call(this, notice);
+    if (notice) {
+      const noticeKey = `${provider}:${notice}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
+        (_c = this.onPermissionNotice) == null ? void 0 : _c.call(this, notice);
+      }
     }
     const native = buildNativeProviderCommand(
       provider,
@@ -5255,7 +5254,7 @@ ${remedy}`;
       if (chunk.type === "text" && chunk.content.trim()) validTextChunks += 1;
       pending.push(chunk);
     };
-    (_e = child.stdout) == null ? void 0 : _e.on("data", (data) => {
+    (_d = child.stdout) == null ? void 0 : _d.on("data", (data) => {
       var _a2;
       stdoutBytes += data.byteLength;
       lineBuffer += data.toString();
@@ -5273,7 +5272,7 @@ ${remedy}`;
       }
       signal();
     });
-    (_f = child.stderr) == null ? void 0 : _f.on("data", (data) => {
+    (_e = child.stderr) == null ? void 0 : _e.on("data", (data) => {
       stderrBytes += data.byteLength;
       if (errorOutput.length >= MAX_STDERR_CHARS) {
         stderrTruncated = true;
@@ -5295,7 +5294,7 @@ ${remedy}`;
       closed = true;
       signal();
     });
-    (_g = child.stdin) == null ? void 0 : _g.end();
+    (_f = child.stdin) == null ? void 0 : _f.end();
     try {
       while (!closed) {
         if (provider !== "agy") {
@@ -5371,7 +5370,7 @@ ${remedy}`;
         failureMessage = explainEmptyAnswer(provider, errorOutput, permissionMode);
       }
       if (failureCode) {
-        (_h = this.onOutcome) == null ? void 0 : _h.call(this, provider, "failed");
+        (_g = this.onOutcome) == null ? void 0 : _g.call(this, provider, "failed");
         const diagnostic = {
           code: failureCode,
           storedMode: mode,
@@ -5401,7 +5400,7 @@ ${remedy}`;
         });
         yield { type: "error", content: safeMessage };
       } else {
-        (_i = this.onOutcome) == null ? void 0 : _i.call(this, provider, "ok");
+        (_h = this.onOutcome) == null ? void 0 : _h.call(this, provider, "ok");
         while (pending.length) yield pending.shift();
       }
       yield { type: "done" };
@@ -13438,7 +13437,7 @@ function getSocraticPersonaInstructions() {
 var DIFFICULTY_INSTRUCTIONS = {
   "\uD558": "Ask simple recall/definition questions. Keep choices straightforward. Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.",
   "\uC911": "Do not use any knowledge outside the selected ground truth notes/folder. If the selected material does not support a claim, do not invent it.",
-  "\uC0C1": 'Create application-level questions that apply the core concepts to novel real-world scenarios (e.g., applying "data science project" concepts to "AI development project"). You may use web search to find related official documentation and supplement the questions. Do not be strictly bounded by the notes.'
+  "\uC0C1": "Create application-level questions that apply the core concepts to novel real-world scenarios. Treat the selected notes as the primary course ground truth. You may use web search for related official documentation and application context, but do not contradict the notes."
 };
 function shouldEnableQuizWebSearch(difficulty) {
   return difficulty === "\uC0C1";
@@ -13951,14 +13950,14 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
   buildScope() {
     if (this.learningScope === "current-note" && this.activeFilePath) {
       return {
-        sourceInstruction: this.mode === "quiz" ? `Use only the current note as ground truth source material: @${this.activeFilePath}` : `The following note is the source material for the dialogue: @${this.activeFilePath}`,
+        sourceInstruction: this.mode === "quiz" ? `${this.difficulty === "\uC0C1" ? "Use the current note as primary course ground truth; official web sources may supplement application context" : "Use only the current note as ground truth source material"}: @${this.activeFilePath}` : `The following note is the source material for the dialogue: @${this.activeFilePath}`,
         displayScope: `\uD604\uC7AC \uB178\uD2B8 \xB7 ${getBasename(this.activeFilePath)}`
       };
     }
     if (this.learningScope === "note") {
       const selectedPaths = Array.from(this.selectedNotePaths);
       return {
-        sourceInstruction: this.mode === "quiz" ? `Use only these selected notes as ground truth source material: ${selectedPaths.map((path16) => `@${path16}`).join(", ")}` : `The following notes are the source material for the dialogue: ${selectedPaths.map((path16) => `@${path16}`).join(", ")}`,
+        sourceInstruction: this.mode === "quiz" ? `${this.difficulty === "\uC0C1" ? "Use the selected notes as primary course ground truth; official web sources may supplement application context" : "Use only these selected notes as ground truth source material"}: ${selectedPaths.map((path16) => `@${path16}`).join(", ")}` : `The following notes are the source material for the dialogue: ${selectedPaths.map((path16) => `@${path16}`).join(", ")}`,
         displayScope: summarizeSelectedNotes(selectedPaths)
       };
     }
@@ -13967,7 +13966,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
       this.app.vault.getMarkdownFiles().map((file) => file.path),
       selectedFolders
     );
-    const sourceInstruction = folderNotes.length > 0 ? this.mode === "quiz" ? `Use only these selected notes as ground truth source material: ${folderNotes.map((path16) => `@${path16}`).join(", ")}` : `The following notes are the source material for the dialogue: ${folderNotes.map((path16) => `@${path16}`).join(", ")}` : `No markdown files found in selected folders: ${selectedFolders.join(", ")}. Please inform the user.`;
+    const sourceInstruction = folderNotes.length > 0 ? this.mode === "quiz" ? `${this.difficulty === "\uC0C1" ? "Use the selected notes as primary course ground truth; official web sources may supplement application context" : "Use only these selected notes as ground truth source material"}: ${folderNotes.map((path16) => `@${path16}`).join(", ")}` : `The following notes are the source material for the dialogue: ${folderNotes.map((path16) => `@${path16}`).join(", ")}` : `No markdown files found in selected folders: ${selectedFolders.join(", ")}. Please inform the user.`;
     const displayScope = selectedFolders.length === 1 ? `\uD3F4\uB354 \xB7 ${summarizeFolder(selectedFolders[0])}` : `\uD3F4\uB354 ${selectedFolders.length}\uAC1C`;
     return { sourceInstruction, displayScope };
   }
@@ -16497,7 +16496,7 @@ var InputController = class {
   // ============================================
   /** Sends a message with optional editor context override. */
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
@@ -16514,6 +16513,8 @@ var InputController = class {
     const learningRequest = Boolean(
       quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
     );
+    const quizRequest = Boolean(quizSessionInit || !socraticSessionInit && state.quizSession);
+    const quizWebSearchEnabled = quizRequest ? (_f = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _f : shouldEnableQuizWebSearch((_e = (_d = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _d : (_c = state.quizSession) == null ? void 0 : _c.difficulty) != null ? _e : "\uC911") : void 0;
     if (content === "/quiz" || content.startsWith("/quiz ")) {
       const quizFocusText = content === "/quiz" ? "" : content.slice("/quiz".length).trim();
       const quizModal = new LearningSetupModal(plugin.app, (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null, "quiz", quizFocusText);
@@ -16560,7 +16561,7 @@ var InputController = class {
         state.queuedMessage.editorContext = editorContext2;
         state.queuedMessage.hidden = state.queuedMessage.hidden || (options == null ? void 0 : options.hidden);
         if (promptPrefix) {
-          state.queuedMessage.promptPrefix = (_c = state.queuedMessage.promptPrefix) != null ? _c : promptPrefix;
+          state.queuedMessage.promptPrefix = (_g = state.queuedMessage.promptPrefix) != null ? _g : promptPrefix;
         }
       } else {
         state.queuedMessage = {
@@ -16606,8 +16607,8 @@ var InputController = class {
         supportLevel: 1,
         isSummaryPhase: false
       };
-      (_e = (_d = this.deps).showSocraticBanner) == null ? void 0 : _e.call(
-        _d,
+      (_i = (_h = this.deps).showSocraticBanner) == null ? void 0 : _i.call(
+        _h,
         socraticSessionInit.scopeLabel,
         socraticSessionInit.focusText,
         () => this.sendSocraticShortcut("\uD78C\uD2B8 \uC8FC\uC138\uC694"),
@@ -16655,7 +16656,7 @@ var InputController = class {
     state.currentTextContent = "";
     streamController.showThinkingIndicator(contentEl);
     const currentNotePath = (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null;
-    const shouldSendCurrentNote = (_f = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _f : false;
+    const shouldSendCurrentNote = (_j = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _j : false;
     const shouldForceCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope ? this.readCurrentNoteContent(currentNotePath) : Promise.resolve(null);
     const displayContent = content;
@@ -16725,7 +16726,7 @@ ${content}
           promptToSend = prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent);
           queryOptions = {
             ...queryOptions,
-            allowedTools: ["view"]
+            allowedTools: ["view", ...quizWebSearchEnabled ? ["web_search", "web_fetch"] : []]
           };
         } else {
           promptToSend = prependCurrentNote(promptToSend, currentNotePath);
@@ -16735,7 +16736,7 @@ ${content}
       }
       currentNoteForMessage = currentNotePath;
     }
-    userMsg.displayContent = (_g = options == null ? void 0 : options.displayContentOverride) != null ? _g : displayContent !== content ? displayContent : void 0;
+    userMsg.displayContent = (_k = options == null ? void 0 : options.displayContentOverride) != null ? _k : displayContent !== content ? displayContent : void 0;
     userMsg.currentNote = currentNoteForMessage;
     if (options == null ? void 0 : options.promptPrefix) {
       promptToSend = `${options.promptPrefix}
@@ -16765,10 +16766,11 @@ ${promptToSend}`;
 
 ${promptToSend}`;
     }
+    let pendingSocraticSupportLevel;
     if (!socraticSessionInit && state.socraticSession) {
       const s = state.socraticSession;
       const supportLevel = inferSocraticSupportLevel(s.supportLevel, content);
-      state.socraticSession = { ...s, supportLevel };
+      pendingSocraticSupportLevel = supportLevel;
       const socraticControl = buildSocraticContinuationPrompt({
         isSummaryPhase: s.isSummaryPhase,
         sourceInstruction: s.sourceInstruction,
@@ -16791,20 +16793,19 @@ ${promptToSend}`;
         externalContextPaths
       };
     }
-    const webSearchEnabled = (_i = (_h = this.deps.getWebSearchToggle()) == null ? void 0 : _h.isEnabled()) != null ? _i : false;
-    const quizRequest = Boolean(quizSessionInit || !socraticSessionInit && state.quizSession);
-    const quizWebSearchEnabled = quizRequest ? (_m = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _m : shouldEnableQuizWebSearch((_l = (_k = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _k : (_j = state.quizSession) == null ? void 0 : _j.difficulty) != null ? _l : "\uC911") : webSearchEnabled;
+    const webSearchEnabled = (_m = (_l = this.deps.getWebSearchToggle()) == null ? void 0 : _l.isEnabled()) != null ? _m : false;
+    const requestWebSearchEnabled = quizWebSearchEnabled != null ? quizWebSearchEnabled : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
-      enableWebSearch: quizWebSearchEnabled,
-      ...quizRequest && !quizWebSearchEnabled ? { requireWebSearchDisabled: true } : {},
+      enableWebSearch: requestWebSearchEnabled,
+      ...quizRequest && !requestWebSearchEnabled ? { requireWebSearchDisabled: true } : {},
       readOnly: Boolean((queryOptions == null ? void 0 : queryOptions.readOnly) || learningRequest)
     };
-    let wasInterrupted = false;
+    let streamOutcome = "completed";
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (wasInterrupted) {
+      if (streamOutcome === "interrupted") {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
       }
       streamController.hideThinkingIndicator();
@@ -16813,13 +16814,23 @@ ${promptToSend}`;
       state.currentContentEl = null;
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
-      if (!wasInterrupted && contentEl) {
+      if (streamOutcome !== "completed" && quizRequest) {
+        assistantMsg.quizQuestion = null;
+      }
+      if (streamOutcome === "completed" && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });
         });
       }
       state.activeSubagents.clear();
-      if (state.quizSession && !quizSessionInit && !wasInterrupted && !(options == null ? void 0 : options.quizHintRequest)) {
+      if (streamOutcome !== "completed" && quizSessionInit) {
+        state.quizSession = null;
+      }
+      if (streamOutcome !== "completed" && socraticSessionInit) {
+        state.socraticSession = null;
+        (_o = (_n = this.deps).hideSocraticBanner) == null ? void 0 : _o.call(_n);
+      }
+      if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
         if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
           state.quizSession = {
             ...state.quizSession,
@@ -16829,21 +16840,23 @@ ${promptToSend}`;
           state.quizSession = null;
         }
       }
-      if (state.socraticSession && !socraticSessionInit && !wasInterrupted) {
+      if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
         const s = state.socraticSession;
-        if ((_n = assistantMsg.socraticTurn) == null ? void 0 : _n.isSummary) {
+        const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
+        if ((_p = assistantMsg.socraticTurn) == null ? void 0 : _p.isSummary) {
           state.socraticSession = null;
-          (_p = (_o = this.deps).hideSocraticBanner) == null ? void 0 : _p.call(_o);
-        } else if (s.isSummaryPhase) {
-        } else if (s.currentDepth >= s.maxDepth) {
-          state.socraticSession = { ...s, isSummaryPhase: true };
+          (_r = (_q = this.deps).hideSocraticBanner) == null ? void 0 : _r.call(_q);
+        } else if (updatedSession.isSummaryPhase) {
+          state.socraticSession = updatedSession;
+        } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
+          state.socraticSession = { ...updatedSession, isSummaryPhase: true };
         } else {
-          state.socraticSession = { ...s, currentDepth: s.currentDepth + 1 };
+          state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
         }
       }
       await conversationController.save(true);
       let skipPostCompletionFollowups = false;
-      if (assistantMsg.quizQuestion && !wasInterrupted && !(options == null ? void 0 : options.quizHintRequest)) {
+      if (assistantMsg.quizQuestion && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
         const quizContainerEl = this.deps.getMessagesEl().parentElement;
         if (quizContainerEl) {
           const result = await showQuizAnswerPanel(
@@ -17083,11 +17096,11 @@ ${content}
       ...options == null ? void 0 : options.queryOptions,
       planMode: true
     };
-    let wasInterrupted = false;
+    let streamOutcome = "completed";
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (wasInterrupted) {
+      if (streamOutcome === "interrupted") {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
         plugin.agentService.setCurrentPlanFilePath(null);
       }
@@ -17097,7 +17110,7 @@ ${content}
       state.currentContentEl = null;
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
-      if (!wasInterrupted && contentEl) {
+      if (streamOutcome === "completed" && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });
         });
@@ -17224,24 +17237,30 @@ ${content}
   // ============================================
   /**
    * Runs the streaming loop for a query.
-   * Errors are caught and displayed inline.
-   * @returns true if the stream was interrupted by the user.
+    * Errors are caught and displayed inline.
+   * @returns whether the stream completed, was interrupted, or failed.
    */
   async executeStream(prompt, images, assistantMsg, queryOptions, userMsg) {
     const { plugin, state, streamController } = this.deps;
-    let wasInterrupted = false;
+    let outcome = "completed";
     const inFlightIds = /* @__PURE__ */ new Set([assistantMsg.id, ...userMsg ? [userMsg.id] : []]);
     const previousMessages = state.messages.filter((msg) => !inFlightIds.has(msg.id));
     this.deps.setBashExpansionActive(true);
     try {
       for await (const chunk of plugin.agentService.query(prompt, images, previousMessages, queryOptions)) {
         if (state.cancelRequested) {
-          wasInterrupted = true;
+          outcome = "interrupted";
+          break;
+        }
+        if (chunk.type === "error") {
+          outcome = "failed";
+          await streamController.handleStreamChunk(chunk, assistantMsg);
           break;
         }
         await streamController.handleStreamChunk(chunk, assistantMsg);
       }
     } catch (error) {
+      outcome = "failed";
       console.error("[Copilot] Stream error:", error);
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       await streamController.appendText(`
@@ -17250,7 +17269,7 @@ ${content}
     } finally {
       this.deps.setBashExpansionActive(false);
     }
-    return wasInterrupted;
+    return outcome;
   }
   /** Cancels the current streaming operation. */
   cancelStreaming() {
@@ -18748,7 +18767,7 @@ var MessageRenderer = class {
     let recoveredQuizQuestion;
     const displayText = (raw) => {
       const normalized = normalizeQuizMarkdown(raw);
-      if (!msg.quizQuestion && !recoveredQuizQuestion) {
+      if (msg.quizQuestion === void 0 && !recoveredQuizQuestion) {
         recoveredQuizQuestion = parseQuizQuestionMeta(normalized);
       }
       return normalized;
@@ -21211,7 +21230,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       });
       text.inputEl.addClass("ocop-settings-media-input");
     });
-    new import_obsidian29.Setting(chatContentEl).setName("Web search").setDesc("Allow the agent to use web search and web fetch tools. Turn off to prevent ground-truth leakage during quizzes.").addToggle(
+    new import_obsidian29.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy may still search when Web is off; the first affected request shows a notice.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableWebSearch).onChange(async (value) => {
         this.plugin.settings.enableWebSearch = value;
         await this.plugin.saveSettings();

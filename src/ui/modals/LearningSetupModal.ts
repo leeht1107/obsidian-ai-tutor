@@ -355,7 +355,7 @@ export class LearningSetupModal extends Modal {
     if (this.learningScope === 'current-note' && this.activeFilePath) {
       return {
         sourceInstruction: this.mode === 'quiz'
-          ? `Use only the current note as ground truth source material: @${this.activeFilePath}`
+          ? `${this.difficulty === '상' ? 'Use the current note as primary course ground truth; official web sources may supplement application context' : 'Use only the current note as ground truth source material'}: @${this.activeFilePath}`
           : `The following note is the source material for the dialogue: @${this.activeFilePath}`,
         displayScope: `현재 노트 · ${getBasename(this.activeFilePath)}`,
       };
@@ -365,7 +365,7 @@ export class LearningSetupModal extends Modal {
       const selectedPaths = Array.from(this.selectedNotePaths);
       return {
         sourceInstruction: this.mode === 'quiz'
-          ? `Use only these selected notes as ground truth source material: ${selectedPaths.map((path) => `@${path}`).join(', ')}`
+          ? `${this.difficulty === '상' ? 'Use the selected notes as primary course ground truth; official web sources may supplement application context' : 'Use only these selected notes as ground truth source material'}: ${selectedPaths.map((path) => `@${path}`).join(', ')}`
           : `The following notes are the source material for the dialogue: ${selectedPaths.map((path) => `@${path}`).join(', ')}`,
         displayScope: summarizeSelectedNotes(selectedPaths),
       };
@@ -378,7 +378,7 @@ export class LearningSetupModal extends Modal {
     );
     const sourceInstruction = folderNotes.length > 0
       ? this.mode === 'quiz'
-        ? `Use only these selected notes as ground truth source material: ${folderNotes.map((path) => `@${path}`).join(', ')}`
+        ? `${this.difficulty === '상' ? 'Use the selected notes as primary course ground truth; official web sources may supplement application context' : 'Use only these selected notes as ground truth source material'}: ${folderNotes.map((path) => `@${path}`).join(', ')}`
         : `The following notes are the source material for the dialogue: ${folderNotes.map((path) => `@${path}`).join(', ')}`
       : `No markdown files found in selected folders: ${selectedFolders.join(', ')}. Please inform the user.`;
     const displayScope = selectedFolders.length === 1

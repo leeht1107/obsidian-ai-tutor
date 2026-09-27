@@ -45,6 +45,7 @@ describe('learning request permission boundary', () => {
     enableWebSearch = true,
     requireWebSearchDisabled = false,
     readOnly = true,
+    repeat = 1,
   ): Promise<{ args: string[]; notices: string[]; spawned: boolean }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
     if (fs.existsSync(captured)) fs.unlinkSync(captured);
@@ -65,11 +66,13 @@ describe('learning request permission boundary', () => {
     } as unknown as ObsidianCopilotPlugin);
     service.onPermissionNotice = (notice) => notices.push(notice);
 
-    for await (const chunk of service.query('learning prompt', undefined, undefined, {
-      readOnly,
-      enableWebSearch,
-      requireWebSearchDisabled,
-    })) { void chunk; }
+    for (let i = 0; i < repeat; i += 1) {
+      for await (const chunk of service.query('learning prompt', undefined, undefined, {
+        readOnly,
+        enableWebSearch,
+        requireWebSearchDisabled,
+      })) { void chunk; }
+    }
     const spawned = fs.existsSync(captured);
     return { args: spawned ? fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/) : [], notices, spawned };
   }
@@ -99,21 +102,30 @@ describe('learning request permission boundary', () => {
     expect(notices).toEqual([]);
   });
 
-  it('lets ordinary Agy chat run with Web off and explains that search may still happen', async () => {
+  it('lets ordinary Agy chat run with Web off and explains that search remains available', async () => {
     const { args, notices, spawned } = await run('agy', 'modern', true, false, false, false);
     expect(spawned).toBe(true);
     expect(args).toContain('--output-format');
     expect(notices.join(' ')).toMatch(/Agy/);
     expect(notices.join(' ')).toMatch(/Web 검색/);
-    expect(notices.join(' ')).toMatch(/강제로 끌 수 없어/);
+    expect(notices.join(' ')).toMatch(/계속 진행합니다/);
   });
 
-  it.each([false, true])('fails closed for a request that explicitly requires Web disabled when global Web is %s', async (enableWebSearch) => {
+  it.each([false, true])('continues Agy with Web available when a request requires Web disabled and global Web is %s', async (enableWebSearch) => {
     const { args, notices, spawned } = await run('agy', 'modern', true, enableWebSearch, true);
-    expect(spawned).toBe(false);
-    expect(args).toEqual([]);
+    expect(spawned).toBe(true);
+    expect(args).toContain('--output-format');
     expect(notices.join(' ')).toMatch(/Web 검색/);
-    expect(notices.join(' ')).toMatch(/실행하지 않았습니다/);
+    expect(notices.join(' ')).toMatch(/계속 진행합니다/);
+    expect(args.join('\n')).toContain('Use WebSearch strictly');
+    expect(args.join('\n')).not.toContain('Web search is unavailable for this request.');
+  });
+
+  it('shows distinct Agy notices once each across consecutive requests', async () => {
+    const { notices, spawned } = await run('agy', 'modern', false, false, false, false, 2);
+    expect(spawned).toBe(true);
+    expect(notices.filter((notice) => notice.includes('Web 검색'))).toHaveLength(1);
+    expect(notices.filter((notice) => notice.includes('Ask/Agent'))).toHaveLength(1);
   });
 
   it('keeps Agy runnable when Web is on', async () => {

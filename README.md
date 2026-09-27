@@ -18,7 +18,7 @@ helps you write and study better — all directly within the Obsidian sidebar.
 *   **🧠 Context-Aware**: The provider knows about your current note and conversation history.
 *   **⚡ Ultra-thin dispatch**: One native CLI process per request — no shared provider runtime, proxy, queue, or relay in between.
 *   **📎 Smart Attachments**: Reference other notes using `@` to give the assistant more context.
-*   **🧑‍🏫 Learning Modes**: Use `/quiz` for source-grounded checks and `/socratic` for a Korean digital teaching twin that adapts between challenge, coaching, and rescue-style scaffolding. Both work the same way regardless of which provider is selected.
+*   **🧑‍🏫 Learning Modes**: Use `/quiz` for source-grounded checks and `/socratic` for a Korean digital teaching twin that adapts between challenge, coaching, and rescue-style scaffolding. Agy may use Web search even when a Quiz normally disables it.
 *   **✏️ Inline Edits**: Select text and ask the assistant to rewrite, summarize, or fix it in place.
 
 Copilot keeps its full existing feature surface (tool approvals, MCP, plan
@@ -138,11 +138,13 @@ login command.
 | Capability | Copilot | Claude Code | Codex | agy |
 |---|---|---|---|---|
 | Chat + Context | ✅ | ✅ | ✅ | ✅ |
-| Quiz / Socratic learning modes | ✅ | ✅ | ✅ | ✅ |
+| Quiz / Socratic learning modes | ✅ | ✅ | ✅ | ✅* |
 | Auto-install (npm) | ✅ | ✅ | ✅ | ❌ guided manual only |
 | Tool approvals, MCP, plan mode, live diffs | ✅ | native CLI output only | native CLI output only | native CLI output only |
 | Disable Web search for one request | ✅ | ✅ | ✅ | ❌ Agy may still search while the global Web toggle is off |
 | Dispatch model | 1 native CLI process per request, no shared runtime/proxy/relay | same | same | same |
+
+\* Agy cannot guarantee Web search is disabled, so its Web tools may be used even for low/medium Quiz. The first affected request shows a notice and proceeds with Web available; the global preference remains unchanged.
 
 ---
 

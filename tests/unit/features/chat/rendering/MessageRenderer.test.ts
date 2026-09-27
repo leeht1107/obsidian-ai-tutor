@@ -185,6 +185,19 @@ describe('stored quiz messages recovered on replay', () => {
     expect(msg.quizQuestion).toBeUndefined();
   });
 
+  it('does not recover answer controls for a failed partial Quiz message', () => {
+    const messagesEl = createMockElement();
+    const renderer = new MessageRenderer({} as any, createMockComponent() as any, messagesEl);
+    jest.spyOn(renderer, 'renderContent').mockResolvedValue(undefined);
+    const msg = { ...storedMessage(), quizQuestion: null };
+
+    renderer.renderStoredMessage(msg);
+
+    const all = flatten(messagesEl);
+    expect(all.some((el) => el.hasClass('ocop-quiz-progress-fill'))).toBe(false);
+    expect(all.some((el) => el.hasClass('ocop-quiz-answer-btn'))).toBe(false);
+  });
+
   it('draws the 힌트 and 모르겠어요 controls the live panel has', () => {
     const messagesEl = createMockElement();
     const renderer = new MessageRenderer({} as any, createMockComponent() as any, messagesEl);

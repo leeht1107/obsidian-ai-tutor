@@ -37,6 +37,15 @@ describe('LearningSetupModal', () => {
     expect((modal as any).buildResult()).toMatchObject({ difficulty, enableWebSearch });
   });
 
+  it('keeps selected notes primary while allowing official web context for a high Quiz', () => {
+    const modal = createModal('quiz');
+    (modal as any).difficulty = '상';
+    const result = (modal as any).buildResult();
+    expect(result.sourceInstruction).toContain('primary course ground truth');
+    expect(result.sourceInstruction).toContain('official web sources may supplement application context');
+    expect(result.sourceInstruction).not.toContain('Use only');
+  });
+
   it('keeps the related-application selection in the quiz result and display label', () => {
     const modal = createModal('quiz');
     (modal as any).questionStyle = 'application';

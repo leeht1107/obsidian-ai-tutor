@@ -438,7 +438,7 @@ export class CopilotBridgeService {
 
   private exitPlanModeCallback: ExitPlanModeCallback | null = null;
   /** The last permission notice shown per provider, so the same one is not repeated. */
-  private readonly shownPermissionNotices = new Map<ProviderId, string>();
+  private readonly shownPermissionNotices = new Set<string>();
   private currentPlanFilePath: string | null = null;
   private approvedPlanContent: string | null = null;
   private askUserQuestionAnswers = new Map<string, Record<string, string | string[]>>();
@@ -1004,17 +1004,13 @@ export class CopilotBridgeService {
     queryOptions?: QueryOptions
   ): AsyncGenerator<StreamChunk> {
     const provider = this.plugin.settings.selectedProvider as ProviderId;
-    const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
-    if (provider === 'agy' && queryOptions?.requireWebSearchDisabled) {
-      const notice = 'Agy는 요청별 Web 검색 끄기를 보장할 수 없어 이 요청을 실행하지 않았습니다. 다른 provider를 선택해 주세요.';
-      this.onPermissionNotice?.(notice);
-      yield { type: 'error', content: notice };
-      return;
-    }
-    if (provider === 'agy' && !enableWebSearch) {
-      const notice = 'Agy는 요청별 Web 검색을 강제로 끌 수 없어 Web 검색 설정이 꺼져 있어도 검색을 사용할 수 있습니다.';
-      if (this.shownPermissionNotices.get(provider) !== notice) {
-        this.shownPermissionNotices.set(provider, notice);
+    const requestedWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
+    const enableWebSearch = provider === 'agy' ? true : requestedWebSearch;
+    if (provider === 'agy' && (!requestedWebSearch || queryOptions?.requireWebSearchDisabled)) {
+      const notice = 'Agy는 요청별 Web 검색 끄기를 보장할 수 없어 Web 검색을 켠 상태로 계속 진행합니다.';
+      const noticeKey = `${provider}:${notice}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
         this.onPermissionNotice?.(notice);
       }
     }
@@ -1044,7 +1040,7 @@ export class CopilotBridgeService {
       prompt,
       conversationHistory,
       this.getWorkingDirectory(),
-      queryOptions,
+      { ...queryOptions, enableWebSearch },
       permissionMode,
     );
 
@@ -1058,9 +1054,12 @@ export class CopilotBridgeService {
       : wantsReadOnly && !supportsReadOnlyMode(provider)
         ? `${provider}는 읽기 전용으로 제한할 수 없습니다. 파일을 고칠 수 있는 상태로 실행합니다.`
         : '';
-    if (notice && this.shownPermissionNotices.get(provider) !== notice) {
-      this.shownPermissionNotices.set(provider, notice);
-      this.onPermissionNotice?.(notice);
+    if (notice) {
+      const noticeKey = `${provider}:${notice}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
+        this.onPermissionNotice?.(notice);
+      }
     }
     const native = buildNativeProviderCommand(
       provider,

@@ -619,7 +619,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(chatContentEl)
       .setName('Web search')
-      .setDesc('Allow the agent to use web search and web fetch tools. Turn off to prevent ground-truth leakage during quizzes.')
+      .setDesc('Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (하/중 off, 상 on). Agy may still search when Web is off; the first affected request shows a notice.')
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.enableWebSearch)

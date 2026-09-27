@@ -264,12 +264,12 @@ export class MessageRenderer {
   private renderAssistantContent(msg: ChatMessage, contentEl: HTMLElement): void {
     // Conversations saved while codex glued its blocks together carry the run-on text
     // AND `quizQuestion: undefined` — the metadata is only ever parsed once, at stream
-    // end. Normalising here fixes what the student sees; re-parsing re-opens the answer
-    // panel. Neither result is written back: the stored session file stays as recorded.
+    // end. `null` marks a failed partial Quiz response and prevents replay from turning
+    // its unfinished text into an answer target. Normalising is display-only.
     let recoveredQuizQuestion: QuizQuestionMeta | undefined;
     const displayText = (raw: string): string => {
       const normalized = normalizeQuizMarkdown(raw);
-      if (!msg.quizQuestion && !recoveredQuizQuestion) {
+      if (msg.quizQuestion === undefined && !recoveredQuizQuestion) {
         recoveredQuizQuestion = parseQuizQuestionMeta(normalized);
       }
       return normalized;

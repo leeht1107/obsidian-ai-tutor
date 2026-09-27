@@ -63,6 +63,8 @@ const CURRENT_NOTE_ONLY_PATTERNS = [
   /what(?:'s| is).*note/i,
 ] as const;
 
+type StreamOutcome = 'completed' | 'interrupted' | 'failed';
+
 /** Dependencies for InputController. */
 export interface InputControllerDeps {
   plugin: ObsidianCopilotPlugin;
@@ -315,6 +317,11 @@ export class InputController {
     const learningRequest = Boolean(
       quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
     );
+    const quizRequest = Boolean(quizSessionInit || (!socraticSessionInit && state.quizSession));
+    const quizWebSearchEnabled = quizRequest
+      ? quizSessionInit?.enableWebSearch
+        ?? shouldEnableQuizWebSearch(quizSessionInit?.difficulty ?? state.quizSession?.difficulty ?? '중')
+      : undefined;
 
     if (content === '/quiz' || content.startsWith('/quiz ')) {
       const quizFocusText = content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
@@ -566,7 +573,7 @@ export class InputController {
           promptToSend = prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent);
           queryOptions = {
             ...queryOptions,
-            allowedTools: ['view'],
+            allowedTools: ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
           };
         } else {
           promptToSend = prependCurrentNote(promptToSend, currentNotePath);
@@ -610,10 +617,11 @@ export class InputController {
 ${promptToSend}`;
     }
 
+    let pendingSocraticSupportLevel: ReturnType<typeof inferSocraticSupportLevel> | undefined;
     if (!socraticSessionInit && state.socraticSession) {
       const s = state.socraticSession;
       const supportLevel = inferSocraticSupportLevel(s.supportLevel, content);
-      state.socraticSession = { ...s, supportLevel };
+      pendingSocraticSupportLevel = supportLevel;
       const socraticControl = buildSocraticContinuationPrompt({
         isSummaryPhase: s.isSummaryPhase,
         sourceInstruction: s.sourceInstruction,
@@ -645,23 +653,19 @@ ${promptToSend}`;
 
     // Add web search toggle state
     const webSearchEnabled = this.deps.getWebSearchToggle()?.isEnabled() ?? false;
-    const quizRequest = Boolean(quizSessionInit || (!socraticSessionInit && state.quizSession));
-    const quizWebSearchEnabled = quizRequest
-      ? quizSessionInit?.enableWebSearch
-        ?? shouldEnableQuizWebSearch(quizSessionInit?.difficulty ?? state.quizSession?.difficulty ?? '중')
-      : webSearchEnabled;
+    const requestWebSearchEnabled = quizWebSearchEnabled ?? webSearchEnabled;
     queryOptions = {
       ...queryOptions,
-      enableWebSearch: quizWebSearchEnabled,
-      ...(quizRequest && !quizWebSearchEnabled ? { requireWebSearchDisabled: true } : {}),
+      enableWebSearch: requestWebSearchEnabled,
+      ...(quizRequest && !requestWebSearchEnabled ? { requireWebSearchDisabled: true } : {}),
       readOnly: Boolean(queryOptions?.readOnly || learningRequest),
     };
 
-    let wasInterrupted = false;
+    let streamOutcome: StreamOutcome = 'completed';
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (wasInterrupted) {
+      if (streamOutcome === 'interrupted') {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
       }
       streamController.hideThinkingIndicator();
@@ -671,14 +675,26 @@ ${promptToSend}`;
 
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
-      if (!wasInterrupted && contentEl) {
+      if (streamOutcome !== 'completed' && quizRequest) {
+        // Keep partial output visible, but don't let replay turn it into an answer target.
+        assistantMsg.quizQuestion = null;
+      }
+      if (streamOutcome === 'completed' && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });
         });
       }
       state.activeSubagents.clear();
 
-      if (state.quizSession && !quizSessionInit && !wasInterrupted && !options?.quizHintRequest) {
+      if (streamOutcome !== 'completed' && quizSessionInit) {
+        state.quizSession = null;
+      }
+      if (streamOutcome !== 'completed' && socraticSessionInit) {
+        state.socraticSession = null;
+        this.deps.hideSocraticBanner?.();
+      }
+
+      if (state.quizSession && !quizSessionInit && streamOutcome === 'completed' && !options?.quizHintRequest) {
         if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
           state.quizSession = {
             ...state.quizSession,
@@ -689,17 +705,19 @@ ${promptToSend}`;
         }
       }
 
-      if (state.socraticSession && !socraticSessionInit && !wasInterrupted) {
+      if (state.socraticSession && !socraticSessionInit && streamOutcome === 'completed') {
         const s = state.socraticSession;
+        const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel ?? s.supportLevel };
         if (assistantMsg.socraticTurn?.isSummary) {
           state.socraticSession = null;
           this.deps.hideSocraticBanner?.();
-        } else if (s.isSummaryPhase) {
+        } else if (updatedSession.isSummaryPhase) {
           // Waiting for student's final answer — keep state unchanged
-        } else if (s.currentDepth >= s.maxDepth) {
-          state.socraticSession = { ...s, isSummaryPhase: true };
+          state.socraticSession = updatedSession;
+        } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
+          state.socraticSession = { ...updatedSession, isSummaryPhase: true };
         } else {
-          state.socraticSession = { ...s, currentDepth: s.currentDepth + 1 };
+          state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
         }
       }
 
@@ -707,7 +725,7 @@ ${promptToSend}`;
 
       // Show quiz answer panel if the assistant message has a quiz question
       let skipPostCompletionFollowups = false;
-      if (assistantMsg.quizQuestion && !wasInterrupted && !options?.quizHintRequest) {
+      if (assistantMsg.quizQuestion && streamOutcome === 'completed' && !options?.quizHintRequest) {
         const quizContainerEl = this.deps.getMessagesEl().parentElement;
         if (quizContainerEl) {
           const result = await showQuizAnswerPanel(
@@ -1008,11 +1026,11 @@ ${content}
       planMode: true,
     };
 
-    let wasInterrupted = false;
+    let streamOutcome: StreamOutcome = 'completed';
     try {
-      wasInterrupted = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (wasInterrupted) {
+      if (streamOutcome === 'interrupted') {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
         plugin.agentService.setCurrentPlanFilePath(null);
       }
@@ -1023,7 +1041,7 @@ ${content}
 
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
-      if (!wasInterrupted && contentEl) {
+      if (streamOutcome === 'completed' && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });
         });
@@ -1196,8 +1214,8 @@ ${content}
 
   /**
    * Runs the streaming loop for a query.
-   * Errors are caught and displayed inline.
-   * @returns true if the stream was interrupted by the user.
+    * Errors are caught and displayed inline.
+   * @returns whether the stream completed, was interrupted, or failed.
    */
   private async executeStream(
     prompt: string,
@@ -1205,9 +1223,9 @@ ${content}
     assistantMsg: ChatMessage,
     queryOptions: QueryOptions | undefined,
     userMsg?: ChatMessage,
-  ): Promise<boolean> {
+  ): Promise<StreamOutcome> {
     const { plugin, state, streamController } = this.deps;
-    let wasInterrupted = false;
+    let outcome: StreamOutcome = 'completed';
     // The turn now in flight is already in `state.messages` (the student sees it), but
     // `prompt` IS that turn — expanded with slash commands, editor selection and any
     // quiz/socratic control text. Replaying both sends the question twice, in two
@@ -1224,19 +1242,25 @@ ${content}
     try {
       for await (const chunk of plugin.agentService.query(prompt, images, previousMessages, queryOptions)) {
         if (state.cancelRequested) {
-          wasInterrupted = true;
+          outcome = 'interrupted';
+          break;
+        }
+        if (chunk.type === 'error') {
+          outcome = 'failed';
+          await streamController.handleStreamChunk(chunk, assistantMsg);
           break;
         }
         await streamController.handleStreamChunk(chunk, assistantMsg);
       }
     } catch (error) {
+      outcome = 'failed';
       console.error('[Copilot] Stream error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       await streamController.appendText(`\n\n**Error:** ${errorMsg}`);
     } finally {
       this.deps.setBashExpansionActive(false);
     }
-    return wasInterrupted;
+    return outcome;
   }
 
   /** Cancels the current streaming operation. */

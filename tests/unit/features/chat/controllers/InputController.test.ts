@@ -593,6 +593,53 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.quizSession?.currentQuestion).toBe(2);
     });
 
+    it('does not advance Quiz or Socratic state when the provider returns an error chunk', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([
+        { type: 'error', content: 'provider failed' },
+        { type: 'text', content: 'late output after terminal error' },
+      ]));
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation((_chunk: any, msg: any) => {
+        msg.quizQuestion = { current: 2, total: 3, multiSelect: false, freeText: false, options: [] };
+      });
+      deps.state.quizSession = { totalQuestions: 3, currentQuestion: 1, scopeLabel: 'quiz', difficulty: '중' };
+      await controller.sendMessage({ content: 'C' });
+      expect(deps.state.quizSession?.currentQuestion).toBe(1);
+      expect(deps.state.messages.at(-1)?.quizQuestion).toBeNull();
+      expect(deps.streamController.handleStreamChunk).toHaveBeenCalledTimes(1);
+
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'error', content: 'provider failed' }]));
+      deps.state.socraticSession = { maxDepth: 20, currentDepth: 2, scopeLabel: 'socratic', supportLevel: 1, isSummaryPhase: false };
+      await controller.sendMessage({ content: '모르겠어요' });
+      expect(deps.state.socraticSession).toMatchObject({ currentDepth: 2, supportLevel: 1 });
+    });
+
+    it('clears a newly started learning session when the provider throws', async () => {
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => { throw new Error('provider failed'); });
+      await controller.sendMessage({ content: 'quiz prompt', quizSessionInit: { totalQuestions: 2, scopeLabel: 'quiz', difficulty: '중' } });
+      expect(deps.state.quizSession).toBeNull();
+
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'error', content: 'provider failed' }]));
+      await controller.sendMessage({ content: 'socratic prompt', socraticSessionInit: { scopeLabel: 'socratic' } });
+      expect(deps.state.socraticSession).toBeNull();
+    });
+
+    it.each([['상', ['view', 'web_search', 'web_fetch']], ['중', ['view']]] as const)(
+      'keeps current-note Quiz tools aligned with difficulty %s', async (difficulty, allowedTools) => {
+        deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+        (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('note body');
+        deps.getFileContextManager = () => ({
+          startSession: jest.fn(), getCurrentNotePath: jest.fn().mockReturnValue('db.md'),
+          shouldSendCurrentNote: jest.fn().mockReturnValue(true), markCurrentNoteSent: jest.fn(),
+          transformContextMentions: (text: string) => text,
+        }) as any;
+        await controller.sendMessage({
+          content: '현재 노트로 퀴즈를 내 주세요',
+          quizSessionInit: { totalQuestions: 2, scopeLabel: '현재 노트', difficulty },
+        });
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools).toEqual(allowedTools);
+      }
+    );
+
     it('preserves related-application mode when an active quiz continues', async () => {
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
       deps.state.quizSession = Object.assign({
@@ -713,6 +760,19 @@ describe('InputController - Message Queue', () => {
       await controller.sendMessage({ content: 'hello' });
 
       expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: enabled });
+    });
+
+    it('passes low-difficulty Quiz Web-off intent to Agy for its one-time warning and fallback', async () => {
+      deps.plugin.settings.selectedProvider = 'agy' as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      await controller.sendMessage({
+        content: 'quiz prompt',
+        quizSessionInit: { totalQuestions: 2, scopeLabel: 'quiz', difficulty: '중' },
+      });
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({
+        enableWebSearch: false,
+        requireWebSearchDisabled: true,
+      });
     });
 
     it.each([

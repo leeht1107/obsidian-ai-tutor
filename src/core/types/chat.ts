@@ -90,7 +90,8 @@ export interface ChatMessage {
     type: 'approve' | 'approve_new_session' | 'revise';
     feedback?: string; // For revise
   };
-  quizQuestion?: QuizQuestionMeta;
+  /** `null` suppresses question recovery for partial output from a failed Quiz request. */
+  quizQuestion?: QuizQuestionMeta | null;
   socraticTurn?: SocraticTurnMeta;
 }
 
