@@ -625,6 +625,36 @@ describe('InlineEditController - bash expansion busy flag', () => {
     expect(continueConversation).toHaveBeenCalledWith('Section 2', [], ['Read']);
   });
 
+  it('rejects a restricted clarification follow-up after switching away from Copilot', async () => {
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn()
+        .mockReturnValueOnce({ commandName: 'read-only', args: [] })
+        .mockReturnValueOnce(null),
+      expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: 'Inspect', allowedTools: ['Read'], errors: [] }),
+    };
+    const { controller, plugin, inputEl } = buildController({
+      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }],
+    });
+    const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Which section?' });
+    const continueConversation = jest.fn();
+    const handleError = jest.fn();
+    (controller as any).handleError = handleError;
+    (controller as any).inlineEditService = { editText, continueConversation };
+    (controller as any).slashCommandManager = slashCommandManager;
+
+    inputEl.value = '/read-only';
+    await (controller as any).generate();
+
+    plugin.settings.selectedProvider = 'claude';
+    plugin.settings.blanketWriteAcknowledged = ['claude'];
+    inputEl.value = 'Section 2';
+    await (controller as any).generate();
+
+    expect(continueConversation).not.toHaveBeenCalled();
+    expect(handleError).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
+  });
+
   it('sets the busy flag during expandCommand and clears it even when expandCommand throws', async () => {
     const slashCommandManager = {
       setCommands: jest.fn(),
