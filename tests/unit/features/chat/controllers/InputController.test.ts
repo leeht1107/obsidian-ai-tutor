@@ -483,7 +483,7 @@ describe('InputController - Message Queue', () => {
         }),
       };
       deps.getSlashCommandManager = () => slashCommandManager as any;
-      deps.plugin.settings.slashCommands = [{ id: 'read-only', name: 'read-only', content: 'Inspect' }];
+      deps.plugin.settings.slashCommands = [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }];
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
       await controller.sendMessage({ content: '/read-only' });
@@ -502,7 +502,7 @@ describe('InputController - Message Queue', () => {
         expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: 'Prompt', allowedTools: [], errors: [] }),
       };
       deps.getSlashCommandManager = () => slashCommandManager as any;
-      deps.plugin.settings.slashCommands = [{ id: 'no-tools', name: 'no-tools', content: 'Prompt' }];
+      deps.plugin.settings.slashCommands = [{ id: 'no-tools', name: 'no-tools', content: 'Prompt', allowedTools: [] }];
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
       await controller.sendMessage({ content: '/no-tools' });
