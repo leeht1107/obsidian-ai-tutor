@@ -585,7 +585,7 @@ describe('InlineEditController - bash expansion busy flag', () => {
       }),
     };
     const { controller, inputEl } = buildController({
-      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect !\`echo unsafe\`', allowedTools: ['Read'] }],
+      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect !`echo unsafe`', allowedTools: ['Read'] }],
     });
     const editText = jest.fn().mockResolvedValue({ success: true, insertedText: 'done' });
     (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
