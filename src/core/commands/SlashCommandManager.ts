@@ -161,7 +161,7 @@ export class SlashCommandManager {
     const parsed = parseSlashCommandContent(command.content);
     return this.replaceArgumentPlaceholders(parsed.promptContent, args)
       .replace(/!`[^`]+`/g, ' ')
-      .replace(/(^|[^\\w])@(?:"[^"]+"|'[^']+'|[^\\s]+\\.\\w+)/g, '$1 ')
+      .replace(/(^|[^\w])@(?:"[^"]+"|'[^']+'|[^\s]+\.\w+)/g, '$1 ')
       .trim();
   }
 

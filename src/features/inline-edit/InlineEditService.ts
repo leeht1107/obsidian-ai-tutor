@@ -72,7 +72,7 @@ export class InlineEditService {
   async editText(request: InlineEditRequest): Promise<InlineEditResult> {
     const prompt = this.buildPrompt(request);
     this.conversation = [{ role: 'user', content: prompt }];
-    return this.sendConversation(allowedTools);
+    return this.sendConversation(request.allowedTools);
   }
 
   async continueConversation(
