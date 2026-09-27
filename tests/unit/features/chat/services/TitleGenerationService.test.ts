@@ -18,16 +18,27 @@ describe('TitleGenerationService', () => {
       setBashExpansionActive: jest.fn(),
     } as any;
 
-    const service = new TitleGenerationService(plugin);
+    const isolatedStreamQuery = jest.fn().mockImplementation(
+      () => (async function* () {
+        yield '"Runtime Safe Title"';
+      })()
+    );
+    const service = new TitleGenerationService(plugin, () => ({
+      streamQuery: isolatedStreamQuery,
+      cancel: jest.fn(),
+    }) as any);
     const callback = jest.fn().mockResolvedValue(undefined);
 
     await service.generateTitle('conv-1', 'First prompt', 'Assistant response', callback);
 
-    expect(streamQuery).toHaveBeenCalledWith(
+    expect(streamQuery).not.toHaveBeenCalled();
+    expect(isolatedStreamQuery).toHaveBeenCalledWith(
       expect.stringContaining('Generate a title for this conversation:'),
       {
         skipResume: true,
         model: 'gpt-5.4-mini',
+        readOnly: true,
+        enableWebSearch: false,
       }
     );
     expect(callback).toHaveBeenCalledWith('conv-1', {
@@ -54,7 +65,10 @@ describe('TitleGenerationService', () => {
       setBashExpansionActive: jest.fn((active: boolean) => { busy = active; }),
     } as any;
 
-    const service = new TitleGenerationService(plugin);
+    const service = new TitleGenerationService(plugin, () => ({
+      streamQuery,
+      cancel: jest.fn(),
+    }) as any);
     const callback = jest.fn().mockResolvedValue(undefined);
 
     await service.generateTitle('conv-1', 'prompt', 'response', callback);
@@ -80,7 +94,10 @@ describe('TitleGenerationService', () => {
       setBashExpansionActive: jest.fn(),
     } as any;
 
-    const service = new TitleGenerationService(plugin);
+    const service = new TitleGenerationService(plugin, () => ({
+      streamQuery,
+      cancel: jest.fn(),
+    }) as any);
     const callback = jest.fn().mockResolvedValue(undefined);
 
     await service.generateTitle('conv-1', 'prompt', 'response', callback);
