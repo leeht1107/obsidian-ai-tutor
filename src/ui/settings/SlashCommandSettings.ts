@@ -77,7 +77,7 @@ export class SlashCommandModal extends Modal {
 
     new Setting(contentEl)
       .setName('Allowed tools')
-      .setDesc('Comma-separated tools to allow. Leave blank for unrestricted; enter "none" for no tools.')
+      .setDesc('Comma-separated tools to allow. Leave blank for unrestricted. Zero-tool mode is not supported by the current CLI contract.')
       .addText(text => {
         toolsInput = text.inputEl;
         text.setValue(
@@ -149,6 +149,10 @@ export class SlashCommandModal extends Modal {
 
       const parsed = parseSlashCommandContent(content);
       const promptContent = parsed.promptContent;
+      if (toolsInput.value.trim().toLowerCase() === 'none') {
+        new Notice('Zero-tool mode is not supported. Specify at least one tool or leave Allowed tools blank.');
+        return;
+      }
 
       const cmd: SlashCommand = {
         id: this.existingCmd?.id || `cmd-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -156,11 +160,9 @@ export class SlashCommandModal extends Modal {
         description: descInput.value.trim() || parsed.description || undefined,
         argumentHint: hintInput.value.trim() || parsed.argumentHint || undefined,
         model: modelInput.value.trim() || parsed.model || undefined,
-        allowedTools: toolsInput.value.trim().toLowerCase() === 'none'
-          ? []
-          : toolsInput.value.trim()
-            ? toolsInput.value.split(',').map(s => s.trim()).filter(Boolean)
-            : parsed.allowedTools,
+        allowedTools: toolsInput.value.trim()
+          ? toolsInput.value.split(',').map(s => s.trim()).filter(Boolean)
+          : parsed.allowedTools,
         content: promptContent,
       };
 
