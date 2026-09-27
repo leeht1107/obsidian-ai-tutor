@@ -268,7 +268,7 @@ export class SlashCommandStorage {
     if (command.argumentHint) {
       lines.push(`argument-hint: ${this.yamlString(command.argumentHint)}`);
     }
-    if (command.allowedTools && command.allowedTools.length > 0) {
+    if (command.allowedTools !== undefined) {
       lines.push('allowed-tools:');
       for (const tool of command.allowedTools) {
         lines.push(`  - ${tool}`);
