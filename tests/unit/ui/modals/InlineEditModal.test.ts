@@ -563,6 +563,8 @@ describe('InlineEditController - bash expansion busy flag', () => {
     plugin.settings.selectedProvider = 'claude';
     plugin.settings.blanketWriteAcknowledged = ['claude'];
     const editText = jest.fn();
+    const handleError = jest.fn();
+    (controller as any).handleError = handleError;
     (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
     (controller as any).slashCommandManager = slashCommandManager;
     inputEl.value = '/read-only';
@@ -571,7 +573,7 @@ describe('InlineEditController - bash expansion busy flag', () => {
 
     expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
     expect(editText).not.toHaveBeenCalled();
-    expect(inputEl.placeholder).toContain('cannot enforce');
+    expect(handleError).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
   });
 
   it('blocks inline bash and forwards the allowlist for Copilot inline edit', async () => {
@@ -587,7 +589,7 @@ describe('InlineEditController - bash expansion busy flag', () => {
     const { controller, inputEl } = buildController({
       slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect !`echo unsafe`', allowedTools: ['Read'] }],
     });
-    const editText = jest.fn().mockResolvedValue({ success: true, insertedText: 'done' });
+    const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Done checking' });
     (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
     (controller as any).slashCommandManager = slashCommandManager;
     inputEl.value = '/read-only';
@@ -610,7 +612,7 @@ describe('InlineEditController - bash expansion busy flag', () => {
       slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }],
     });
     const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Which section?' });
-    const continueConversation = jest.fn().mockResolvedValue({ success: true, insertedText: 'done' });
+    const continueConversation = jest.fn().mockResolvedValue({ success: true, clarification: 'Done' });
     (controller as any).inlineEditService = { editText, continueConversation };
     (controller as any).slashCommandManager = slashCommandManager;
 
