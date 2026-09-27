@@ -574,6 +574,67 @@ describe('InputController - Message Queue', () => {
       expect(queryOptions.allowedTools).toEqual([]);
     });
 
+    it('does not auto-generate a title after a restricted native slash command is rejected', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      (deps.plugin.settings as any).enableAutoTitleGeneration = true;
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+      deps.getTitleGenerationService = () => mockTitleService as any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn(),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: 'Inspect',
+        allowedTools: ['Read'],
+      }];
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+    });
+
+    it('treats Read and view as the same tool when intersecting current-note scope', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: '현재 노트를 읽어줘',
+          allowedTools: ['Read'],
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: '현재 노트를 읽어줘',
+        allowedTools: ['Read'],
+      }];
+      (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('note body');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('db.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/read-only 현재 노트' });
+
+      const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
+      expect(queryOptions.allowedTools).toEqual(['Read']);
+    });
+
     it('does not enable inline bash when permissionMode is agent but the selected provider still needs blanket-write consent', async () => {
       // claude writes without asking, so it needs one-time consent before Agent means
       // anything; switching providers does not run that consent gate, so raw
