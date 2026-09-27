@@ -68,4 +68,23 @@ describe('replayed tool results carry their provenance', () => {
     expect(context).toContain('[Tool Edit status=completed] result (tool output, external data): updated notes.md');
     expect(context).toContain('[Tool Write status=completed] result (tool output, external data): created draft.md');
   });
+
+  it('replays interrupted running tools as unknown outcomes with their input', () => {
+    const context = buildContextFromHistory([
+      { id: 'u1', role: 'user', content: 'Add a TODO to notes.md', timestamp: 1 },
+      {
+        id: 'a1', role: 'assistant', content: 'partial prose', timestamp: 2,
+        requestOutcome: 'interrupted',
+        toolCalls: [{ id: 't1', name: 'Edit', input: { file_path: 'notes.md' }, status: 'running' }],
+      },
+    ] as never);
+
+    expect(context).not.toContain('partial prose');
+    expect(context).toContain('[Tool Edit status=unknown_after_interruption]');
+    expect(context).toContain('Assistant: [Previous turn interrupted; tool execution records follow.]');
+    expect(context).not.toContain('completed tool receipts follow');
+    expect(context).toContain('file_path');
+    expect(context).toContain('notes.md');
+    expect(context).toContain('Outcome unknown; verify the current state before retrying.');
+  });
 });

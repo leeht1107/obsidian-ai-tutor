@@ -164,6 +164,59 @@ maybe('copilot session continuity across a provider switch', () => {
     expect(args).not.toContain('--resume');
   });
 
+  it('does not create a session id when explicit tools fail local preflight', async () => {
+    const argsPath = path.join(dir, 'preflight-args.txt');
+    plugin.settings.copilotCliPath = write(dir, 'copilot-preflight.sh', [
+      'if [ "$1" = "--help" ]; then printf "%s\\n" "--session-id <id> --output-format json --stream on"; exit 0; fi',
+      `printf '%s\\n' "$@" > '${argsPath}'`,
+      'exit 0',
+    ].join('\n'));
+
+    await drain(service.query('invalid restricted request', undefined, undefined, {
+      allowedTools: ['not-a-copilot-tool'],
+    }));
+
+    expect(service.getSessionId()).toBeNull();
+    expect(fs.existsSync(argsPath)).toBe(false);
+
+    await drain(service.query('empty restricted request', undefined, undefined, { allowedTools: [] }));
+    expect(service.getSessionId()).toBeNull();
+    expect(fs.existsSync(argsPath)).toBe(false);
+
+    const retryPrompt = path.join(dir, 'preflight-retry-prompt.txt');
+    plugin.settings.copilotCliPath = writeCopilotCli(dir, 'copilot-preflight-retry.sh', retryPrompt);
+    const history: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'earlier user turn', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'earlier assistant turn', timestamp: 2 },
+    ];
+    await drain(service.query('valid retry', undefined, history));
+    const prompt = fs.readFileSync(retryPrompt, 'utf8');
+    expect(prompt).toContain('earlier user turn');
+    expect(prompt).toContain('earlier assistant turn');
+  });
+
+  it('does not carry CLI confirmation from one restored conversation id to another', async () => {
+    const argsPath = path.join(dir, 'resume-switch-args.txt');
+    const promptPath = path.join(dir, 'resume-switch-prompt.txt');
+    plugin.settings.copilotCliPath = write(dir, 'copilot-resume-switch.sh', [
+      'if [ "$1" = "--help" ]; then printf "%s\\n" "--resume --output-format json --stream on"; exit 0; fi',
+      `printf '%s\\n' "$@" > '${argsPath}'`,
+      'prev=""',
+      `for a in "$@"; do if [ "$prev" = "-p" ]; then printf "%s" "$a" > '${promptPath}'; fi; prev="$a"; done`,
+      `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}'`,
+      `printf '%s\\n' '{"type":"result","sessionId":"confirmed-session","exitCode":0}'`,
+    ].join('\n'));
+
+    await drain(service.query('conversation A')); // Confirms the CLI-reported session.
+    service.setSessionId('conversation-B-session');
+    await drain(service.query('conversation B follow-up', undefined, [
+      { id: 'u1', role: 'user', content: 'conversation B history', timestamp: 1 },
+    ]));
+
+    expect(fs.readFileSync(promptPath, 'utf8')).toContain('conversation B history');
+    expect(fs.readFileSync(argsPath, 'utf8')).not.toContain('--resume');
+  });
+
   it('starts a fresh session and omits a failed partial answer from replay', async () => {
     const failedPrompt = path.join(dir, 'failed-prompt.txt');
     plugin.settings.copilotCliPath = write(dir, 'copilot-fail.sh', [

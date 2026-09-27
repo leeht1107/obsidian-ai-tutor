@@ -76,6 +76,9 @@ function isCopilotWebTool(tool: string): boolean {
 
 function normalizeCopilotToolName(tool: string): string {
   const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
+  if (normalized === 'read') return 'view';
+  if (normalized === 'grep') return 'grep';
+  if (normalized === 'glob') return 'glob';
   if (normalized === 'websearch') return 'web_search';
   if (normalized === 'webfetch') return 'web_fetch';
   return tool.trim();
@@ -111,12 +114,13 @@ export function resolveCopilotAllowedTools(
   planMode?: boolean,
   enableWebSearch = true
 ): string[] {
+  const hasRequestedTools = requestedTools !== undefined;
   const requested = requestedTools?.map(normalizeCopilotToolName).filter(Boolean) ?? [];
   const guardrailTools = planMode || permissionMode !== 'agent'
     ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool))
     : null;
   const guardrailSet = guardrailTools ? new Set<string>(guardrailTools) : null;
-  const requestedToolsInGuardrail = requested.length > 0
+  const requestedToolsInGuardrail = hasRequestedTools
     ? guardrailSet
       ? requested.filter((tool) => guardrailSet.has(tool))
       : requested
@@ -125,13 +129,13 @@ export function resolveCopilotAllowedTools(
     ? requestedToolsInGuardrail
     : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
 
-  return guardrailSet && effectiveTools.length === 0 && requested.length === 0
+  return guardrailSet && effectiveTools.length === 0 && !hasRequestedTools
     ? guardrailTools ?? []
     : effectiveTools;
 }
 
 function hasExplicitCopilotAllowedTools(requestedTools?: string[]): boolean {
-  return requestedTools?.some((tool) => tool.trim().length > 0) ?? false;
+  return requestedTools !== undefined;
 }
 
 export function shouldUseCopilotAllowAllTools(
@@ -848,7 +852,6 @@ export class CopilotBridgeService {
       permissionMode,
       copilotSessionCanContinue,
     );
-    const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
 
     const useAllowAllTools = shouldUseCopilotAllowAllTools(
@@ -868,6 +871,10 @@ export class CopilotBridgeService {
       yield { type: 'error', content: message };
       return;
     }
+
+    // A local preflight rejection must not mint an id for a Copilot session that
+    // the CLI never received. Otherwise the next request can skip transcript replay.
+    const sessionId = this.ensureSessionId();
 
     if (capabilities.noAskUser) {
       args.push('--no-ask-user');
@@ -1629,6 +1636,7 @@ export class CopilotBridgeService {
 
   setSessionId(id: string | null): void {
     this.sessionId = id;
+    this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
   }
 

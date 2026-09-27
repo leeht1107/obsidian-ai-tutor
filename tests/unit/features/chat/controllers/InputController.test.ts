@@ -471,6 +471,46 @@ describe('InputController - Message Queue', () => {
       expect(deps.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
     });
 
+    it('fails a slash command before dispatch when a native provider cannot enforce its tool restriction', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: 'Inspect these notes',
+          allowedTools: ['Read'],
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{ id: 'read-only', name: 'read-only', content: 'Inspect' }];
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
+      expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
+      expect(deps.state.messages[1].requestOutcome).toBe('failed');
+    });
+
+    it('treats an empty slash-command allowlist as an explicit zero-tool restriction', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'no-tools', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: 'Prompt', allowedTools: [], errors: [] }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{ id: 'no-tools', name: 'no-tools', content: 'Prompt' }];
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/no-tools' });
+
+      expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
+      expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
+      expect(deps.state.messages[1].requestOutcome).toBe('failed');
+    });
+
     it('does not enable inline bash when permissionMode is agent but the selected provider still needs blanket-write consent', async () => {
       // claude writes without asking, so it needs one-time consent before Agent means
       // anything; switching providers does not run that consent gate, so raw

@@ -495,6 +495,7 @@ export class InputController {
     // Check for slash command and expand it
     const displayContent = content;
     let queryOptions: QueryOptions | undefined;
+    let slashAllowedToolsRequested = false;
     if (content && slashCommandManager) {
       slashCommandManager.setCommands(plugin.settings.slashCommands);
       const detected = slashCommandManager.detectCommand(content);
@@ -535,6 +536,7 @@ export class InputController {
             }
 
             if (result.allowedTools || result.model) {
+              slashAllowedToolsRequested = result.allowedTools !== undefined;
               queryOptions = {
                 allowedTools: result.allowedTools,
                 model: result.model,
@@ -662,7 +664,12 @@ ${promptToSend}`;
 
     let streamOutcome: StreamOutcome = 'completed';
     try {
-      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
+        streamOutcome = 'failed';
+        await streamController.appendText('**Error:** This provider cannot enforce a slash command’s Allowed tools restriction. Use Copilot or remove the restriction before running this command.');
+      } else {
+        streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      }
     } finally {
       if (streamOutcome === 'interrupted') {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');

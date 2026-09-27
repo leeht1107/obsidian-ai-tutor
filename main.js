@@ -4001,8 +4001,17 @@ ${prompt}`;
 
 // src/utils/session.ts
 function formatToolCallForContext(toolCall, maxResultLength = 800) {
-  var _a;
+  var _a, _b;
   const status = (_a = toolCall.status) != null ? _a : "completed";
+  if (status === "running") {
+    let input = "{}";
+    try {
+      input = JSON.stringify((_b = toolCall.input) != null ? _b : {});
+    } catch (e) {
+      input = "[unavailable]";
+    }
+    return `[Tool ${toolCall.name} status=unknown_after_interruption] input (execution outcome unknown): ${truncateToolResult(input, maxResultLength)}. Outcome unknown; verify the current state before retrying.`;
+  }
   const base = `[Tool ${toolCall.name} status=${status}]`;
   const hasResult = typeof toolCall.result === "string" && toolCall.result.trim().length > 0;
   if (!hasResult || toolCall.result === void 0) {
@@ -4024,7 +4033,7 @@ function formatContextLine(message) {
   return formatCurrentNote(message.currentNote);
 }
 function buildContextFromHistory(messages) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c;
   const parts = [];
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") {
@@ -4032,10 +4041,10 @@ function buildContextFromHistory(messages) {
     }
     if (message.role === "assistant") {
       const failedOutcome = message.requestOutcome === "failed" || message.requestOutcome === "interrupted";
-      const replayableToolCalls = failedOutcome ? (_a = message.toolCalls) == null ? void 0 : _a.filter((tc) => tc.status !== "running") : message.toolCalls;
+      const replayableToolCalls = message.toolCalls;
       if (failedOutcome && (!replayableToolCalls || replayableToolCalls.length === 0)) continue;
       const hasContent = message.content && message.content.trim().length > 0;
-      const hasToolResult = (_b = message.toolCalls) == null ? void 0 : _b.some(
+      const hasToolResult = (_a = message.toolCalls) == null ? void 0 : _a.some(
         (tc) => tc.result && tc.result.trim().length > 0
       );
       if (!failedOutcome && !hasContent && !hasToolResult) {
@@ -4045,19 +4054,18 @@ function buildContextFromHistory(messages) {
     const role = message.role === "user" ? "User" : "Assistant";
     const lines = [];
     const isFailedAssistant = message.role === "assistant" && (message.requestOutcome === "failed" || message.requestOutcome === "interrupted");
-    const content = isFailedAssistant ? "" : (_c = message.content) == null ? void 0 : _c.trim();
+    const content = isFailedAssistant ? "" : (_b = message.content) == null ? void 0 : _b.trim();
     const contextLine = formatContextLine(message);
     const userPayload = contextLine ? content ? `${contextLine}
 
 ${content}` : contextLine : content;
     if (isFailedAssistant) {
-      lines.push(`${role}: [Previous turn ${message.requestOutcome}; completed tool receipts follow.]`);
+      lines.push(`${role}: [Previous turn ${message.requestOutcome}; tool execution records follow.]`);
     } else {
       lines.push(userPayload ? `${role}: ${userPayload}` : `${role}:`);
     }
-    if (message.role === "assistant" && ((_d = message.toolCalls) == null ? void 0 : _d.length)) {
-      const toolCalls = isFailedAssistant ? message.toolCalls.filter((tc) => tc.status !== "running") : message.toolCalls;
-      const toolLines = toolCalls.map((tc) => formatToolCallForContext(tc)).filter(Boolean);
+    if (message.role === "assistant" && ((_c = message.toolCalls) == null ? void 0 : _c.length)) {
+      const toolLines = message.toolCalls.map((tc) => formatToolCallForContext(tc)).filter(Boolean);
       if (toolLines.length > 0) {
         lines.push(...toolLines);
       }
@@ -4494,6 +4502,9 @@ function isCopilotWebTool(tool) {
 }
 function normalizeCopilotToolName(tool) {
   const normalized = tool.trim().toLowerCase().replace(/[-_]/g, "");
+  if (normalized === "read") return "view";
+  if (normalized === "grep") return "grep";
+  if (normalized === "glob") return "glob";
   if (normalized === "websearch") return "web_search";
   if (normalized === "webfetch") return "web_fetch";
   return tool.trim();
@@ -4506,16 +4517,16 @@ var MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
 var MODEL_LIST_TIMEOUT_MS = 15e3;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
+  const hasRequestedTools = requestedTools !== void 0;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map(normalizeCopilotToolName).filter(Boolean)) != null ? _a : [];
   const guardrailTools = planMode || permissionMode !== "agent" ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool)) : null;
   const guardrailSet = guardrailTools ? new Set(guardrailTools) : null;
-  const requestedToolsInGuardrail = requested.length > 0 ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
+  const requestedToolsInGuardrail = hasRequestedTools ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
   const effectiveTools = enableWebSearch ? requestedToolsInGuardrail : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
-  return guardrailSet && effectiveTools.length === 0 && requested.length === 0 ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
+  return guardrailSet && effectiveTools.length === 0 && !hasRequestedTools ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
 }
 function hasExplicitCopilotAllowedTools(requestedTools) {
-  var _a;
-  return (_a = requestedTools == null ? void 0 : requestedTools.some((tool) => tool.trim().length > 0)) != null ? _a : false;
+  return requestedTools !== void 0;
 }
 function shouldUseCopilotAllowAllTools(permissionMode, allowAllToolsSupported, queryOptions) {
   if (!allowAllToolsSupported || (queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)) {
@@ -5021,7 +5032,6 @@ User: ${injectedPrompt}`;
       permissionMode,
       copilotSessionCanContinue
     );
-    const sessionId = this.ensureSessionId();
     const args = ["--no-color"];
     const useAllowAllTools = shouldUseCopilotAllowAllTools(
       permissionMode,
@@ -5040,6 +5050,7 @@ User: ${injectedPrompt}`;
       yield { type: "error", content: message };
       return;
     }
+    const sessionId = this.ensureSessionId();
     if (capabilities.noAskUser) {
       args.push("--no-ask-user");
     }
@@ -5682,6 +5693,7 @@ ${remedy}`;
   }
   setSessionId(id) {
     this.sessionId = id;
+    this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
   }
   cleanup() {
@@ -16717,6 +16729,7 @@ var InputController = class {
     const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope ? this.readCurrentNoteContent(currentNotePath) : Promise.resolve(null);
     const displayContent = content;
     let queryOptions;
+    let slashAllowedToolsRequested = false;
     if (content && slashCommandManager) {
       slashCommandManager.setCommands(plugin.settings.slashCommands);
       const detected = slashCommandManager.detectCommand(content);
@@ -16752,6 +16765,7 @@ var InputController = class {
               new import_obsidian23.Notice(formatSlashCommandWarnings(result.errors));
             }
             if (result.allowedTools || result.model) {
+              slashAllowedToolsRequested = result.allowedTools !== void 0;
               queryOptions = {
                 allowedTools: result.allowedTools,
                 model: result.model
@@ -16858,7 +16872,12 @@ ${promptToSend}`;
     };
     let streamOutcome = "completed";
     try {
-      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== "copilot") {
+        streamOutcome = "failed";
+        await streamController.appendText("**Error:** This provider cannot enforce a slash command\u2019s Allowed tools restriction. Use Copilot or remove the restriction before running this command.");
+      } else {
+        streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
+      }
     } finally {
       if (streamOutcome === "interrupted") {
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');

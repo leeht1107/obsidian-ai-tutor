@@ -115,9 +115,20 @@ describe('CopilotBridgeService helpers', () => {
       expect(resolveCopilotAllowedTools('ask', ['bash'], false, true)).toEqual([]);
     });
 
+    it('preserves an explicitly empty allowlist as no tools in Agent mode', () => {
+      expect(resolveCopilotAllowedTools('agent', [], false, true)).toEqual([]);
+      expect(shouldUseCopilotAllowAllTools('agent', true, { allowedTools: [] })).toBe(false);
+    });
+
     it('maps shared WebSearch and WebFetch names to Copilot tool names', () => {
       expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false, true)).toEqual(['web_search']);
       expect(resolveCopilotAllowedTools('ask', ['WebFetch'], false, true)).toEqual(['web_fetch']);
+    });
+
+    it('maps shared read-tool aliases to Copilot tool names case-insensitively', () => {
+      expect(resolveCopilotAllowedTools('ask', ['Read', 'Grep', 'Glob'], false, true)).toEqual([
+        'view', 'grep', 'glob',
+      ]);
     });
   });
 
