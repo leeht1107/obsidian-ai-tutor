@@ -179,7 +179,16 @@ maybe('copilot session continuity across a provider switch', () => {
     expect(service.getSessionId()).toBeNull();
     expect(fs.existsSync(argsPath)).toBe(false);
 
-    await drain(service.query('empty restricted request', undefined, undefined, { allowedTools: [] }));
+    const zeroToolChunks: Array<{ type?: string; content?: string }> = [];
+    for await (const chunk of service.query('empty restricted request', undefined, undefined, { allowedTools: [] })) {
+      zeroToolChunks.push(chunk as { type?: string; content?: string });
+    }
+    expect(zeroToolChunks).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        content: expect.stringContaining('현재 Copilot CLI에서 안전하게 표현할 수 없어'),
+      }),
+    ]);
     expect(service.getSessionId()).toBeNull();
     expect(fs.existsSync(argsPath)).toBe(false);
 
