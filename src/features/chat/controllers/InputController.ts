@@ -507,10 +507,7 @@ export class InputController {
 
     const currentNotePath = fileContextManager?.getCurrentNotePath() || null;
     const shouldSendCurrentNote = fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false;
-    const shouldForceCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
-    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
-      ? this.readCurrentNoteContent(currentNotePath)
-      : Promise.resolve<string | null>(null);
+    const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
 
     // Check for slash command and expand it
     const displayContent = content;
@@ -577,6 +574,12 @@ export class InputController {
         }
       }
     }
+
+    const shouldForceCurrentNoteScope =
+      rawCurrentNoteScope || this.shouldUseCurrentNoteOnlyScope(content);
+    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
+      ? this.readCurrentNoteContent(currentNotePath)
+      : Promise.resolve<string | null>(null);
 
     // Only clear images if we consumed user input (not for programmatic content override)
     if (shouldUseInput) {
@@ -1094,8 +1097,11 @@ ${content}
       await conversationController.save(true);
       await this.activatePendingPlanMode();
 
-      // Generate AI title after first complete plan mode exchange
-      await this.triggerTitleGeneration({ isPlanMode: true });
+      // Failed/interrupted plan turns can leave partial prose. Do not start a second
+      // provider request to title an answer that never completed.
+      if (streamOutcome === 'completed') {
+        await this.triggerTitleGeneration({ isPlanMode: true });
+      }
 
       this.processQueuedMessage();
     }
