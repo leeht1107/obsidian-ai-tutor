@@ -54,6 +54,18 @@ import type { StreamController } from './StreamController';
 const PLAN_MODE_REQUEST_PREFIX =
   'User requested plan mode. Call EnterPlanMode before responding.';
 
+const SHARED_BASH_TOOL_NAMES = new Set(['bash']);
+function slashAllowsInlineBash(allowedTools?: string[]): boolean {
+  if (allowedTools === undefined) return true;
+  return allowedTools.some((tool) => SHARED_BASH_TOOL_NAMES.has(tool.trim().toLowerCase()));
+}
+
+function intersectAllowedTools(existing: string[] | undefined, next: string[]): string[] {
+  if (existing === undefined) return next;
+  const nextSet = new Set(next.map((tool) => tool.toLowerCase()));
+  return existing.filter((tool) => nextSet.has(tool.toLowerCase()));
+}
+
 const CURRENT_NOTE_ONLY_PATTERNS = [
   /현재\s*노트/u,
   /이\s*노트/u,
@@ -504,7 +516,14 @@ export class InputController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          this.deps.setBashExpansionActive(true);
+          const parsedAllowedTools = cmd.allowedTools;
+          slashAllowedToolsRequested = parsedAllowedTools !== undefined;
+          if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
+            // Fail before expansion: inline bash and file substitutions are part of expansion
+            // and must not run for a command whose tool restriction this provider cannot honor.
+            queryOptions = { allowedTools: parsedAllowedTools, model: cmd.model };
+          } else {
+            this.deps.setBashExpansionActive(true);
           try {
             const result = await slashCommandManager.expandCommand(cmd, detected.args, {
               bash: {
@@ -515,6 +534,7 @@ export class InputController {
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
                 enabled: !learningRequest
+                  && slashAllowsInlineBash(cmd.allowedTools)
                   && plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
                     plugin.settings.permissionMode,
@@ -535,7 +555,7 @@ export class InputController {
               new Notice(formatSlashCommandWarnings(result.errors));
             }
 
-            if (result.allowedTools || result.model) {
+            if (result.allowedTools !== undefined || result.model) {
               slashAllowedToolsRequested = result.allowedTools !== undefined;
               queryOptions = {
                 allowedTools: result.allowedTools,
@@ -544,6 +564,7 @@ export class InputController {
             }
           } finally {
             this.deps.setBashExpansionActive(false);
+          }
           }
         }
       }
@@ -575,7 +596,10 @@ export class InputController {
           promptToSend = prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent);
           queryOptions = {
             ...queryOptions,
-            allowedTools: ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
+            allowedTools: intersectAllowedTools(
+              queryOptions?.allowedTools,
+              ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
+            ),
           };
         } else {
           promptToSend = prependCurrentNote(promptToSend, currentNotePath);
