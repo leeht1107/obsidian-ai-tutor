@@ -4024,34 +4024,40 @@ function formatContextLine(message) {
   return formatCurrentNote(message.currentNote);
 }
 function buildContextFromHistory(messages) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d;
   const parts = [];
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
     if (message.role === "assistant") {
-      if (message.requestOutcome === "failed" || message.requestOutcome === "interrupted") {
-        continue;
-      }
+      const failedOutcome = message.requestOutcome === "failed" || message.requestOutcome === "interrupted";
+      const replayableToolCalls = failedOutcome ? (_a = message.toolCalls) == null ? void 0 : _a.filter((tc) => tc.status !== "running") : message.toolCalls;
+      if (failedOutcome && (!replayableToolCalls || replayableToolCalls.length === 0)) continue;
       const hasContent = message.content && message.content.trim().length > 0;
-      const hasToolResult = (_a = message.toolCalls) == null ? void 0 : _a.some(
+      const hasToolResult = (_b = message.toolCalls) == null ? void 0 : _b.some(
         (tc) => tc.result && tc.result.trim().length > 0
       );
-      if (!hasContent && !hasToolResult) {
+      if (!failedOutcome && !hasContent && !hasToolResult) {
         continue;
       }
     }
     const role = message.role === "user" ? "User" : "Assistant";
     const lines = [];
-    const content = (_b = message.content) == null ? void 0 : _b.trim();
+    const isFailedAssistant = message.role === "assistant" && (message.requestOutcome === "failed" || message.requestOutcome === "interrupted");
+    const content = isFailedAssistant ? "" : (_c = message.content) == null ? void 0 : _c.trim();
     const contextLine = formatContextLine(message);
     const userPayload = contextLine ? content ? `${contextLine}
 
 ${content}` : contextLine : content;
-    lines.push(userPayload ? `${role}: ${userPayload}` : `${role}:`);
-    if (message.role === "assistant" && ((_c = message.toolCalls) == null ? void 0 : _c.length)) {
-      const toolLines = message.toolCalls.map((tc) => formatToolCallForContext(tc)).filter(Boolean);
+    if (isFailedAssistant) {
+      lines.push(`${role}: [Previous turn ${message.requestOutcome}; completed tool receipts follow.]`);
+    } else {
+      lines.push(userPayload ? `${role}: ${userPayload}` : `${role}:`);
+    }
+    if (message.role === "assistant" && ((_d = message.toolCalls) == null ? void 0 : _d.length)) {
+      const toolCalls = isFailedAssistant ? message.toolCalls.filter((tc) => tc.status !== "running") : message.toolCalls;
+      const toolLines = toolCalls.map((tc) => formatToolCallForContext(tc)).filter(Boolean);
       if (toolLines.length > 0) {
         lines.push(...toolLines);
       }
@@ -4486,6 +4492,12 @@ var WEB_TOOL_NAMES = /* @__PURE__ */ new Set(["websearch", "webfetch"]);
 function isCopilotWebTool(tool) {
   return WEB_TOOL_NAMES.has(tool.trim().toLowerCase().replace(/[-_]/g, ""));
 }
+function normalizeCopilotToolName(tool) {
+  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, "");
+  if (normalized === "websearch") return "web_search";
+  if (normalized === "webfetch") return "web_fetch";
+  return tool.trim();
+}
 var MAX_DIFF_SIZE = 100 * 1024;
 var CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 var MAX_STDERR_CHARS = 1024 * 1024;
@@ -4494,12 +4506,12 @@ var MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
 var MODEL_LIST_TIMEOUT_MS = 15e3;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
-  const requested = (_a = requestedTools == null ? void 0 : requestedTools.map((tool) => tool.trim()).filter(Boolean)) != null ? _a : [];
+  const requested = (_a = requestedTools == null ? void 0 : requestedTools.map(normalizeCopilotToolName).filter(Boolean)) != null ? _a : [];
   const guardrailTools = planMode || permissionMode !== "agent" ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool)) : null;
   const guardrailSet = guardrailTools ? new Set(guardrailTools) : null;
   const requestedToolsInGuardrail = requested.length > 0 ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
   const effectiveTools = enableWebSearch ? requestedToolsInGuardrail : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
-  return guardrailSet && effectiveTools.length === 0 && (enableWebSearch || requested.length === 0) ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
+  return guardrailSet && effectiveTools.length === 0 && requested.length === 0 ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
 }
 function hasExplicitCopilotAllowedTools(requestedTools) {
   var _a;
@@ -4765,7 +4777,7 @@ ${systemPrompt}
 
 ${prompt}`;
   }
-  buildPromptWithHistory(prompt, conversationHistory, vaultPath, queryOptions, permissionMode) {
+  buildPromptWithHistory(prompt, conversationHistory, vaultPath, queryOptions, permissionMode, copilotSessionCanContinue = false) {
     const currentProvider = this.plugin.settings.selectedProvider;
     if (currentProvider === "copilot" && this.lastTurnProvider !== null && this.lastTurnProvider !== "copilot") {
       this.sessionId = null;
@@ -4782,7 +4794,7 @@ ${prompt}`;
 
 User: ${injectedPrompt}` : injectedPrompt;
     }
-    const holdsItsOwnSession = this.plugin.settings.selectedProvider === "copilot" && Boolean(this.sessionId);
+    const holdsItsOwnSession = currentProvider === "copilot" && Boolean(this.sessionId) && copilotSessionCanContinue;
     if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
       const historyContext = buildContextFromHistory(conversationHistory);
       if (historyContext) {
@@ -5000,7 +5012,15 @@ User: ${injectedPrompt}`;
         (_b = this.onPermissionNotice) == null ? void 0 : _b.call(this, notice);
       }
     }
-    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
+    const copilotSessionCanContinue = capabilities.sessionId || capabilities.resume && this.sessionConfirmedByCli;
+    const fullPrompt = this.buildPromptWithHistory(
+      prompt,
+      conversationHistory,
+      cwd,
+      queryOptions,
+      permissionMode,
+      copilotSessionCanContinue
+    );
     const sessionId = this.ensureSessionId();
     const args = ["--no-color"];
     const useAllowAllTools = shouldUseCopilotAllowAllTools(

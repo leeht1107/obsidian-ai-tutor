@@ -76,14 +76,8 @@ describe('CopilotBridgeService helpers', () => {
       expect(resolveCopilotAllowedTools('normal', ['view', 'bash', 'task'])).toEqual(['view']);
     });
 
-    it('falls back to plan guardrails when a plan-mode request asks for unsupported tools only', () => {
-      expect(resolveCopilotAllowedTools('normal', ['bash', 'write'], true)).toEqual([
-        'view',
-        'grep',
-        'glob',
-        'web_fetch',
-        'web_search',
-      ]);
+    it('does not broaden an explicit plan-mode allowlist when none of its tools are supported', () => {
+      expect(resolveCopilotAllowedTools('normal', ['bash', 'write'], true)).toEqual([]);
     });
 
     it('uses plan guardrails in agent mode when plan mode has no explicit tools', () => {
@@ -115,6 +109,15 @@ describe('CopilotBridgeService helpers', () => {
 
     it('keeps an explicit Web allowlist when Web is on', () => {
       expect(resolveCopilotAllowedTools('ask', ['web_search'], false, true)).toEqual(['web_search']);
+    });
+
+    it('does not broaden an explicit list when all requested tools are filtered in Ask mode', () => {
+      expect(resolveCopilotAllowedTools('ask', ['bash'], false, true)).toEqual([]);
+    });
+
+    it('maps shared WebSearch and WebFetch names to Copilot tool names', () => {
+      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false, true)).toEqual(['web_search']);
+      expect(resolveCopilotAllowedTools('ask', ['WebFetch'], false, true)).toEqual(['web_fetch']);
     });
   });
 

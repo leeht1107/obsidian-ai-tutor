@@ -74,6 +74,13 @@ function isCopilotWebTool(tool: string): boolean {
   return WEB_TOOL_NAMES.has(tool.trim().toLowerCase().replace(/[-_]/g, ''));
 }
 
+function normalizeCopilotToolName(tool: string): string {
+  const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
+  if (normalized === 'websearch') return 'web_search';
+  if (normalized === 'webfetch') return 'web_fetch';
+  return tool.trim();
+}
+
 const MAX_DIFF_SIZE = 100 * 1024;
 const CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 
@@ -104,7 +111,7 @@ export function resolveCopilotAllowedTools(
   planMode?: boolean,
   enableWebSearch = true
 ): string[] {
-  const requested = requestedTools?.map((tool) => tool.trim()).filter(Boolean) ?? [];
+  const requested = requestedTools?.map(normalizeCopilotToolName).filter(Boolean) ?? [];
   const guardrailTools = planMode || permissionMode !== 'agent'
     ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool))
     : null;
@@ -118,7 +125,7 @@ export function resolveCopilotAllowedTools(
     ? requestedToolsInGuardrail
     : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
 
-  return guardrailSet && effectiveTools.length === 0 && (enableWebSearch || requested.length === 0)
+  return guardrailSet && effectiveTools.length === 0 && requested.length === 0
     ? guardrailTools ?? []
     : effectiveTools;
 }
@@ -531,6 +538,7 @@ export class CopilotBridgeService {
     vaultPath: string,
     queryOptions?: QueryOptions,
     permissionMode?: NativePermissionMode,
+    copilotSessionCanContinue = false,
   ): string {
     const currentProvider = this.plugin.settings.selectedProvider as ProviderId;
     // A copilot session is only a valid thing to resume if copilot ALSO held the
@@ -556,7 +564,7 @@ export class CopilotBridgeService {
     }
 
     // `sessionId` is a copilot concept — only the copilot path ever assigns one —
-    // and it means "the CLI is holding this conversation, so do not resend it".
+    // but a restored id alone does not prove this CLI can resume it.
     // No native CLI can do that: `buildNativeProviderCommand` passes no resume flag
     // for claude, codex or agy, so each turn is a fresh process and the replayed
     // transcript is the only continuity there is. Reading the flag for every
@@ -567,7 +575,9 @@ export class CopilotBridgeService {
     // provider's turn in between) is covered above, by invalidating `sessionId` whenever
     // the previous turn's provider was not copilot — so by the time this flag is read,
     // a copilot turn only ever "holds its own session" when copilot held the last one too.
-    const holdsItsOwnSession = this.plugin.settings.selectedProvider === 'copilot' && Boolean(this.sessionId);
+    const holdsItsOwnSession = currentProvider === 'copilot'
+      && Boolean(this.sessionId)
+      && copilotSessionCanContinue;
 
     if (!holdsItsOwnSession && conversationHistory && conversationHistory.length > 0) {
       // `conversationHistory` is the conversation BEFORE this turn — the caller drops
@@ -828,7 +838,16 @@ export class CopilotBridgeService {
         this.onPermissionNotice?.(notice);
       }
     }
-    const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
+    const copilotSessionCanContinue = capabilities.sessionId
+      || (capabilities.resume && this.sessionConfirmedByCli);
+    const fullPrompt = this.buildPromptWithHistory(
+      prompt,
+      conversationHistory,
+      cwd,
+      queryOptions,
+      permissionMode,
+      copilotSessionCanContinue,
+    );
     const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
 

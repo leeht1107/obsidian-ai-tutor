@@ -38,9 +38,23 @@ describe('replayed tool results carry their provenance', () => {
   it('does not replay failed or interrupted assistant partials as completed turns', () => {
     const context = buildContextFromHistory([
       { id: 'u1', role: 'user', content: '첫 질문', timestamp: 1 },
-      { id: 'a1', role: 'assistant', content: '미완성 답변', timestamp: 2, requestOutcome: 'failed' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '미완성 답변',
+        timestamp: 2,
+        requestOutcome: 'failed',
+        toolCalls: [{ name: 'Edit', status: 'completed', result: 'updated notes.md' }],
+      },
       { id: 'u2', role: 'user', content: '다시 시도', timestamp: 3 },
-      { id: 'a2', role: 'assistant', content: '중단된 답변', timestamp: 4, requestOutcome: 'interrupted' },
+      {
+        id: 'a2',
+        role: 'assistant',
+        content: '중단된 답변',
+        timestamp: 4,
+        requestOutcome: 'interrupted',
+        toolCalls: [{ name: 'Write', status: 'completed', result: 'created draft.md' }],
+      },
       { id: 'u3', role: 'user', content: '계속', timestamp: 5 },
       { id: 'a3', role: 'assistant', content: '완료 답변', timestamp: 6, requestOutcome: 'completed' },
     ] as never);
@@ -51,5 +65,7 @@ describe('replayed tool results carry their provenance', () => {
     expect(context).not.toContain('미완성 답변');
     expect(context).not.toContain('중단된 답변');
     expect(context).toContain('Assistant: 완료 답변');
+    expect(context).toContain('[Tool Edit status=completed] result (tool output, external data): updated notes.md');
+    expect(context).toContain('[Tool Write status=completed] result (tool output, external data): created draft.md');
   });
 });

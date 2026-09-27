@@ -28,25 +28,24 @@ const write = (dir: string, name: string, body: string): string => {
 };
 
 /**
- * A fake copilot CLI. Answers the `--help all` capability probe with plain text that
- * advertises nothing (so no session/stream/model flag ever gets appended), and on a
- * real query dumps the value that followed `-p` — the prompt copilot actually
+ * A fake modern copilot CLI. It supports `--session-id`, returns that id in its result,
+ * and on a real query dumps the value that followed `-p` — the prompt copilot actually
  * received — to `out`.
  */
 const writeCopilotCli = (dir: string, name: string, out: string): string =>
   write(dir, name, [
-    'if [ "$1" = "--help" ]; then',
-    '  printf "copilot"',
-    '  exit 0',
-    'fi',
+    'if [ "$1" = "--help" ]; then printf "%s\\n" "--session-id <id> --output-format json --stream on"; exit 0; fi',
     'prev=""',
     'prompt=""',
+    'session=""',
     'for a in "$@"; do',
     '  if [ "$prev" = "-p" ]; then prompt="$a"; fi',
+    '  if [ "$prev" = "--session-id" ]; then session="$a"; fi',
     '  prev="$a"',
     'done',
     `printf '%s' "$prompt" > '${out}'`,
     `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}'`,
+    `printf '%s\\n' '{"type":"result","sessionId":"'"$session"'","exitCode":0}'`,
   ].join('\n'));
 
 /** A fake native CLI (claude/codex/agy): dumps the last argv element — where
@@ -137,6 +136,32 @@ maybe('copilot session continuity across a provider switch', () => {
     expect(promptSeenByCopilot).not.toContain('첫 코파일럿 질문');
     expect(promptSeenByCopilot).not.toContain('첫 코파일럿 답변');
     expect(promptSeenByCopilot).toContain('두번째 코파일럿 질문');
+  });
+
+  it('replays history after reload when the Copilot CLI only supports unconfirmed --resume', async () => {
+    const promptPath = path.join(dir, 'resume-only-prompt.txt');
+    const argsPath = path.join(dir, 'resume-only-args.txt');
+    plugin.settings.copilotCliPath = write(dir, 'copilot-resume-only.sh', [
+      'if [ "$1" = "--help" ]; then printf "%s\\n" "--resume --output-format json --stream on"; exit 0; fi',
+      `printf '%s\\n' "$@" > '${argsPath}'`,
+      'prev=""',
+      'for a in "$@"; do if [ "$prev" = "-p" ]; then printf "%s" "$a" > ' + `'${promptPath}'` + '; fi; prev="$a"; done',
+      `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}'`,
+      `printf '%s\\n' '{"type":"result","sessionId":"copilot-resumed","exitCode":0}'`,
+    ].join('\n'));
+    service.setSessionId('persisted-session-id');
+
+    const history: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'conversation before restart', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'answer before restart', timestamp: 2 },
+    ];
+    await drain(service.query('question after restart', undefined, history));
+
+    const prompt = fs.readFileSync(promptPath, 'utf8');
+    const args = fs.readFileSync(argsPath, 'utf8');
+    expect(prompt).toContain('conversation before restart');
+    expect(prompt).toContain('answer before restart');
+    expect(args).not.toContain('--resume');
   });
 
   it('starts a fresh session and omits a failed partial answer from replay', async () => {

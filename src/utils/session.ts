@@ -97,21 +97,25 @@ export function buildContextFromHistory(messages: ChatMessage[]): string {
     }
 
     if (message.role === 'assistant') {
-      if (message.requestOutcome === 'failed' || message.requestOutcome === 'interrupted') {
-        continue;
-      }
+      const failedOutcome = message.requestOutcome === 'failed' || message.requestOutcome === 'interrupted';
+      const replayableToolCalls = failedOutcome
+        ? message.toolCalls?.filter(tc => tc.status !== 'running')
+        : message.toolCalls;
+      if (failedOutcome && (!replayableToolCalls || replayableToolCalls.length === 0)) continue;
       const hasContent = message.content && message.content.trim().length > 0;
       const hasToolResult = message.toolCalls?.some(
         tc => tc.result && tc.result.trim().length > 0
       );
-      if (!hasContent && !hasToolResult) {
+      if (!failedOutcome && !hasContent && !hasToolResult) {
         continue;
       }
     }
 
     const role = message.role === 'user' ? 'User' : 'Assistant';
     const lines: string[] = [];
-    const content = message.content?.trim();
+    const isFailedAssistant = message.role === 'assistant'
+      && (message.requestOutcome === 'failed' || message.requestOutcome === 'interrupted');
+    const content = isFailedAssistant ? '' : message.content?.trim();
     const contextLine = formatContextLine(message);
 
     const userPayload = contextLine
@@ -120,10 +124,17 @@ export function buildContextFromHistory(messages: ChatMessage[]): string {
         : contextLine
       : content;
 
-    lines.push(userPayload ? `${role}: ${userPayload}` : `${role}:`);
+    if (isFailedAssistant) {
+      lines.push(`${role}: [Previous turn ${message.requestOutcome}; completed tool receipts follow.]`);
+    } else {
+      lines.push(userPayload ? `${role}: ${userPayload}` : `${role}:`);
+    }
 
     if (message.role === 'assistant' && message.toolCalls?.length) {
-      const toolLines = message.toolCalls
+      const toolCalls = isFailedAssistant
+        ? message.toolCalls.filter(tc => tc.status !== 'running')
+        : message.toolCalls;
+      const toolLines = toolCalls
         .map(tc => formatToolCallForContext(tc))
         .filter(Boolean) as string[];
       if (toolLines.length > 0) {
