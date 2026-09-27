@@ -19,7 +19,11 @@ import type ObsidianCopilotPlugin from '../../main';
 import { type CursorContext } from '../../utils/editor';
 import { escapeHtml, normalizeInsertionText } from '../../utils/inlineEdit';
 import { getVaultPath, isPathWithinVault, normalizePathForFilesystem } from '../../utils/path';
-import { formatSlashCommandWarnings } from '../../utils/slashCommand';
+import {
+  formatSlashCommandWarnings,
+  resolveSlashAllowedTools,
+  slashAllowsInlineBash,
+} from '../../utils/slashCommand';
 import { MentionDropdownController } from '../components/file-context/mention/MentionDropdownController';
 import { hideSelectionHighlight, showSelectionHighlight } from '../components/SelectionHighlight';
 import { SlashCommandDropdown } from '../components/SlashCommandDropdown';
@@ -478,6 +482,7 @@ export class InlineEditController {
     if (!this.inputEl || !this.spinnerEl) return;
     let userMessage = this.inputEl.value.trim();
     if (!userMessage) return;
+    let requestAllowedTools: string[] | undefined;
 
     // Expand slash command if detected
     if (this.slashCommandManager) {
@@ -489,6 +494,12 @@ export class InlineEditController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
+          requestAllowedTools = resolveSlashAllowedTools(cmd);
+          if (requestAllowedTools !== undefined && this.plugin.settings.selectedProvider !== 'copilot') {
+            this.handleError('This provider cannot enforce this slash command’s Allowed tools restriction. Use Copilot or remove the restriction.');
+            return;
+          }
+
           this.plugin.setBashExpansionActive(true);
           try {
             const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
@@ -499,7 +510,8 @@ export class InlineEditController {
                 // The raw setting is not enough: a provider still awaiting blanket-write
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
-                enabled: this.plugin.settings.enableInlineBash
+                enabled: slashAllowsInlineBash(requestAllowedTools)
+                  && this.plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
                     this.plugin.settings.permissionMode,
                     this.plugin.settings.selectedProvider,
@@ -538,7 +550,7 @@ export class InlineEditController {
     let result;
     if (this.isConversing) {
       // Continue conversation with any new @-mentioned files
-      result = await this.inlineEditService.continueConversation(userMessage, contextFiles);
+      result = await this.inlineEditService.continueConversation(userMessage, contextFiles, requestAllowedTools);
     } else {
       // Initial edit request - build request based on mode
       if (this.mode === 'cursor') {
@@ -548,6 +560,7 @@ export class InlineEditController {
           notePath: this.notePath,
           cursorContext: this.cursorContext as CursorContext,
           contextFiles,
+          allowedTools: requestAllowedTools,
         });
       } else {
         const lineCount = this.selectedText.split(/\r?\n/).length;
@@ -559,6 +572,7 @@ export class InlineEditController {
           startLine: this.startLine,
           lineCount,
           contextFiles,
+          allowedTools: requestAllowedTools,
         });
       }
     }
