@@ -1,47 +1,58 @@
 /**
- * Tests for InlineEditService - write-authority counter coverage.
- *
- * `sendMessage()` streams through the same `agentService.streamQuery` child-process
- * path as the chat and instruction-refine flows, so it must hold the plugin's
- * write-authority counter (`setBashExpansionActive`) for the whole stream and release
- * it unconditionally, including when the stream throws.
+ * Tests for InlineEditService isolation, clarification continuity, and cancellation.
  */
 import { InlineEditService } from '@/features/inline-edit/InlineEditService';
 
-function buildPlugin(streamQueryImpl: () => AsyncGenerator<string>) {
+function buildPlugin() {
   return {
     agentService: {
-      streamQuery: jest.fn().mockImplementation(streamQueryImpl),
+      streamQuery: jest.fn(),
+      cancel: jest.fn(),
     },
+    settings: { selectedProvider: 'copilot' },
     setBashExpansionActive: jest.fn(),
   } as any;
 }
 
-describe('InlineEditService - write-authority counter', () => {
-  it('locks the toggle while the stream runs and releases it once the stream completes', async () => {
+function buildAgent(streamQueryImpl: () => AsyncGenerator<string>) {
+  return {
+    streamQuery: jest.fn().mockImplementation(streamQueryImpl),
+    cancel: jest.fn(),
+  };
+}
+
+describe('InlineEditService - isolated provider ownership', () => {
+  it('uses its isolated bridge instead of the main chat agentService', async () => {
     let busy = false;
     let busyMidStream: boolean | null = null;
-    const plugin = buildPlugin(() => (async function* () {
+    const plugin = buildPlugin();
+    plugin.setBashExpansionActive.mockImplementation((active: boolean) => { busy = active; });
+    const agent = buildAgent(() => (async function* () {
       busyMidStream = busy;
       yield '<replacement>done</replacement>';
     })());
-    plugin.setBashExpansionActive.mockImplementation((active: boolean) => { busy = active; });
+    const service = new InlineEditService(plugin, () => agent as any);
 
-    const service = new InlineEditService(plugin);
     const result = await service.continueConversation('refine this');
 
+    expect(result).toEqual({ success: true, editedText: 'done' });
+    expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
+    expect(agent.streamQuery).toHaveBeenCalledWith(
+      expect.stringContaining('refine this'),
+      { allowedTools: undefined, skipResume: true }
+    );
     expect(busyMidStream).toBe(true);
     expect(busy).toBe(false);
     expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(1, true);
     expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
-    expect(result).toEqual({ success: true, editedText: 'done' });
   });
 
-  it('forwards an explicit slash allowlist to the provider stream', async () => {
-    const plugin = buildPlugin(() => (async function* () {
+  it('forwards an explicit slash allowlist only to the isolated bridge', async () => {
+    const plugin = buildPlugin();
+    const agent = buildAgent(() => (async function* () {
       yield '<replacement>done</replacement>';
     })());
-    const service = new InlineEditService(plugin);
+    const service = new InlineEditService(plugin, () => agent as any);
 
     await service.editText({
       mode: 'selection',
@@ -51,26 +62,55 @@ describe('InlineEditService - write-authority counter', () => {
       allowedTools: ['Read'],
     });
 
-    expect(plugin.agentService.streamQuery).toHaveBeenCalledWith(
+    expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
+    expect(agent.streamQuery).toHaveBeenLastCalledWith(
       expect.any(String),
-      { allowedTools: ['Read'] }
-    );
-
-    await service.continueConversation('follow up', [], ['Read']);
-    expect(plugin.agentService.streamQuery).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { allowedTools: ['Read'] }
+      { allowedTools: ['Read'], skipResume: true }
     );
   });
 
-  it('releases the toggle even when the stream throws', async () => {
-    const plugin = buildPlugin(() => (async function* () {
+  it('replays a bounded local clarification transcript on the next turn', async () => {
+    const plugin = buildPlugin();
+    let call = 0;
+    const agent = buildAgent(() => (async function* () {
+      call += 1;
+      if (call === 1) {
+        yield 'Which section?';
+      } else {
+        yield '<replacement>new section</replacement>';
+      }
+    })());
+    const service = new InlineEditService(plugin, () => agent as any);
+
+    const first = await service.editText({
+      mode: 'selection',
+      instruction: 'rewrite this',
+      notePath: 'notes/a.md',
+      selectedText: 'old section',
+    });
+    expect(first).toEqual({ success: true, clarification: 'Which section?' });
+
+    const second = await service.continueConversation('Section 2');
+    expect(second).toEqual({ success: true, editedText: 'new section' });
+
+    const secondPrompt = agent.streamQuery.mock.calls[1][0] as string;
+    expect(secondPrompt).toContain('<inline_edit_conversation>');
+    expect(secondPrompt).toContain('old section');
+    expect(secondPrompt).toContain('rewrite this');
+    expect(secondPrompt).toContain('Assistant:\nWhich section?');
+    expect(secondPrompt).toContain('User:\nSection 2');
+    expect(plugin.agentService.streamQuery).not.toHaveBeenCalled();
+  });
+
+  it('releases the toggle even when the isolated stream throws', async () => {
+    const plugin = buildPlugin();
+    const agent = buildAgent(() => (async function* () {
       throw new Error('CLI crashed');
       // eslint-disable-next-line no-unreachable
       yield 'unreachable';
     })());
+    const service = new InlineEditService(plugin, () => agent as any);
 
-    const service = new InlineEditService(plugin);
     const result = await service.continueConversation('refine this');
 
     expect(result).toEqual({ success: false, error: 'CLI crashed' });
@@ -78,21 +118,16 @@ describe('InlineEditService - write-authority counter', () => {
     expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
   });
 
-  it('releases the toggle on the mid-stream cancel path', async () => {
-    const holder: { service?: InlineEditService } = {};
-    const plugin = buildPlugin(() => (async function* () {
-      yield 'partial';
-      // Simulate the user cancelling while the stream is still in flight.
-      holder.service?.cancel();
-      yield 'more';
+  it('cancels the owned provider immediately instead of only setting a local abort flag', () => {
+    const plugin = buildPlugin();
+    const agent = buildAgent(() => (async function* () {
+      yield 'unused';
     })());
-    const service = new InlineEditService(plugin);
-    holder.service = service;
+    const service = new InlineEditService(plugin, () => agent as any);
 
-    const result = await service.continueConversation('refine this');
+    service.cancel();
 
-    expect(result).toEqual({ success: false, error: 'Cancelled' });
-    expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(1, true);
-    expect(plugin.setBashExpansionActive).toHaveBeenNthCalledWith(2, false);
+    expect(agent.cancel).toHaveBeenCalledTimes(1);
+    expect(plugin.agentService.cancel).not.toHaveBeenCalled();
   });
 });
