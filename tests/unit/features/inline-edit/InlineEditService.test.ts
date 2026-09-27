@@ -37,6 +37,32 @@ describe('InlineEditService - write-authority counter', () => {
     expect(result).toEqual({ success: true, editedText: 'done' });
   });
 
+  it('forwards an explicit slash allowlist to the provider stream', async () => {
+    const plugin = buildPlugin(() => (async function* () {
+      yield '<replacement>done</replacement>';
+    })());
+    const service = new InlineEditService(plugin);
+
+    await service.editText({
+      mode: 'selection',
+      instruction: 'edit',
+      notePath: 'notes/a.md',
+      selectedText: 'old',
+      allowedTools: ['Read'],
+    });
+
+    expect(plugin.agentService.streamQuery).toHaveBeenCalledWith(
+      expect.any(String),
+      { allowedTools: ['Read'] }
+    );
+
+    await service.continueConversation('follow up', [], ['Read']);
+    expect(plugin.agentService.streamQuery).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { allowedTools: ['Read'] }
+    );
+  });
+
   it('releases the toggle even when the stream throws', async () => {
     const plugin = buildPlugin(() => (async function* () {
       throw new Error('CLI crashed');
