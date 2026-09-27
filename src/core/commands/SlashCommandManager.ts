@@ -147,7 +147,7 @@ export class SlashCommandManager {
 
     return {
       expandedPrompt: result.trim(),
-      allowedTools: command.allowedTools || parsed.allowedTools,
+      allowedTools: command.allowedTools ?? parsed.allowedTools,
       model: command.model || parsed.model,
       errors,
     };
