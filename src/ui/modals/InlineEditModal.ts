@@ -540,6 +540,13 @@ export class InlineEditController {
     }
 
     const effectiveAllowedTools = requestAllowedTools ?? this.conversationAllowedTools;
+    if (effectiveAllowedTools !== undefined && this.plugin.settings.selectedProvider !== 'copilot') {
+      // A restricted Copilot inline-edit conversation can outlive a provider switch.
+      // Re-check at dispatch time so a clarification follow-up cannot carry the
+      // allowlist into a native provider that does not enforce it.
+      this.handleError('This provider cannot enforce this inline-edit Allowed tools restriction. Use Copilot or start a new unrestricted inline edit.');
+      return;
+    }
 
     // Remove selection listeners during generation
     this.removeSelectionListeners();
