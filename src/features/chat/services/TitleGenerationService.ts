@@ -5,6 +5,7 @@
  * Simplified from Claude SDK-based implementation.
  */
 
+import { CopilotBridgeService } from '../../../core/agent/CopilotBridgeService';
 import { TITLE_GENERATION_SYSTEM_PROMPT } from '../../../core/prompts/titleGeneration';
 import type ObsidianCopilotPlugin from '../../../main';
 
@@ -17,12 +18,22 @@ export type TitleGenerationCallback = (
   result: TitleGenerationResult
 ) => Promise<void>;
 
+type TitleAgentService = Pick<CopilotBridgeService, 'streamQuery' | 'cancel'>;
+
 export class TitleGenerationService {
   private plugin: ObsidianCopilotPlugin;
-  private activeGenerations: Map<string, AbortController> = new Map();
+  private activeGenerations = new Map<string, {
+    abortController: AbortController;
+    service: TitleAgentService;
+  }>();
+  private readonly serviceFactory: () => TitleAgentService;
 
-  constructor(plugin: ObsidianCopilotPlugin) {
+  constructor(
+    plugin: ObsidianCopilotPlugin,
+    serviceFactory: () => TitleAgentService = () => new CopilotBridgeService(plugin)
+  ) {
     this.plugin = plugin;
+    this.serviceFactory = serviceFactory;
   }
 
   async generateTitle(
@@ -31,13 +42,19 @@ export class TitleGenerationService {
     assistantResponse: string,
     callback: TitleGenerationCallback
   ): Promise<void> {
-    const existingController = this.activeGenerations.get(conversationId);
-    if (existingController) {
-      existingController.abort();
+    const existingGeneration = this.activeGenerations.get(conversationId);
+    if (existingGeneration) {
+      existingGeneration.abortController.abort();
+      existingGeneration.service.cancel();
     }
 
     const abortController = new AbortController();
-    this.activeGenerations.set(conversationId, abortController);
+    // Title generation must not share the chat bridge's sessionId/currentProcess.
+    // A background title request can overlap the next student message, so sharing
+    // one mutable bridge lets the title session replace or cancel the chat session.
+    const titleAgentService = this.serviceFactory();
+    const generation = { abortController, service: titleAgentService };
+    this.activeGenerations.set(conversationId, generation);
 
     const truncatedUser = this.truncateText(userMessage, 500);
     const truncatedAssistant = this.truncateText(assistantResponse, 500);
@@ -64,9 +81,11 @@ Generate a title for this conversation:`;
       let responseText = '';
       const titleModel = this.plugin.settings.titleGenerationModel?.trim();
 
-      for await (const chunk of this.plugin.agentService.streamQuery(prompt, {
+      for await (const chunk of titleAgentService.streamQuery(prompt, {
         skipResume: true,
         model: titleModel && titleModel !== 'auto' ? titleModel : undefined,
+        readOnly: true,
+        enableWebSearch: false,
       })) {
         if (abortController.signal.aborted) {
           await this.safeCallback(callback, conversationId, {
@@ -96,14 +115,17 @@ Generate a title for this conversation:`;
       }
       await this.safeCallback(callback, conversationId, { success: false, error: msg });
     } finally {
-      this.activeGenerations.delete(conversationId);
+      if (this.activeGenerations.get(conversationId) === generation) {
+        this.activeGenerations.delete(conversationId);
+      }
       this.plugin.setBashExpansionActive(false);
     }
   }
 
   cancel(): void {
-    for (const controller of this.activeGenerations.values()) {
-      controller.abort();
+    for (const generation of this.activeGenerations.values()) {
+      generation.abortController.abort();
+      generation.service.cancel();
     }
     this.activeGenerations.clear();
   }
