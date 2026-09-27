@@ -279,7 +279,7 @@ export function needsBlanketWriteConsent(id: ProviderId, blanketWriteAcknowledge
  * show "Ask" while something it authorized keeps writing.
  *
  * `forcedReadOnly` is for a caller-specific reason to demand read-only beyond the stored
- * mode (e.g. a plan-mode request) — every current call site except CLI dispatch leaves it
+ * mode (e.g. a plan- or learning-mode request) — every current call site except CLI dispatch leaves it
  * at the default.
  */
 export function resolveEffectivePermissionMode(

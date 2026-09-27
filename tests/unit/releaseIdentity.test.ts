@@ -66,4 +66,19 @@ describe('release identity', () => {
     expect(manifest.version).toBe('0.1.27');
     expect(versions).toEqual({ '0.1.26': '1.0.0', '0.1.27': '1.1.0' });
   });
+
+  it('stages both generated release metadata files in the npm version lifecycle', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
+    expect(packageJson.scripts.version).toBe('node scripts/sync-version.js && git add manifest.json versions.json');
+  });
+
+  it('keeps compatibility mappings for the recent 0.1.x releases', () => {
+    const versions = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../versions.json'), 'utf8'));
+    expect(versions).toMatchObject({
+      '0.1.24': '1.0.0',
+      '0.1.25': '1.0.0',
+      '0.1.26': '1.0.0',
+      '0.1.27': '1.0.0',
+    });
+  });
 });

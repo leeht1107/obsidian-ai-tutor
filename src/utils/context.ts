@@ -6,7 +6,7 @@
 
 /** Formats current note path in XML format. */
 export function formatCurrentNote(notePath: string): string {
-  return `<current_note>\n${notePath}\n</current_note>`;
+  return `<current_note>\n${escapeXmlText(notePath)}\n</current_note>`;
 }
 
 function escapeXmlText(value: string): string {

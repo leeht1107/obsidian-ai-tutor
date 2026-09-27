@@ -3962,7 +3962,7 @@ init_path();
 // src/utils/context.ts
 function formatCurrentNote(notePath) {
   return `<current_note>
-${notePath}
+${escapeXmlText(notePath)}
 </current_note>`;
 }
 function escapeXmlText(value) {
@@ -5146,7 +5146,7 @@ ${remedy}`;
     }
     const selection = resolveNativeSelection(this.plugin.settings, queryOptions == null ? void 0 : queryOptions.model);
     const mode = this.plugin.settings.permissionMode;
-    const wantsReadOnly = mode === "ask" || mode === "plan" || Boolean(queryOptions == null ? void 0 : queryOptions.planMode);
+    const wantsReadOnly = mode === "ask" || mode === "plan" || Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly));
     const acknowledged = this.plugin.settings.blanketWriteAcknowledged;
     const needsConsent = needsBlanketWriteConsent(provider, acknowledged);
     const permissionMode = this.effectivePermissionMode(provider, Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)));

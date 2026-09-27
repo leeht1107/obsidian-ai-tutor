@@ -1016,7 +1016,7 @@ export class CopilotBridgeService {
     // A provider that cannot be held read-only gets `agent` whatever the toggle says;
     // pretending otherwise would be a guardrail that is not there.
     const mode = this.plugin.settings.permissionMode;
-    const wantsReadOnly = mode === 'ask' || mode === 'plan' || Boolean(queryOptions?.planMode);
+    const wantsReadOnly = mode === 'ask' || mode === 'plan' || Boolean(queryOptions?.planMode || queryOptions?.readOnly);
     // The consent gate lives here, not on the toggle: Agent is the default mode, so a
     // student who never touched the toggle would otherwise reach a blanket-write CLI
     // simply by selecting it. Until they have confirmed, this provider runs read-only.

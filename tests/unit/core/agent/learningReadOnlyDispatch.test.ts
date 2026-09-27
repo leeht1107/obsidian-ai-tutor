@@ -24,15 +24,20 @@ describe('learning request permission boundary', () => {
     return cli;
   }
 
-  async function run(provider: 'claude' | 'codex' | 'agy' | 'copilot', pathSetting: 'modern' | 'legacy' = 'modern'): Promise<string[]> {
+  async function run(
+    provider: 'claude' | 'codex' | 'agy' | 'copilot',
+    pathSetting: 'modern' | 'legacy' = 'modern',
+    acknowledged = true,
+  ): Promise<{ args: string[]; notices: string[] }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
     const cli = fixture(provider, captured);
+    const notices: string[] = [];
     const service = new CopilotBridgeService({
       settings: {
         ...DEFAULT_SETTINGS,
         selectedProvider: provider,
         permissionMode: 'agent',
-        blanketWriteAcknowledged: [provider],
+        blanketWriteAcknowledged: acknowledged ? [provider] : [],
         allowUnsafeAgyAgent: true,
         providerCliPaths: pathSetting === 'modern' ? { [provider]: cli } : {},
         copilotCliPath: pathSetting === 'legacy' ? cli : '',
@@ -40,28 +45,37 @@ describe('learning request permission boundary', () => {
       app: { vault: { adapter: { basePath: dir } } },
       getActiveEnvironmentVariables: () => '',
     } as unknown as ObsidianCopilotPlugin);
+    service.onPermissionNotice = (notice) => notices.push(notice);
 
     for await (const chunk of service.query('learning prompt', undefined, undefined, {
       readOnly: true,
       enableWebSearch: true,
     })) { void chunk; }
-    return fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/);
+    return { args: fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/), notices };
   }
 
   it.each(providers)('passes read-only flags on the actual %s request dispatch', async (provider) => {
-    const args = await run(provider);
+    const { args } = await run(provider);
     expect(args).not.toContain('bypassPermissions');
     expect(args).not.toContain('--dangerously-skip-permissions');
     expect(args).not.toContain('workspace-write');
     expect(args).not.toContain('--allow-all-tools');
+    expect(args.includes('--disallowedTools')).toBe(provider === 'claude');
+    expect(args.includes('Write,Edit,Bash')).toBe(provider === 'claude');
     expect(args.includes('read-only')).toBe(provider === 'codex');
     expect(args.includes('approval_policy="never"')).toBe(provider === 'codex');
   });
 
   it('uses the configured legacy Copilot CLI and preserves WebSearch while restricting tools', async () => {
-    const args = await run('copilot', 'legacy');
+    const { args } = await run('copilot', 'legacy');
     expect(args).not.toContain('--allow-all-tools');
     expect(args).toContain('--available-tools');
     expect(args).toContain('web_search');
+  });
+
+  it('does not request write consent for an explicitly read-only learning request', async () => {
+    const { args, notices } = await run('claude', 'modern', false);
+    expect(args).toContain('--disallowedTools');
+    expect(notices).toEqual([]);
   });
 });
