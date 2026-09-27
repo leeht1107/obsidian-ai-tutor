@@ -41,7 +41,12 @@ import {
 import { prependCurrentNote, prependCurrentNoteContent } from '../../../utils/context';
 import { type EditorSelectionContext, prependEditorContext } from '../../../utils/editor';
 import { appendMarkdownSnippet } from '../../../utils/markdown';
-import { formatSlashCommandWarnings } from '../../../utils/slashCommand';
+import {
+  formatSlashCommandWarnings,
+  parseSlashCommandContent,
+  resolveSlashAllowedTools,
+  slashAllowsInlineBash,
+} from '../../../utils/slashCommand';
 import type { MessageRenderer } from '../rendering/MessageRenderer';
 import type { InstructionRefineService } from '../services/InstructionRefineService';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
@@ -53,12 +58,6 @@ import type { StreamController } from './StreamController';
 
 const PLAN_MODE_REQUEST_PREFIX =
   'User requested plan mode. Call EnterPlanMode before responding.';
-
-const SHARED_BASH_TOOL_NAMES = new Set(['bash']);
-function slashAllowsInlineBash(allowedTools?: string[]): boolean {
-  if (allowedTools === undefined) return true;
-  return allowedTools.some((tool) => SHARED_BASH_TOOL_NAMES.has(tool.trim().toLowerCase()));
-}
 
 function sharedToolKey(tool: string): string {
   const normalized = tool.trim().toLowerCase().replace(/[-_]/g, '');
@@ -508,6 +507,7 @@ export class InputController {
     const currentNotePath = fileContextManager?.getCurrentNotePath() || null;
     const shouldSendCurrentNote = fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false;
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
+    let slashTemplateCurrentNoteScope = false;
 
     // Check for slash command and expand it
     const displayContent = content;
@@ -521,7 +521,9 @@ export class InputController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          const parsedAllowedTools = cmd.allowedTools;
+          const parsedCommand = parseSlashCommandContent(cmd.content);
+          slashTemplateCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(parsedCommand.promptContent);
+          const parsedAllowedTools = resolveSlashAllowedTools(cmd);
           slashAllowedToolsRequested = parsedAllowedTools !== undefined;
           if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
             // Fail before expansion: inline bash and file substitutions are part of expansion
@@ -576,7 +578,7 @@ export class InputController {
     }
 
     const shouldForceCurrentNoteScope =
-      rawCurrentNoteScope || this.shouldUseCurrentNoteOnlyScope(content);
+      rawCurrentNoteScope || slashTemplateCurrentNoteScope;
     const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
       ? this.readCurrentNoteContent(currentNotePath)
       : Promise.resolve<string | null>(null);
