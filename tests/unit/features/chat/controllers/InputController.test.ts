@@ -578,6 +578,47 @@ describe('InputController - Message Queue', () => {
       expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools).toBeUndefined();
     });
 
+    it('detects current-note scope after argument substitution but before side-effect expansion', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'sum', args: 'this' }),
+        expandSemanticPrompt: jest.fn().mockReturnValue('Summarize this note'),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: 'Summarize this note',
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'sum',
+        name: 'sum',
+        content: 'Summarize $ARGUMENTS note',
+      }];
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE CONTENT');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '/sum this' });
+
+      expect(slashCommandManager.expandSemanticPrompt).toHaveBeenCalled();
+      expect(readCurrentNoteContent).toHaveBeenCalledWith('active.md');
+      expect(promptSeen).toContain('ACTIVE NOTE CONTENT');
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools)
+        .toEqual(expect.arrayContaining(['view']));
+    });
+
     it('intersects current-note tools with an explicit slash allowlist instead of broadening it', async () => {
       (deps.plugin.settings as any).selectedProvider = 'copilot';
       const slashCommandManager = {
