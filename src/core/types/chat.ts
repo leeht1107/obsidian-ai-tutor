@@ -93,6 +93,8 @@ export interface ChatMessage {
   /** `null` suppresses question recovery for partial output from a failed Quiz request. */
   quizQuestion?: QuizQuestionMeta | null;
   socraticTurn?: SocraticTurnMeta;
+  /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
+  requestOutcome?: 'completed' | 'failed' | 'interrupted';
 }
 
 /** Persisted conversation with messages and session state. */

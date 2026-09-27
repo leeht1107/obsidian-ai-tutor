@@ -48,8 +48,6 @@ export interface QueryOptions {
   planMode?: boolean;
   externalContextPaths?: string[];
   enableWebSearch?: boolean;
-  /** Reject providers that cannot guarantee Web search stays disabled for this request. */
-  requireWebSearchDisabled?: boolean;
   /** Force this request to use read-only provider permissions regardless of the toolbar mode. */
   readOnly?: boolean;
 }
@@ -70,6 +68,11 @@ const ALLOWED_TOOLS = [
   'web_fetch',
   'web_search',
 ] as const;
+const WEB_TOOL_NAMES = new Set(['websearch', 'webfetch']);
+
+function isCopilotWebTool(tool: string): boolean {
+  return WEB_TOOL_NAMES.has(tool.trim().toLowerCase().replace(/[-_]/g, ''));
+}
 
 const MAX_DIFF_SIZE = 100 * 1024;
 const CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
@@ -102,24 +105,20 @@ export function resolveCopilotAllowedTools(
   enableWebSearch = true
 ): string[] {
   const requested = requestedTools?.map((tool) => tool.trim()).filter(Boolean) ?? [];
-  const guardrailTools = planMode
-    ? [...ALLOWED_TOOLS]
-    : permissionMode === 'agent'
-      ? null
-      : [...ALLOWED_TOOLS];
+  const guardrailTools = planMode || permissionMode !== 'agent'
+    ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool))
+    : null;
   const guardrailSet = guardrailTools ? new Set<string>(guardrailTools) : null;
-  let effectiveTools = requested.length > 0
+  const requestedToolsInGuardrail = requested.length > 0
     ? guardrailSet
       ? requested.filter((tool) => guardrailSet.has(tool))
       : requested
     : guardrailTools ?? [];
+  const effectiveTools = enableWebSearch
+    ? requestedToolsInGuardrail
+    : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
 
-  if (!enableWebSearch) {
-    const webTools = new Set(['web_search', 'web_fetch']);
-    effectiveTools = effectiveTools.filter((tool) => !webTools.has(tool));
-  }
-
-  return guardrailSet && effectiveTools.length === 0
+  return guardrailSet && effectiveTools.length === 0 && (enableWebSearch || requested.length === 0)
     ? guardrailTools ?? []
     : effectiveTools;
 }
@@ -708,6 +707,10 @@ export class CopilotBridgeService {
       enableWebSearch
     );
 
+    if (!enableWebSearch && permissionMode === 'agent' && capabilities.denyTool) {
+      args.push('--deny-tool', 'web_search', 'web_fetch');
+    }
+
     if (skipAvailableTools) return;
 
     if (capabilities.availableTools && finalTools.length > 0) {
@@ -816,6 +819,15 @@ export class CopilotBridgeService {
     const capabilities = await this.getCliCapabilities(copilotPath);
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
     const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode || queryOptions?.readOnly));
+    const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
+    if (!enableWebSearch && permissionMode === 'agent' && !capabilities.denyTool) {
+      const notice = '이 Copilot CLI는 Agent 모드에서 Web 검색을 차단할 수 없습니다. CLI를 업데이트하기 전까지 Web 검색이 사용될 수 있습니다.';
+      const noticeKey = `copilot:${notice}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
+        this.onPermissionNotice?.(notice);
+      }
+    }
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
     const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
@@ -825,6 +837,18 @@ export class CopilotBridgeService {
       capabilities.allowAllTools,
       queryOptions,
     );
+    const finalTools = resolveCopilotAllowedTools(
+      permissionMode,
+      queryOptions?.allowedTools,
+      queryOptions?.planMode,
+      enableWebSearch,
+    );
+    if (hasExplicitCopilotAllowedTools(queryOptions?.allowedTools) && finalTools.length === 0) {
+      const message = '요청한 도구를 현재 Web 설정에서 사용할 수 없습니다. Web 검색을 켜거나 허용 도구를 바꿔 주세요.';
+      this.logError({ provider: 'copilot', stage: 'internal', message });
+      yield { type: 'error', content: message };
+      return;
+    }
 
     if (capabilities.noAskUser) {
       args.push('--no-ask-user');
@@ -869,6 +893,11 @@ export class CopilotBridgeService {
       let sawDone = false;
 
       for await (const chunk of this.spawnCopilot(copilotPath, args, this.getCustomEnv(copilotPath))) {
+        if (chunk.type === 'error') {
+          // Clear before yielding: the UI stops consuming this iterator at an error.
+          this.sessionId = null;
+          this.sessionConfirmedByCli = false;
+        }
         if (chunk.type === 'tool_use') {
           this.trackWriteEditOriginalContent(chunk.id, chunk.name, chunk.input);
         } else if (chunk.type === 'tool_result') {
@@ -1005,9 +1034,9 @@ export class CopilotBridgeService {
   ): AsyncGenerator<StreamChunk> {
     const provider = this.plugin.settings.selectedProvider as ProviderId;
     const requestedWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
-    const enableWebSearch = provider === 'agy' ? true : requestedWebSearch;
-    if (provider === 'agy' && (!requestedWebSearch || queryOptions?.requireWebSearchDisabled)) {
-      const notice = 'Agy는 요청별 Web 검색 끄기를 보장할 수 없어 Web 검색을 켠 상태로 계속 진행합니다.';
+    const enableWebSearch = requestedWebSearch;
+    if (provider === 'agy' && !requestedWebSearch) {
+      const notice = 'Agy는 Web 검색을 기술적으로 차단할 수 없습니다. 이 요청에서는 검색하지 않도록 안내하지만 실제 사용을 막을 수는 없습니다.';
       const noticeKey = `${provider}:${notice}`;
       if (!this.shownPermissionNotices.has(noticeKey)) {
         this.shownPermissionNotices.add(noticeKey);
@@ -1546,6 +1575,11 @@ export class CopilotBridgeService {
 
   cancel(): void {
     this.wasInterrupted = true;
+    if (this.plugin.settings.selectedProvider === 'copilot') {
+      // A stopped Copilot turn may already have added a partial answer to its session.
+      this.sessionId = null;
+      this.sessionConfirmedByCli = false;
+    }
     if (this.abortController) {
       this.abortController.abort();
     }

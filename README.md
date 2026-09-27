@@ -144,7 +144,7 @@ login command.
 | Disable Web search for one request | ✅ | ✅ | ✅ | ❌ Agy may still search while the global Web toggle is off |
 | Dispatch model | 1 native CLI process per request, no shared runtime/proxy/relay | same | same | same |
 
-\* Agy cannot guarantee Web search is disabled, so its Web tools may be used even for low/medium Quiz. The first affected request shows a notice and proceeds with Web available; the global preference remains unchanged.
+\* Agy cannot guarantee Web search is disabled. When a request asks for Web off, the plugin tells Agy not to search and shows a one-time notice, but the CLI may still search; the global preference remains unchanged.
 
 ---
 

@@ -22,7 +22,7 @@ describe('learning request permission boundary', () => {
       `const provider = ${JSON.stringify(provider)};`,
       `const captured = ${JSON.stringify(captured)};`,
       'const args = process.argv.slice(2);',
-      'if (provider === "copilot" && args[0] === "--help") { console.log("--allow-all-tools --available-tools --output-format json --no-ask-user"); process.exit(0); }',
+      'if (provider === "copilot" && args[0] === "--help") { console.log("--allow-all-tools --available-tools --deny-tool --output-format json --no-ask-user"); process.exit(0); }',
       'fs.writeFileSync(captured, args.join("\\n"));',
       'if (provider === "copilot") { console.log(JSON.stringify({ type: "assistant.message_delta", data: { deltaContent: "ok" } })); console.log(JSON.stringify({ type: "result", exitCode: 0 })); }',
       'else if (provider === "agy") console.log(JSON.stringify({ status: "SUCCESS", response: "ok", denied_actions: [] }));',
@@ -43,10 +43,10 @@ describe('learning request permission boundary', () => {
     pathSetting: 'modern' | 'legacy' = 'modern',
     acknowledged = true,
     enableWebSearch = true,
-    requireWebSearchDisabled = false,
     readOnly = true,
     repeat = 1,
-  ): Promise<{ args: string[]; notices: string[]; spawned: boolean }> {
+    allowedTools?: string[],
+  ): Promise<{ args: string[]; notices: string[]; spawned: boolean; chunks: Array<{ type: string }> }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
     if (fs.existsSync(captured)) fs.unlinkSync(captured);
     const cli = fixture(provider, captured);
@@ -66,15 +66,16 @@ describe('learning request permission boundary', () => {
     } as unknown as ObsidianCopilotPlugin);
     service.onPermissionNotice = (notice) => notices.push(notice);
 
+    const chunks: Array<{ type: string }> = [];
     for (let i = 0; i < repeat; i += 1) {
       for await (const chunk of service.query('learning prompt', undefined, undefined, {
         readOnly,
         enableWebSearch,
-        requireWebSearchDisabled,
-      })) { void chunk; }
+        allowedTools,
+      })) { chunks.push(chunk); }
     }
     const spawned = fs.existsSync(captured);
-    return { args: spawned ? fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/) : [], notices, spawned };
+    return { args: spawned ? fs.readFileSync(captured, 'utf8').trim().split(/\r?\n/) : [], notices, spawned, chunks };
   }
 
   it.each(providers)('passes read-only flags on the actual %s request dispatch', async (provider) => {
@@ -96,33 +97,50 @@ describe('learning request permission boundary', () => {
     expect(args).toContain('web_search');
   });
 
+  it('keeps Copilot Agent tools while denying Web with the CLI deny-tool capability', async () => {
+    const { args, spawned } = await run('copilot', 'modern', true, false, false);
+    expect(spawned).toBe(true);
+    expect(args).toContain('--allow-all-tools');
+    const denyIndex = args.indexOf('--deny-tool');
+    expect(args.slice(denyIndex + 1, denyIndex + 3)).toEqual(['web_search', 'web_fetch']);
+    expect(args).not.toContain('--available-tools');
+  });
+
+  it('does not launch Copilot when Web-off empties an explicit Web-only allowlist', async () => {
+    const { args, spawned, chunks } = await run('copilot', 'modern', true, false, true, 1, ['WebSearch']);
+    expect(spawned).toBe(false);
+    expect(args).toEqual([]);
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(true);
+  });
+
   it('does not request write consent for an explicitly read-only learning request', async () => {
     const { args, notices } = await run('claude', 'modern', false);
     expect(args).toContain('--disallowedTools');
     expect(notices).toEqual([]);
   });
 
-  it('lets ordinary Agy chat run with Web off and explains that search remains available', async () => {
-    const { args, notices, spawned } = await run('agy', 'modern', true, false, false, false);
+  it('lets ordinary Agy chat run with Web off and explains that enforcement is unavailable', async () => {
+    const { args, notices, spawned } = await run('agy', 'modern', true, false, false);
     expect(spawned).toBe(true);
     expect(args).toContain('--output-format');
     expect(notices.join(' ')).toMatch(/Agy/);
     expect(notices.join(' ')).toMatch(/Web 검색/);
-    expect(notices.join(' ')).toMatch(/계속 진행합니다/);
+    expect(notices.join(' ')).toMatch(/막을 수는 없습니다/);
+    expect(args.join('\n')).toContain('Web search is unavailable for this request.');
   });
 
-  it.each([false, true])('continues Agy with Web available when a request requires Web disabled and global Web is %s', async (enableWebSearch) => {
-    const { args, notices, spawned } = await run('agy', 'modern', true, enableWebSearch, true);
+  it('continues Agy when a request asks for Web off, preserving the best-effort prompt instruction', async () => {
+    const { args, notices, spawned } = await run('agy', 'modern', true, false);
     expect(spawned).toBe(true);
     expect(args).toContain('--output-format');
     expect(notices.join(' ')).toMatch(/Web 검색/);
-    expect(notices.join(' ')).toMatch(/계속 진행합니다/);
-    expect(args.join('\n')).toContain('Use WebSearch strictly');
-    expect(args.join('\n')).not.toContain('Web search is unavailable for this request.');
+    expect(notices.join(' ')).toMatch(/막을 수는 없습니다/);
+    expect(args.join('\n')).toContain('Web search is unavailable for this request.');
+    expect(args.join('\n')).not.toContain('Use WebSearch strictly');
   });
 
   it('shows distinct Agy notices once each across consecutive requests', async () => {
-    const { notices, spawned } = await run('agy', 'modern', false, false, false, false, 2);
+    const { notices, spawned } = await run('agy', 'modern', false, false, false, 2);
     expect(spawned).toBe(true);
     expect(notices.filter((notice) => notice.includes('Web 검색'))).toHaveLength(1);
     expect(notices.filter((notice) => notice.includes('Ask/Agent'))).toHaveLength(1);

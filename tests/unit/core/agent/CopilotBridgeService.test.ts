@@ -59,6 +59,7 @@ describe('CopilotBridgeService helpers', () => {
   describe('resolveCopilotAllowedTools', () => {
     it('keeps agent mode unrestricted when no explicit tools are requested', () => {
       expect(resolveCopilotAllowedTools('agent')).toEqual([]);
+      expect(resolveCopilotAllowedTools('agent', undefined, false, false)).toEqual([]);
     });
 
     it('applies safe guardrails in normal mode', () => {
@@ -103,6 +104,17 @@ describe('CopilotBridgeService helpers', () => {
     it('drops web tools from the ASK allowlist when web search is disabled, after the rename', () => {
       expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_search');
       expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_fetch');
+    });
+
+    it('never restores web tools when a requested allowlist becomes empty with Web off', () => {
+      expect(resolveCopilotAllowedTools('ask', ['web_search'], false, false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['web_fetch'], false, false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false, false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['view', 'web_search'], false, false)).toEqual(['view']);
+    });
+
+    it('keeps an explicit Web allowlist when Web is on', () => {
+      expect(resolveCopilotAllowedTools('ask', ['web_search'], false, true)).toEqual(['web_search']);
     });
   });
 

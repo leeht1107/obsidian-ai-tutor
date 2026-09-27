@@ -97,6 +97,9 @@ export function buildContextFromHistory(messages: ChatMessage[]): string {
     }
 
     if (message.role === 'assistant') {
+      if (message.requestOutcome === 'failed' || message.requestOutcome === 'interrupted') {
+        continue;
+      }
       const hasContent = message.content && message.content.trim().length > 0;
       const hasToolResult = message.toolCalls?.some(
         tc => tc.result && tc.result.trim().length > 0

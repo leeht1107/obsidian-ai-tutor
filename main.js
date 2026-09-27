@@ -4031,6 +4031,9 @@ function buildContextFromHistory(messages) {
       continue;
     }
     if (message.role === "assistant") {
+      if (message.requestOutcome === "failed" || message.requestOutcome === "interrupted") {
+        continue;
+      }
       const hasContent = message.content && message.content.trim().length > 0;
       const hasToolResult = (_a = message.toolCalls) == null ? void 0 : _a.some(
         (tc) => tc.result && tc.result.trim().length > 0
@@ -4479,6 +4482,10 @@ var ALLOWED_TOOLS = [
   "web_fetch",
   "web_search"
 ];
+var WEB_TOOL_NAMES = /* @__PURE__ */ new Set(["websearch", "webfetch"]);
+function isCopilotWebTool(tool) {
+  return WEB_TOOL_NAMES.has(tool.trim().toLowerCase().replace(/[-_]/g, ""));
+}
 var MAX_DIFF_SIZE = 100 * 1024;
 var CLI_CAPABILITY_PROBE_TIMEOUT_MS = 2500;
 var MAX_STDERR_CHARS = 1024 * 1024;
@@ -4488,14 +4495,11 @@ var MODEL_LIST_TIMEOUT_MS = 15e3;
 function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
   var _a;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map((tool) => tool.trim()).filter(Boolean)) != null ? _a : [];
-  const guardrailTools = planMode ? [...ALLOWED_TOOLS] : permissionMode === "agent" ? null : [...ALLOWED_TOOLS];
+  const guardrailTools = planMode || permissionMode !== "agent" ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool)) : null;
   const guardrailSet = guardrailTools ? new Set(guardrailTools) : null;
-  let effectiveTools = requested.length > 0 ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
-  if (!enableWebSearch) {
-    const webTools = /* @__PURE__ */ new Set(["web_search", "web_fetch"]);
-    effectiveTools = effectiveTools.filter((tool) => !webTools.has(tool));
-  }
-  return guardrailSet && effectiveTools.length === 0 ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
+  const requestedToolsInGuardrail = requested.length > 0 ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
+  const effectiveTools = enableWebSearch ? requestedToolsInGuardrail : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
+  return guardrailSet && effectiveTools.length === 0 && (enableWebSearch || requested.length === 0) ? guardrailTools != null ? guardrailTools : [] : effectiveTools;
 }
 function hasExplicitCopilotAllowedTools(requestedTools) {
   var _a;
@@ -4892,6 +4896,9 @@ User: ${injectedPrompt}`;
       queryOptions == null ? void 0 : queryOptions.planMode,
       enableWebSearch
     );
+    if (!enableWebSearch && permissionMode === "agent" && capabilities.denyTool) {
+      args.push("--deny-tool", "web_search", "web_fetch");
+    }
     if (skipAvailableTools) return;
     if (capabilities.availableTools && finalTools.length > 0) {
       args.push("--available-tools", ...finalTools);
@@ -4968,7 +4975,7 @@ User: ${injectedPrompt}`;
     });
   }
   async *query(prompt, _images, conversationHistory, queryOptions) {
-    var _a;
+    var _a, _b, _c;
     if (this.plugin.settings.selectedProvider !== "copilot") {
       yield* this.querySelectedProvider(prompt, conversationHistory, queryOptions);
       return;
@@ -4984,6 +4991,15 @@ User: ${injectedPrompt}`;
     const capabilities = await this.getCliCapabilities(copilotPath);
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
     const permissionMode = this.effectivePermissionMode("copilot", Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)));
+    const enableWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
+    if (!enableWebSearch && permissionMode === "agent" && !capabilities.denyTool) {
+      const notice = "\uC774 Copilot CLI\uB294 Agent \uBAA8\uB4DC\uC5D0\uC11C Web \uAC80\uC0C9\uC744 \uCC28\uB2E8\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. CLI\uB97C \uC5C5\uB370\uC774\uD2B8\uD558\uAE30 \uC804\uAE4C\uC9C0 Web \uAC80\uC0C9\uC774 \uC0AC\uC6A9\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
+      const noticeKey = `copilot:${notice}`;
+      if (!this.shownPermissionNotices.has(noticeKey)) {
+        this.shownPermissionNotices.add(noticeKey);
+        (_b = this.onPermissionNotice) == null ? void 0 : _b.call(this, notice);
+      }
+    }
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
     const sessionId = this.ensureSessionId();
     const args = ["--no-color"];
@@ -4992,6 +5008,18 @@ User: ${injectedPrompt}`;
       capabilities.allowAllTools,
       queryOptions
     );
+    const finalTools = resolveCopilotAllowedTools(
+      permissionMode,
+      queryOptions == null ? void 0 : queryOptions.allowedTools,
+      queryOptions == null ? void 0 : queryOptions.planMode,
+      enableWebSearch
+    );
+    if (hasExplicitCopilotAllowedTools(queryOptions == null ? void 0 : queryOptions.allowedTools) && finalTools.length === 0) {
+      const message = "\uC694\uCCAD\uD55C \uB3C4\uAD6C\uB97C \uD604\uC7AC Web \uC124\uC815\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Web \uAC80\uC0C9\uC744 \uCF1C\uAC70\uB098 \uD5C8\uC6A9 \uB3C4\uAD6C\uB97C \uBC14\uAFD4 \uC8FC\uC138\uC694.";
+      this.logError({ provider: "copilot", stage: "internal", message });
+      yield { type: "error", content: message };
+      return;
+    }
     if (capabilities.noAskUser) {
       args.push("--no-ask-user");
     }
@@ -5011,7 +5039,7 @@ User: ${injectedPrompt}`;
     if (capabilities.stream) {
       args.push("--stream", "on");
     }
-    const selectedModel = ((_a = queryOptions == null ? void 0 : queryOptions.model) == null ? void 0 : _a.trim()) || this.plugin.settings.model;
+    const selectedModel = ((_c = queryOptions == null ? void 0 : queryOptions.model) == null ? void 0 : _c.trim()) || this.plugin.settings.model;
     if (capabilities.model && selectedModel && selectedModel !== "auto") {
       args.push("--model", selectedModel);
     }
@@ -5027,6 +5055,10 @@ User: ${injectedPrompt}`;
       let bufferedPlanText = "";
       let sawDone = false;
       for await (const chunk of this.spawnCopilot(copilotPath, args, this.getCustomEnv(copilotPath))) {
+        if (chunk.type === "error") {
+          this.sessionId = null;
+          this.sessionConfirmedByCli = false;
+        }
         if (chunk.type === "tool_use") {
           this.trackWriteEditOriginalContent(chunk.id, chunk.name, chunk.input);
         } else if (chunk.type === "tool_result") {
@@ -5141,9 +5173,9 @@ ${remedy}`;
     var _a, _b, _c, _d, _e, _f, _g, _h;
     const provider = this.plugin.settings.selectedProvider;
     const requestedWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
-    const enableWebSearch = provider === "agy" ? true : requestedWebSearch;
-    if (provider === "agy" && (!requestedWebSearch || (queryOptions == null ? void 0 : queryOptions.requireWebSearchDisabled))) {
-      const notice2 = "Agy\uB294 \uC694\uCCAD\uBCC4 Web \uAC80\uC0C9 \uB044\uAE30\uB97C \uBCF4\uC7A5\uD560 \uC218 \uC5C6\uC5B4 Web \uAC80\uC0C9\uC744 \uCF20 \uC0C1\uD0DC\uB85C \uACC4\uC18D \uC9C4\uD589\uD569\uB2C8\uB2E4.";
+    const enableWebSearch = requestedWebSearch;
+    if (provider === "agy" && !requestedWebSearch) {
+      const notice2 = "Agy\uB294 Web \uAC80\uC0C9\uC744 \uAE30\uC220\uC801\uC73C\uB85C \uCC28\uB2E8\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC774 \uC694\uCCAD\uC5D0\uC11C\uB294 \uAC80\uC0C9\uD558\uC9C0 \uC54A\uB3C4\uB85D \uC548\uB0B4\uD558\uC9C0\uB9CC \uC2E4\uC81C \uC0AC\uC6A9\uC744 \uB9C9\uC744 \uC218\uB294 \uC5C6\uC2B5\uB2C8\uB2E4.";
       const noticeKey = `${provider}:${notice2}`;
       if (!this.shownPermissionNotices.has(noticeKey)) {
         this.shownPermissionNotices.add(noticeKey);
@@ -5604,6 +5636,10 @@ ${remedy}`;
   }
   cancel() {
     this.wasInterrupted = true;
+    if (this.plugin.settings.selectedProvider === "copilot") {
+      this.sessionId = null;
+      this.sessionConfirmedByCli = false;
+    }
     if (this.abortController) {
       this.abortController.abort();
     }
@@ -16798,7 +16834,6 @@ ${promptToSend}`;
     queryOptions = {
       ...queryOptions,
       enableWebSearch: requestWebSearchEnabled,
-      ...quizRequest && !requestWebSearchEnabled ? { requireWebSearchDisabled: true } : {},
       readOnly: Boolean((queryOptions == null ? void 0 : queryOptions.readOnly) || learningRequest)
     };
     let streamOutcome = "completed";
@@ -16814,6 +16849,7 @@ ${promptToSend}`;
       state.currentContentEl = null;
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
+      assistantMsg.requestOutcome = streamOutcome;
       if (streamOutcome !== "completed" && quizRequest) {
         assistantMsg.quizQuestion = null;
       }
@@ -17110,6 +17146,7 @@ ${content}
       state.currentContentEl = null;
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
+      assistantMsg.requestOutcome = streamOutcome;
       if (streamOutcome === "completed" && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });
@@ -21230,7 +21267,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       });
       text.inputEl.addClass("ocop-settings-media-input");
     });
-    new import_obsidian29.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy may still search when Web is off; the first affected request shows a notice.").addToggle(
+    new import_obsidian29.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy receives an instruction not to search when Web is off, but its CLI may still search; the first affected request shows a notice.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableWebSearch).onChange(async (value) => {
         this.plugin.settings.enableWebSearch = value;
         await this.plugin.saveSettings();

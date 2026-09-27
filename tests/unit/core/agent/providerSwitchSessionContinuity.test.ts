@@ -46,6 +46,7 @@ const writeCopilotCli = (dir: string, name: string, out: string): string =>
     '  prev="$a"',
     'done',
     `printf '%s' "$prompt" > '${out}'`,
+    `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"ok"}}'`,
   ].join('\n'));
 
 /** A fake native CLI (claude/codex/agy): dumps the last argv element — where
@@ -136,5 +137,48 @@ maybe('copilot session continuity across a provider switch', () => {
     expect(promptSeenByCopilot).not.toContain('첫 코파일럿 질문');
     expect(promptSeenByCopilot).not.toContain('첫 코파일럿 답변');
     expect(promptSeenByCopilot).toContain('두번째 코파일럿 질문');
+  });
+
+  it('starts a fresh session and omits a failed partial answer from replay', async () => {
+    const failedPrompt = path.join(dir, 'failed-prompt.txt');
+    plugin.settings.copilotCliPath = write(dir, 'copilot-fail.sh', [
+      'if [ "$1" = "--help" ]; then printf "--session-id <id> --output-format json --stream on"; exit 0; fi',
+      'prev=""',
+      'for a in "$@"; do if [ "$prev" = "-p" ]; then printf "%s" "$a" > ' + `'${failedPrompt}'` + '; fi; prev="$a"; done',
+      `printf '%s\\n' '{"type":"assistant.message_delta","data":{"deltaContent":"partial failed answer"}}'`,
+      'echo "provider failed" >&2',
+      'exit 1',
+    ].join('\n'));
+    let sawError = false;
+    for await (const chunk of service.query('failed user question')) {
+      if ((chunk as { type?: string }).type === 'error') {
+        sawError = true;
+        break;
+      }
+    }
+    expect(sawError).toBe(true);
+    expect(service.getSessionId()).toBeNull();
+
+    const retryPrompt = path.join(dir, 'retry-prompt.txt');
+    plugin.settings.copilotCliPath = writeCopilotCli(dir, 'copilot-retry.sh', retryPrompt);
+    const history: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'failed user question', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'partial failed answer', timestamp: 2, requestOutcome: 'failed' },
+    ];
+    await drain(service.query('retry request', undefined, history));
+
+    expect(service.getSessionId()).toBeTruthy();
+    expect(service.getSessionId()).not.toBeNull();
+    const prompt = fs.readFileSync(retryPrompt, 'utf8');
+    expect(prompt).toContain('failed user question');
+    expect(prompt).not.toContain('partial failed answer');
+    expect(prompt).toContain('retry request');
+    expect(fs.readFileSync(failedPrompt, 'utf8')).toContain('failed user question');
+  });
+
+  it('discards Copilot session state when the active request is cancelled', () => {
+    service.setSessionId('partial-session');
+    service.cancel();
+    expect(service.getSessionId()).toBeNull();
   });
 });

@@ -657,7 +657,6 @@ ${promptToSend}`;
     queryOptions = {
       ...queryOptions,
       enableWebSearch: requestWebSearchEnabled,
-      ...(quizRequest && !requestWebSearchEnabled ? { requireWebSearchDisabled: true } : {}),
       readOnly: Boolean(queryOptions?.readOnly || learningRequest),
     };
 
@@ -675,6 +674,7 @@ ${promptToSend}`;
 
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
+      assistantMsg.requestOutcome = streamOutcome;
       if (streamOutcome !== 'completed' && quizRequest) {
         // Keep partial output visible, but don't let replay turn it into an answer target.
         assistantMsg.quizQuestion = null;
@@ -1041,6 +1041,7 @@ ${content}
 
       streamController.finalizeCurrentThinkingBlock(assistantMsg);
       await streamController.finalizeCurrentTextBlock(assistantMsg);
+      assistantMsg.requestOutcome = streamOutcome;
       if (streamOutcome === 'completed' && contentEl) {
         streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
           void this.sendMessage({ content: choice });

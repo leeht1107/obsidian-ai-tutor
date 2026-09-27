@@ -605,6 +605,7 @@ describe('InputController - Message Queue', () => {
       await controller.sendMessage({ content: 'C' });
       expect(deps.state.quizSession?.currentQuestion).toBe(1);
       expect(deps.state.messages.at(-1)?.quizQuestion).toBeNull();
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('failed');
       expect(deps.streamController.handleStreamChunk).toHaveBeenCalledTimes(1);
 
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'error', content: 'provider failed' }]));
@@ -771,7 +772,6 @@ describe('InputController - Message Queue', () => {
       });
       expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({
         enableWebSearch: false,
-        requireWebSearchDisabled: true,
       });
     });
 
@@ -811,7 +811,6 @@ describe('InputController - Message Queue', () => {
         const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
         expect(queryOptions).toMatchObject({
           enableWebSearch: expectedWebSearch,
-          ...(!expectedWebSearch ? { requireWebSearchDisabled: true } : {}),
         });
         expect(setEnabled).not.toHaveBeenCalled();
       }
