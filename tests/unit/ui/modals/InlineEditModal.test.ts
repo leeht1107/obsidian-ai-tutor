@@ -522,6 +522,8 @@ describe('InlineEditController - bash expansion busy flag', () => {
         enableBlocklist: true,
         enableInlineBash: true,
         permissionMode: 'agent',
+        selectedProvider: 'copilot',
+        blanketWriteAcknowledged: ['copilot'],
       },
       setBashExpansionActive: jest.fn(),
     };
@@ -548,6 +550,78 @@ describe('InlineEditController - bash expansion busy flag', () => {
 
     return { controller, plugin, inputEl };
   }
+
+  it('rejects a restricted slash command before expansion on native providers', async () => {
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+      expandCommand: jest.fn(),
+    };
+    const { controller, plugin, inputEl } = buildController({
+      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }],
+    });
+    plugin.settings.selectedProvider = 'claude';
+    plugin.settings.blanketWriteAcknowledged = ['claude'];
+    const editText = jest.fn();
+    (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/read-only';
+
+    await (controller as any).generate();
+
+    expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
+    expect(editText).not.toHaveBeenCalled();
+    expect(inputEl.placeholder).toContain('cannot enforce');
+  });
+
+  it('blocks inline bash and forwards the allowlist for Copilot inline edit', async () => {
+    let bashOptions: any;
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+      expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+        bashOptions = options.bash;
+        return Promise.resolve({ expandedPrompt: 'Inspect', allowedTools: ['Read'], errors: [] });
+      }),
+    };
+    const { controller, inputEl } = buildController({
+      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect !\`echo unsafe\`', allowedTools: ['Read'] }],
+    });
+    const editText = jest.fn().mockResolvedValue({ success: true, insertedText: 'done' });
+    (controller as any).inlineEditService = { editText, continueConversation: jest.fn() };
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/read-only';
+
+    await (controller as any).generate();
+
+    expect(bashOptions.enabled).toBe(false);
+    expect(editText).toHaveBeenCalledWith(expect.objectContaining({ allowedTools: ['Read'] }));
+  });
+
+  it('keeps the slash allowlist across a clarification follow-up', async () => {
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn()
+        .mockReturnValueOnce({ commandName: 'read-only', args: [] })
+        .mockReturnValueOnce(null),
+      expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: 'Inspect', allowedTools: ['Read'], errors: [] }),
+    };
+    const { controller, inputEl } = buildController({
+      slashCommands: [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }],
+    });
+    const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Which section?' });
+    const continueConversation = jest.fn().mockResolvedValue({ success: true, insertedText: 'done' });
+    (controller as any).inlineEditService = { editText, continueConversation };
+    (controller as any).slashCommandManager = slashCommandManager;
+
+    inputEl.value = '/read-only';
+    await (controller as any).generate();
+
+    inputEl.value = 'Section 2';
+    await (controller as any).generate();
+
+    expect(continueConversation).toHaveBeenCalledWith('Section 2', [], ['Read']);
+  });
 
   it('sets the busy flag during expandCommand and clears it even when expandCommand throws', async () => {
     const slashCommandManager = {
