@@ -69,6 +69,27 @@ describe('SlashCommandManager', () => {
     });
   });
 
+  describe('expandSemanticPrompt', () => {
+    it('substitutes arguments before scope detection without reading referenced files', () => {
+      const app = createMockApp({
+        'other.md': 'This note text must not influence scope detection',
+      });
+      const manager = new SlashCommandManager(app, '/vault');
+      const command: SlashCommand = {
+        id: 'semantic',
+        name: 'semantic',
+        content: 'Summarize $ARGUMENTS note\nRef: @other.md',
+      };
+
+      const semantic = manager.expandSemanticPrompt(command, 'this');
+
+      expect(semantic).toContain('Summarize this note');
+      expect(semantic).not.toContain('@other.md');
+      expect(semantic).not.toContain('This note text must not influence scope detection');
+      expect(app.vault.read).not.toHaveBeenCalled();
+    });
+  });
+
   describe('expandCommand', () => {
     it('should replace $ARGUMENTS and positional args', async () => {
       const app = createMockApp({});
