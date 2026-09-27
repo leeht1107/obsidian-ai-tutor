@@ -283,6 +283,7 @@ export class InlineEditController {
   private slashCommandDropdown: SlashCommandDropdown | null = null;
   private mentionDropdown: MentionDropdownController | null = null;
   private attachedFiles: Set<string> = new Set();
+  private conversationAllowedTools: string[] | undefined;
 
   constructor(
     private app: App,
@@ -500,6 +501,7 @@ export class InlineEditController {
             return;
           }
 
+          this.conversationAllowedTools = requestAllowedTools;
           this.plugin.setBashExpansionActive(true);
           try {
             const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
@@ -537,6 +539,8 @@ export class InlineEditController {
       }
     }
 
+    const effectiveAllowedTools = requestAllowedTools ?? this.conversationAllowedTools;
+
     // Remove selection listeners during generation
     this.removeSelectionListeners();
 
@@ -550,7 +554,7 @@ export class InlineEditController {
     let result;
     if (this.isConversing) {
       // Continue conversation with any new @-mentioned files
-      result = await this.inlineEditService.continueConversation(userMessage, contextFiles, requestAllowedTools);
+      result = await this.inlineEditService.continueConversation(userMessage, contextFiles, effectiveAllowedTools);
     } else {
       // Initial edit request - build request based on mode
       if (this.mode === 'cursor') {
@@ -560,7 +564,7 @@ export class InlineEditController {
           notePath: this.notePath,
           cursorContext: this.cursorContext as CursorContext,
           contextFiles,
-          allowedTools: requestAllowedTools,
+          allowedTools: effectiveAllowedTools,
         });
       } else {
         const lineCount = this.selectedText.split(/\r?\n/).length;
@@ -572,7 +576,7 @@ export class InlineEditController {
           startLine: this.startLine,
           lineCount,
           contextFiles,
-          allowedTools: requestAllowedTools,
+          allowedTools: effectiveAllowedTools,
         });
       }
     }
