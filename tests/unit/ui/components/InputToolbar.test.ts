@@ -1,4 +1,4 @@
-import { LearningLauncherButton, PermissionToggle } from '../../../../src/ui/components/InputToolbar';
+import { ExternalContextSelector, LearningLauncherButton, PermissionToggle } from '../../../../src/ui/components/InputToolbar';
 
 /** Minimal Obsidian element stand-in — same shape used by ModelSelectorEffort.test.ts. */
 const makeElement = (): any => {
@@ -88,6 +88,17 @@ describe('LearningLauncherButton', () => {
     await button.clickAndSettle();
 
     expect(callbacks.onOpenLearning).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ExternalContextSelector wording', () => {
+  it('labels selected folders as references', () => {
+    const parent = makeElement();
+    new ExternalContextSelector(parent);
+    const wrapper = parent.children[0].children[0];
+    const dropdown = parent.children[0].children[1];
+    expect(wrapper.getAttribute('aria-label')).toContain('참조');
+    expect(dropdown.children[0].elementOptions?.text).toBe('External Reference Folders');
   });
 });
 

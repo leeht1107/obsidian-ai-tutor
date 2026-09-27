@@ -524,6 +524,8 @@ describe('InputController - Message Queue', () => {
         displayContentOverride: displayContent,
       });
 
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+
       expect(deps.state.quizSession).toEqual({
         totalQuestions: 4,
         currentQuestion: 1,
@@ -546,6 +548,8 @@ describe('InputController - Message Queue', () => {
       };
 
       await controller.sendMessage({ content: 'C' });
+
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
 
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).toContain('You are continuing an active quiz');
@@ -638,6 +642,8 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
 
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).toContain('QUIZ HINT REQUEST');
       expect(prompt).toContain('Do NOT reveal the correct answer');
@@ -691,6 +697,8 @@ describe('InputController - Message Queue', () => {
           },
         });
 
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
+
         const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
         expect(prompt).not.toContain('You are continuing an active quiz.');
         expect(deps.state.quizSession).toBeNull();
@@ -720,6 +728,8 @@ describe('InputController - Message Queue', () => {
         };
 
         await controller.sendMessage({ content: '모르겠어요' });
+
+        expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ readOnly: true });
 
         const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
         expect(prompt).toContain('[SOCRATIC SESSION');

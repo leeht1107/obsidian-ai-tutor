@@ -21,7 +21,7 @@ import { type ChildProcess,spawn } from 'child_process';
 
 import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
-import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, getProviderDescriptor, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
 /*
@@ -125,10 +125,12 @@ export interface LoginSession {
 export function startProviderLogin(
   providerId: ProviderId,
   onEvent: (event: LoginEvent) => void,
-  options: { cliPath?: string; timeoutMs?: number; env?: Record<string, string> } = {}
+  options: { cliPath?: string; settings?: ProviderCliPathSettings; timeoutMs?: number; env?: Record<string, string> } = {}
 ): LoginSession {
   const recipe = RECIPES[providerId];
-  const cliPath = findProviderCliPath(providerId, options.cliPath);
+  const cliPath = options.settings
+    ? resolveProviderCliPath(options.settings, providerId)
+    : findProviderCliPath(providerId, options.cliPath);
 
   if (!recipe || !cliPath) {
     const error = !recipe

@@ -2,7 +2,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { SlashCommandManager } from '../../core/commands';
-import { findProviderCliPath, type ProviderId, PROVIDERS } from '../../core/providers/providerRegistry';
+import { type ProviderId, PROVIDERS,resolveProviderCliPath } from '../../core/providers/providerRegistry';
 import { connectionLabel } from '../../core/setup/providerConnection';
 import type { CopilotModel, PermissionMode, ThinkingBudget } from '../../core/types';
 import {
@@ -841,11 +841,9 @@ export function createProviderSelector(
     for (const provider of PROVIDERS) {
       // The legacy copilotCliPath setting still holds the path for upgraded
       // installs; ignoring it showed an installed copilot as 설치 필요.
-      const configuredPath = plugin.settings.providerCliPaths?.[provider.id]
-        || (provider.id === 'copilot' ? plugin.settings.copilotCliPath || '' : '');
       // Installed only decides whether the option can be picked. Whether it will
       // actually work is a separate question, asked of the CLI below.
-      const ready = !!findProviderCliPath(provider.id, configuredPath);
+      const ready = !!resolveProviderCliPath(plugin.settings, provider.id);
       const option = popover.createEl('button', { cls: 'ocop-provider-option', attr: { type: 'button', 'aria-pressed': String(plugin.settings.selectedProvider === provider.id) } });
       const mark = option.createSpan({ cls: `ocop-provider-mark is-${provider.id}` });
       mark.innerHTML = PROVIDER_MARKS[provider.id];

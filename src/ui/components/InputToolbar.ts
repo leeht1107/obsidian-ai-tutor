@@ -758,8 +758,8 @@ export class ExternalContextSelector {
     const iconWrapper = this.container.createDiv({ cls: 'ocop-external-context-icon-wrapper' });
     this.iconEl = iconWrapper.createDiv({ cls: 'ocop-external-context-icon' });
     setIcon(this.iconEl, 'folder');
-    iconWrapper.setAttribute('aria-label', '보관함 밖 폴더를 컨텍스트로 추가');
-    iconWrapper.setAttribute('title', '보관함 밖 폴더를 컨텍스트로 추가');
+    iconWrapper.setAttribute('aria-label', '보관함 밖 참조 폴더 추가');
+    iconWrapper.setAttribute('title', '보관함 밖 참조 폴더 추가');
     iconWrapper.createSpan({ cls: 'ocop-external-context-caption', text: '폴더' });
     this.badgeEl = iconWrapper.createDiv({ cls: 'ocop-external-context-badge' });
     this.updateDisplay();
@@ -783,7 +783,7 @@ export class ExternalContextSelector {
     try {
       const result = await dialog.showOpenDialog({
         properties: ['openDirectory'],
-        title: 'Select External Context',
+        title: 'Select External Reference Folder',
       });
 
       if (!result.canceled && result.filePaths.length > 0) {
@@ -822,7 +822,7 @@ export class ExternalContextSelector {
     if (!this.dropdownEl) return;
     this.dropdownEl.empty();
 
-    this.dropdownEl.createDiv({ cls: 'ocop-external-context-header', text: 'External Contexts' });
+    this.dropdownEl.createDiv({ cls: 'ocop-external-context-header', text: 'External Reference Folders' });
     const listEl = this.dropdownEl.createDiv({ cls: 'ocop-external-context-list' });
 
     if (this.externalContextPaths.length === 0) {
@@ -873,7 +873,7 @@ export class ExternalContextSelector {
     const count = this.externalContextPaths.length;
     if (count > 0) {
       this.iconEl.addClass('active');
-      this.iconEl.setAttribute('title', `${count} external context${count > 1 ? 's' : ''} (click to add more)`);
+      this.iconEl.setAttribute('title', `${count} external reference folder${count > 1 ? 's' : ''} (click to add more)`);
       if (count > 1) {
         this.badgeEl.setText(String(count));
         this.badgeEl.addClass('visible');
@@ -884,7 +884,7 @@ export class ExternalContextSelector {
     }
 
     this.iconEl.removeClass('active');
-    this.iconEl.setAttribute('title', 'Add external contexts (click)');
+    this.iconEl.setAttribute('title', 'Add external reference folders (click)');
     this.badgeEl.removeClass('visible');
   }
 }

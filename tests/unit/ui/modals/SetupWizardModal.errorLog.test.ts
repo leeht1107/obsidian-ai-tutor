@@ -39,6 +39,7 @@ jest.mock('@/core/providers/providerRegistry', () => ({
   ...jest.requireActual('@/core/providers/providerRegistry'),
   // A machine that happens to have the CLI installed would take the other branch.
   findProviderCliPath: jest.fn(() => null),
+  resolveProviderCliPath: jest.fn(() => null),
 }));
 
 import { App } from 'obsidian';
@@ -223,4 +224,3 @@ describe('the setup wizard records the failures it shows', () => {
     expect(logged[0].message).not.toContain('xyzsecret');
   });
 });
-

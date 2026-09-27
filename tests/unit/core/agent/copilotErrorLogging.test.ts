@@ -13,16 +13,15 @@ import * as os from 'os';
 import * as path from 'path';
 
 jest.mock('@/utils/copilotCli', () => ({
-  findCopilotCLIPath: jest.fn(() => null),
   resolveProviderEntry: jest.fn(() => ['/usr/local/bin/copilot', []]),
 }));
 
 import { CopilotBridgeService } from '@/core/agent/CopilotBridgeService';
+import * as providerRegistry from '@/core/providers/providerRegistry';
 import { ERROR_LOG_PATH, type ErrorLogEntry } from '@/core/storage/ErrorLog';
 import type { StreamChunk } from '@/core/types';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import type ObsidianCopilotPlugin from '@/main';
-import { findCopilotCLIPath } from '@/utils/copilotCli';
 
 const TOKEN = 'github_pat_11ABCDEFG_supersecretvalue';
 
@@ -69,7 +68,7 @@ async function entries(files: Map<string, string>): Promise<ErrorLogEntry[]> {
 describe('the copilot path leaves a record of what the student was shown', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (findCopilotCLIPath as jest.Mock).mockReturnValue(null);
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue(null);
     jest.spyOn(fs, 'statSync').mockImplementation((() => ({ isFile: () => true }) as fs.Stats) as unknown as typeof fs.statSync);
   });
   afterEach(() => jest.restoreAllMocks());
@@ -91,6 +90,7 @@ describe('the copilot path leaves a record of what the student was shown', () =>
     // Windows EINVAL on the `.cmd` shim class: child.on('error') never fires, so
     // without this the failure exists only in the chat bubble.
     const { service, files } = makeService({ copilotCliPath: '/usr/local/bin/copilot' });
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/usr/local/bin/copilot');
     jest.spyOn(childProcess, 'spawn').mockImplementation(() => {
       throw new Error(`spawn EINVAL (token ${TOKEN})`);
     });
@@ -131,6 +131,7 @@ describe('the copilot path leaves a record of what the student was shown', () =>
     // account name to whoever reads the log. Masking the two path fields was
     // never enough; the message is a path field too.
     const { service, files } = makeService({ copilotCliPath: '/usr/local/bin/copilot' });
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/usr/local/bin/copilot');
     jest.spyOn(childProcess, 'spawn').mockImplementation(() => { throw new Error('spawn EINVAL'); });
 
     await drain(service.query('안녕'));
@@ -153,4 +154,3 @@ describe('the copilot path leaves a record of what the student was shown', () =>
     expect(chunks.some((c) => c.type === 'error')).toBe(true);
   });
 });
-

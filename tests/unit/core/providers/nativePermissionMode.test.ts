@@ -79,6 +79,18 @@ describe('agent mode', () => {
       .toEqual(['exec', '--skip-git-repo-check',
         '-s', 'workspace-write', '-c', 'approval_policy="never"', '--json', 'hi']);
   });
+
+  it.each(['claude', 'codex', 'agy', 'copilot'] as const)(
+    'forces %s read-only for an individual learning request while global Agent is selected',
+    (provider) => {
+      const { args } = buildNativeProviderCommand(provider, 'learning prompt', '', '', 'agent', true);
+      expect(args).not.toContain('bypassPermissions');
+      expect(args).not.toContain('--dangerously-skip-permissions');
+      expect(args).not.toContain('workspace-write');
+      expect(args).not.toContain('--allow-all-tools');
+      expect(args.includes('approval_policy="never"')).toBe(provider === 'codex');
+    },
+  );
 });
 
 describe('codex outside a Git repository', () => {

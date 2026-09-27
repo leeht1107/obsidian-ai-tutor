@@ -25,7 +25,7 @@ describe('provider popover click on an unusable provider', () => {
   it('opens the setup wizard instead of only printing a hint', async () => {
     openSetupWizard.mockClear();
     wizardTarget.mockClear();
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue(null);
     const toolbar = makeToolbarElement();
     const plugin = { app: {}, settings: { selectedProvider: 'copilot' }, saveSettings: jest.fn() };
     createProviderSelector(toolbar, plugin as never);
@@ -51,7 +51,7 @@ describe('provider popover click on an unusable provider', () => {
  */
 describe('provider selector — locked while a write-capable region is in flight', () => {
   it('refuses a switch to a ready, different provider while busy; selectedProvider is unchanged', async () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/bin/cli');
     const toolbar = makeToolbarElement();
     const plugin = {
       app: {},
@@ -70,7 +70,7 @@ describe('provider selector — locked while a write-capable region is in flight
   });
 
   it('switches normally once nothing is in flight', async () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/bin/cli');
     const toolbar = makeToolbarElement();
     const plugin = {
       app: {},
@@ -89,7 +89,7 @@ describe('provider selector — locked while a write-capable region is in flight
   });
 
   it("reproduces the reviewer's mixed-authority sequence: a captured Ask cannot be undercut by switching to a provider that would resolve to Agent", async () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/bin/cli');
 
     // Shared state: one counter, one settings object, read by both controls exactly as
     // main.ts and the toolbar wire them in the real view.
@@ -164,8 +164,8 @@ function makeToolbarElement(): any {
  */
 describe('provider badge', () => {
   it('names only the providers that need the student to do something', () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
-      .mockImplementation((id) => (id === 'agy' ? null : '/bin/cli'));
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath')
+      .mockImplementation((_settings, id) => (id === 'agy' ? null : '/bin/cli'));
     const probe = jest.spyOn(readiness, 'checkProviderReadiness');
     const toolbar = makeToolbarElement();
     const plugin = {
@@ -202,7 +202,7 @@ describe('provider badge', () => {
   });
 
   it('marks each provider with its own colour class', () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue('/bin/cli');
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('/bin/cli');
     const toolbar = makeToolbarElement();
     createProviderSelector(toolbar, {
       app: {}, settings: { selectedProvider: 'claude' }, saveSettings: jest.fn(),

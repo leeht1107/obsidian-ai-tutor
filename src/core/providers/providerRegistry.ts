@@ -298,7 +298,8 @@ export function buildNativeProviderCommand(
   prompt: string,
   model = '',
   effort = '',
-  permissionMode: NativePermissionMode = 'ask'
+  permissionMode: NativePermissionMode = 'ask',
+  forcedReadOnly = false,
 ): { command: string; args: string[] } {
   const selectedModel = model.trim();
   // A level this CLI never validated is dropped rather than passed through: agy aborts the
@@ -308,7 +309,7 @@ export function buildNativeProviderCommand(
   // for agy it already encodes the level. Sending both aborts the run.
   if (selectedModel && selectedEffort && !allowsEffortWithModel(id)) selectedEffort = '';
   const modelArgs = selectedModel ? ['--model', selectedModel] : [];
-  const readOnly = permissionMode === 'ask';
+  const readOnly = permissionMode === 'ask' || forcedReadOnly;
   switch (id) {
     // Two families, not one: claude and codex are permissive headless and need a LOCK for
     // ask; agy and copilot are fail-closed and need a KEY for agent. Only codex and copilot
@@ -384,6 +385,24 @@ export function findProviderCliPath(id: ProviderId, customPath = ''): string | n
     }
   }
   return null;
+}
+
+export interface ProviderCliPathSettings {
+  providerCliPaths?: Partial<Record<ProviderId, string>>;
+  /** Kept for settings created before providerCliPaths was introduced. */
+  copilotCliPath?: string;
+}
+
+/** The configured path for a provider, including the legacy Copilot setting. */
+export function getConfiguredProviderCliPath(settings: ProviderCliPathSettings, id: ProviderId): string {
+  return settings.providerCliPaths?.[id]?.trim()
+    || (id === 'copilot' ? settings.copilotCliPath?.trim() : '')
+    || '';
+}
+
+/** Resolve configured or discovered paths through the same expansion and file checks. */
+export function resolveProviderCliPath(settings: ProviderCliPathSettings, id: ProviderId): string | null {
+  return findProviderCliPath(id, getConfiguredProviderCliPath(settings, id));
 }
 
 function isFile(candidate: string): boolean {

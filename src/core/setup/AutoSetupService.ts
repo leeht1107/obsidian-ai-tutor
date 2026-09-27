@@ -11,7 +11,7 @@ import * as path from 'path';
 
 import { findCopilotCLIPath } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
-import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, getProviderDescriptor, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { killTree } from './processTree';
 
 const isWindows = process.platform === 'win32';
@@ -64,9 +64,13 @@ export function checkSetupStatus(): SetupStatus {
   };
 }
 
-export function checkProviderSetupStatus(providerId: ProviderId): SetupStatus & { status: string } {
+export function checkProviderSetupStatus(providerId: ProviderId, settings?: ProviderCliPathSettings): SetupStatus & { status: string } {
   const descriptor = getProviderDescriptor(providerId);
-  return { cliFound: findProviderCliPath(providerId) !== null, npmFound: findNpmPath() !== null, status: descriptor.status };
+  return {
+    cliFound: settings ? resolveProviderCliPath(settings, providerId) !== null : findProviderCliPath(providerId) !== null,
+    npmFound: findNpmPath() !== null,
+    status: descriptor.status,
+  };
 }
 
 export type InstallResult =

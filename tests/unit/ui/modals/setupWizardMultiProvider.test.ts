@@ -38,11 +38,12 @@ jest.mock('@/core/setup/providerConnection', () => ({
 jest.mock('@/core/providers/providerRegistry', () => ({
   ...jest.requireActual('@/core/providers/providerRegistry'),
   findProviderCliPath: jest.fn(() => '/usr/local/bin/cli'),
+  resolveProviderCliPath: jest.fn(() => '/usr/local/bin/cli'),
 }));
 
 import { App } from 'obsidian';
 
-import { findProviderCliPath } from '@/core/providers/providerRegistry';
+import { resolveProviderCliPath } from '@/core/providers/providerRegistry';
 import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager, startNodeInstall } from '@/core/setup/nodeInstall';
 import { checkProviderConnection } from '@/core/setup/providerConnection';
@@ -59,7 +60,7 @@ const canDrive = canDriveLogin as jest.MockedFunction<typeof canDriveLogin>;
 const startLogin = startProviderLogin as jest.MockedFunction<typeof startProviderLogin>;
 const recipe = getLoginRecipe as jest.MockedFunction<typeof getLoginRecipe>;
 const connection = checkProviderConnection as jest.MockedFunction<typeof checkProviderConnection>;
-const findCliPath = findProviderCliPath as jest.MockedFunction<typeof findProviderCliPath>;
+const findCliPath = resolveProviderCliPath as jest.MockedFunction<typeof resolveProviderCliPath>;
 
 /**
  * The shared obsidian mock hands back one element for every createEl call, so a
@@ -196,7 +197,7 @@ describe('the chooser only starts work when the student confirms', () => {
       npmFound: true,
       status: 'ready',
     }));
-    findCliPath.mockImplementation((provider) => provider === 'claude' ? '/usr/local/bin/claude' : null);
+    findCliPath.mockImplementation((_settings, provider) => provider === 'claude' ? '/usr/local/bin/claude' : null);
     const { wizard, root } = makeWizard();
 
     wizard.render();
@@ -792,7 +793,9 @@ describe('each queue entry uses its own CLI path', () => {
     expect(wizard.current).toBe('claude');
     click(findByText(root, '로그인 시작'));
     await flush();
-    expect(startLogin).toHaveBeenLastCalledWith('claude', expect.any(Function), { cliPath: '/opt/claude' });
+    expect(startLogin).toHaveBeenLastCalledWith('claude', expect.any(Function), {
+      settings: expect.objectContaining({ providerCliPaths: { claude: '/opt/claude', codex: '/opt/codex' } }),
+    });
 
     // The login could not be confirmed, so the student moves on by hand.
     click(findByText(root, '이건 건너뛰고 다음으로'));
@@ -801,6 +804,8 @@ describe('each queue entry uses its own CLI path', () => {
     expect(wizard.current).toBe('codex');
     click(findByText(root, '로그인 시작'));
     await flush();
-    expect(startLogin).toHaveBeenLastCalledWith('codex', expect.any(Function), { cliPath: '/opt/codex' });
+    expect(startLogin).toHaveBeenLastCalledWith('codex', expect.any(Function), {
+      settings: expect.objectContaining({ providerCliPaths: { claude: '/opt/claude', codex: '/opt/codex' } }),
+    });
   });
 });

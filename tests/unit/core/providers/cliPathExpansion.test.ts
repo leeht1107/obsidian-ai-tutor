@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { findProviderCliPath } from '@/core/providers/providerRegistry';
+import { findProviderCliPath, getConfiguredProviderCliPath, resolveProviderCliPath } from '@/core/providers/providerRegistry';
 
 describe('findProviderCliPath with a configured path', () => {
   let dir: string;
@@ -35,5 +35,12 @@ describe('findProviderCliPath with a configured path', () => {
 
   it('leaves an absolute path alone', () => {
     expect(findProviderCliPath('copilot', cli)).toBe(cli);
+  });
+
+  it('resolves configured provider paths consistently, including the legacy Copilot field', () => {
+    const legacy = { copilotCliPath: cli };
+    expect(getConfiguredProviderCliPath(legacy, 'copilot')).toBe(cli);
+    expect(resolveProviderCliPath(legacy, 'copilot')).toBe(cli);
+    expect(resolveProviderCliPath({ providerCliPaths: { copilot: cli } }, 'copilot')).toBe(cli);
   });
 });

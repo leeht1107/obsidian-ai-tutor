@@ -129,10 +129,12 @@ export interface QueryOptions {
   model?: string;
   /** Enable plan mode (read-only exploration). */
   planMode?: boolean;
-  /** Session-specific external context paths (directories with full access). */
+  /** Session-specific external paths provided as reference/read context. */
   externalContextPaths?: string[];
   /** Override global web search setting for this query. */
   enableWebSearch?: boolean;
+  /** Force read-only provider permissions for this request regardless of the toolbar mode. */
+  readOnly?: boolean;
 }
 
 // Re-export types that are used across the chat feature

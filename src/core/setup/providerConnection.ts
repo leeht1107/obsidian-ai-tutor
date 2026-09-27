@@ -11,7 +11,7 @@
  * real request corrects it. Nothing here costs credits.
  */
 
-import { findProviderCliPath, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { isWindows } from './processTree';
 import { checkProviderReadiness, runProbeProcess } from './providerReadiness';
 
@@ -122,15 +122,18 @@ export async function checkCopilotCredential(signal?: AbortSignal): Promise<Conn
  */
 export async function checkProviderConnection(
   providerId: ProviderId,
-  options: { cliPath?: string; signal?: AbortSignal } = {}
+  options: { cliPath?: string; settings?: ProviderCliPathSettings; signal?: AbortSignal } = {}
 ): Promise<ConnectionState> {
+  const cliPath = options.settings
+    ? resolveProviderCliPath(options.settings, providerId)
+    : findProviderCliPath(providerId, options.cliPath ?? '');
   if (providerId === 'copilot') {
     // A leftover keychain entry means nothing without the CLI to use it.
-    return findProviderCliPath('copilot', options.cliPath ?? '')
+    return cliPath
       ? checkCopilotCredential(options.signal)
       : 'not-connected';
   }
-  const { state } = await checkProviderReadiness(providerId, options);
+  const { state } = await checkProviderReadiness(providerId, { ...options, cliPath: cliPath ?? undefined });
   switch (state) {
     case 'logged-in': return 'connected';
     // A missing binary is not connected either; the button behind this label

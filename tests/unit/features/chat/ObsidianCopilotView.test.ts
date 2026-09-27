@@ -104,7 +104,7 @@ describe('chat provider selector', () => {
   });
 
   it('reuses one setup hint when an unavailable provider is clicked repeatedly', () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockReturnValue(null);
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue(null);
     const toolbar = makeElement();
     createProviderSelector(toolbar, { settings: { selectedProvider: 'copilot' }, saveSettings: jest.fn() } as any);
     const container = toolbar.children[0];
@@ -119,8 +119,8 @@ describe('chat provider selector', () => {
   });
 
   it('selects agy when PATH or the configured provider CLI path resolves it', async () => {
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath').mockImplementation((id, customPath = '') => {
-      if (id === 'agy' && (customPath === '/configured/agy' || customPath === '')) return customPath || '/path/agy';
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockImplementation((_settings, id) => {
+      if (id === 'agy') return '/configured/agy';
       return null;
     });
     const plugin = { settings: { selectedProvider: 'copilot' as const, providerCliPaths: { agy: '/configured/agy' } }, saveSettings: jest.fn().mockResolvedValue(undefined) };
@@ -128,7 +128,7 @@ describe('chat provider selector', () => {
     createProviderSelector(toolbar, plugin as any);
     const popover = toolbar.children[0].children[1];
     const agyOption = popover.children.filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option')[3];
-    expect(findPath).toHaveBeenCalledWith('agy', '/configured/agy');
+    expect(findPath).toHaveBeenCalledWith(plugin.settings, 'agy');
     await agyOption.listeners.click({ stopPropagation: jest.fn() });
     expect(plugin.settings.selectedProvider).toBe('agy');
     expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
@@ -138,7 +138,7 @@ describe('chat provider selector', () => {
     createProviderSelector(pathToolbar, pathPlugin as any);
     const pathPopover = pathToolbar.children[0].children[1];
     const pathAgyOption = pathPopover.children.filter((child: any) => child.elementOptions?.cls === 'ocop-provider-option')[3];
-    expect(findPath).toHaveBeenCalledWith('agy', '');
+    expect(findPath).toHaveBeenCalledWith(pathPlugin.settings, 'agy');
     await pathAgyOption.listeners.click({ stopPropagation: jest.fn() });
     expect(pathPlugin.settings.selectedProvider).toBe('agy');
     findPath.mockRestore();
@@ -222,7 +222,7 @@ describe('chat provider selector', () => {
     // student who just wanted to switch model waited on three child processes
     // — and copilot, which has no status command, never resolved to anything
     // but 확인 불가. The check moved to the settings tab.
-    const findPath = jest.spyOn(providerRegistry, 'findProviderCliPath')
+    const findPath = jest.spyOn(providerRegistry, 'resolveProviderCliPath')
       .mockReturnValue('/usr/local/bin/anything');
     const probe = jest.spyOn(readiness, 'checkProviderReadiness')
       .mockResolvedValue({ state: 'logged-in' });

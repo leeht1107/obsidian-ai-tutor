@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import type { App } from 'obsidian';
 import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
-import { defaultModelSource, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption,PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
+import { defaultModelSource, getConfiguredProviderCliPath, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption, PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
 import { ERROR_LOG_PATH } from '../../core/storage/ErrorLog';
 import { reportBlockingFailure } from '../../core/storage/FailureReport';
@@ -106,8 +106,6 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     // Optional chaining to match the chat popover: a settings file written
     // before providerCliPaths existed would otherwise throw here and take the
     // whole settings tab down with it.
-    const configuredPath = this.plugin.settings.providerCliPaths?.[providerId]
-      || (providerId === 'copilot' ? this.plugin.settings.copilotCliPath || '' : '');
     const stored = this.plugin.providerConnections?.[providerId]?.state;
 
     const row = new Setting(containerEl)
@@ -141,7 +139,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       });
 
       const { signal } = this.probes;
-      void checkProviderConnection(providerId, { cliPath: configuredPath || undefined, signal })
+      void checkProviderConnection(providerId, { settings: this.plugin.settings, signal })
         .then((checked) => {
           // A later render owns the rows now; this answer is about dead ones.
           if (signal.aborted) return;
@@ -505,8 +503,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
     // three with no way to point at a binary outside PATH.
     const pathProvider = this.plugin.settings.selectedProvider;
     const pathDescriptor = getProviderDescriptor(pathProvider);
-    const storedCliPath = this.plugin.settings.providerCliPaths?.[pathProvider]
-      || (pathProvider === 'copilot' ? this.plugin.settings.copilotCliPath || '' : '');
+    const storedCliPath = getConfiguredProviderCliPath(this.plugin.settings, pathProvider);
     const cliPathSetting = new Setting(containerEl)
       .setName(`${pathDescriptor.label} 실행 경로`)
       .setDesc(`자동으로 찾으면 비워 두세요. 못 찾을 때만 "which ${pathDescriptor.command}" 결과를 붙여 넣습니다.`);

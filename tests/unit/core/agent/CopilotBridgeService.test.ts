@@ -115,6 +115,11 @@ describe('CopilotBridgeService helpers', () => {
       expect(shouldUseCopilotAllowAllTools('agent', true, { planMode: true })).toBe(false);
     });
 
+    it('does not use allow-all-tools for a read-only request under global Agent mode', () => {
+      expect(shouldUseCopilotAllowAllTools('agent', true, { readOnly: true })).toBe(false);
+      expect(resolveCopilotAllowedTools('ask', undefined, false, true)).toContain('web_search');
+    });
+
     it('lets explicit tool requests use available-tools instead of allow-all-tools', () => {
       expect(
         shouldUseCopilotAllowAllTools('agent', true, { allowedTools: ['view'] })

@@ -105,7 +105,7 @@ export interface Conversation {
   sessionId: string | null;
   messages: ChatMessage[];
   currentNote?: string;
-  /** Session-specific external context paths (directories with full access). Resets on new session. */
+  /** Session-specific external paths provided as reference/read context. Resets on new session. */
   externalContextPaths?: string[];
   /** Context window usage information. */
   usage?: UsageInfo;

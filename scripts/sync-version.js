@@ -3,14 +3,23 @@
 const fs = require('fs');
 const path = require('path');
 
-const packagePath = path.join(__dirname, '..', 'package.json');
-const manifestPath = path.join(__dirname, '..', 'manifest.json');
+function syncVersion(root = path.join(__dirname, '..')) {
+  const packagePath = path.join(root, 'package.json');
+  const manifestPath = path.join(root, 'manifest.json');
+  const versionsPath = path.join(root, 'versions.json');
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  const manifestJson = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const versions = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
 
-const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-const manifestJson = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifestJson.version = packageJson.version;
+  versions[packageJson.version] = manifestJson.minAppVersion;
+  fs.writeFileSync(manifestPath, JSON.stringify(manifestJson, null, 2) + '\n');
+  fs.writeFileSync(versionsPath, JSON.stringify(versions, null, 2) + '\n');
+}
 
-manifestJson.version = packageJson.version;
+if (require.main === module) {
+  syncVersion();
+  console.log(`Synced manifest and versions.json to ${JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version}`);
+}
 
-fs.writeFileSync(manifestPath, JSON.stringify(manifestJson, null, 2) + '\n');
-
-console.log(`Synced version to ${packageJson.version}`);
+module.exports = { syncVersion };

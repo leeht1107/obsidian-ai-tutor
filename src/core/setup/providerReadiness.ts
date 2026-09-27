@@ -15,7 +15,7 @@ import { spawn } from 'child_process';
 
 import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
-import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../providers/providerRegistry';
+import { findProviderCliPath, getProviderDescriptor, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
 export type LoginState =
@@ -224,10 +224,12 @@ export async function runProbeProcess(
  */
 export async function checkProviderReadiness(
   providerId: ProviderId,
-  options: { cliPath?: string; timeoutMs?: number; signal?: AbortSignal } = {}
+  options: { cliPath?: string; settings?: ProviderCliPathSettings; timeoutMs?: number; signal?: AbortSignal } = {}
 ): Promise<ReadinessResult> {
   const probe = PROBES[providerId];
-  const cliPath = findProviderCliPath(providerId, options.cliPath);
+  const cliPath = options.settings
+    ? resolveProviderCliPath(options.settings, providerId)
+    : findProviderCliPath(providerId, options.cliPath);
   if (!cliPath) return { state: 'cli-missing' };
   if (!probe) return { state: 'unknown' };
 
@@ -242,4 +244,3 @@ export async function checkProviderReadiness(
     output: `${run.stdout}${run.stderr}`.trim(),
   };
 }
-

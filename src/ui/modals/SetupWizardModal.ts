@@ -15,7 +15,7 @@
 import { type App, Modal, Notice } from 'obsidian';
 import * as os from 'os';
 
-import { findProviderCliPath, getProviderDescriptor, type ProviderId } from '../../core/providers/providerRegistry';
+import { getConfiguredProviderCliPath, getProviderDescriptor, type ProviderId,resolveProviderCliPath } from '../../core/providers/providerRegistry';
 import {
   checkProviderSetupStatus,
   type InstallSession,
@@ -185,7 +185,7 @@ export class SetupWizardModal extends Modal {
       box.type = 'checkbox';
       box.checked = this.selected.has(provider);
       row.createEl('span', { text: getProviderDescriptor(provider).label, cls: 'ocop-setup-choice-label' });
-      if (findProviderCliPath(provider)) {
+      if (resolveProviderCliPath(this.plugin.settings, provider)) {
         row.createEl('span', { text: '이미 설치됨 · 연결 확인만 진행', cls: 'ocop-setup-choice-status' });
       }
       box.addEventListener('change', () => {
@@ -338,7 +338,7 @@ export class SetupWizardModal extends Modal {
     const provider = this.provider;
     this.installLog = [];
     this.nodeLog = [];
-    const { cliFound, npmFound } = checkProviderSetupStatus(provider);
+    const { cliFound, npmFound } = checkProviderSetupStatus(provider, this.plugin.settings);
     const descriptor = getProviderDescriptor(provider);
 
     if (cliFound) {
@@ -543,7 +543,7 @@ export class SetupWizardModal extends Modal {
     this.plugin.settings.selectedProvider = provider;
     await this.plugin.saveSettings();
 
-    const { cliFound, npmFound } = checkProviderSetupStatus(provider);
+    const { cliFound, npmFound } = checkProviderSetupStatus(provider, this.plugin.settings);
     const descriptor = getProviderDescriptor(provider);
 
     if (cliFound) {
@@ -654,7 +654,7 @@ export class SetupWizardModal extends Modal {
     }
 
     // npm only appears on PATH after the install, so re-check rather than assume.
-    const { npmFound } = checkProviderSetupStatus(this.provider);
+    const { npmFound } = checkProviderSetupStatus(this.provider, this.plugin.settings);
     if (npmFound && getProviderDescriptor(this.provider).installCommand) {
       this.phase = 'installing';
       this.render();
@@ -865,7 +865,7 @@ export class SetupWizardModal extends Modal {
         this.loginLog.push(event.text.trim());
       }
       if (this.phase === 'login') this.render();
-    }, { cliPath: this.configuredCliPath() });
+    }, { settings: this.plugin.settings });
 
     this.loginSession = session;
     const outcome = await session.done;
@@ -914,7 +914,7 @@ export class SetupWizardModal extends Modal {
    */
   private async readConnectionState(): Promise<ConnectionState> {
     return checkProviderConnection(this.provider, {
-      cliPath: this.configuredCliPath(),
+      settings: this.plugin.settings,
       signal: this.probes.signal,
     });
   }
@@ -956,7 +956,7 @@ export class SetupWizardModal extends Modal {
   private renderManual() {
     const descriptor = getProviderDescriptor(this.provider);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
-    const needsNode = !checkProviderSetupStatus(this.provider).npmFound;
+    const needsNode = !checkProviderSetupStatus(this.provider, this.plugin.settings).npmFound;
 
     if (needsNode && this.nodeInstallRan) {
       // Windows: the install worked, but a running Obsidian keeps the PATH it
@@ -1128,13 +1128,11 @@ export class SetupWizardModal extends Modal {
     // this.provider, not the default: inside a queue those differ, and reading
     // the default here would log in and probe with another CLI's path.
     const provider = this.provider;
-    return this.plugin.settings.providerCliPaths?.[provider]
-      || (provider === 'copilot' ? this.plugin.settings.copilotCliPath : '')
-      || undefined;
+    return getConfiguredProviderCliPath(this.plugin.settings, provider) || undefined;
   }
 
   private hasSelectedProviderCli(): boolean {
-    return findProviderCliPath(this.provider, this.configuredCliPath()) !== null;
+    return resolveProviderCliPath(this.plugin.settings, this.provider) !== null;
   }
 
   private renderLog(parent: HTMLElement, lines: readonly string[]) {

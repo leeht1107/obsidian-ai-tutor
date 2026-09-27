@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type ObsidianCopilotPlugin from '../../main';
-import { findCopilotCLIPath, resolveProviderEntry } from '../../utils/copilotCli';
+import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath, parseEnvironmentVariables } from '../../utils/env';
 import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory } from '../../utils/session';
@@ -13,6 +13,7 @@ import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
   findProviderCliPath,
+  getConfiguredProviderCliPath,
   getProviderDescriptor,
   getStaticProviderModels,
   type NativePermissionMode,
@@ -23,6 +24,7 @@ import {
   type ProviderModelOption,
   resolveEffectivePermissionMode,
   resolveNativeSelection,
+  resolveProviderCliPath,
   supportsReadOnlyMode,
 } from '../providers/providerRegistry';
 import { isWindows, killTree } from '../setup/processTree';
@@ -47,6 +49,8 @@ export interface QueryOptions {
   planMode?: boolean;
   externalContextPaths?: string[];
   enableWebSearch?: boolean;
+  /** Force this request to use read-only provider permissions regardless of the toolbar mode. */
+  readOnly?: boolean;
 }
 
 export type ApprovalCallback = (
@@ -126,9 +130,9 @@ function hasExplicitCopilotAllowedTools(requestedTools?: string[]): boolean {
 export function shouldUseCopilotAllowAllTools(
   permissionMode: string,
   allowAllToolsSupported: boolean,
-  queryOptions: Pick<QueryOptions, 'allowedTools' | 'planMode'> | undefined,
+  queryOptions: Pick<QueryOptions, 'allowedTools' | 'planMode' | 'readOnly'> | undefined,
 ): boolean {
-  if (!allowAllToolsSupported || queryOptions?.planMode) {
+  if (!allowAllToolsSupported || queryOptions?.planMode || queryOptions?.readOnly) {
     return false;
   }
   if (hasExplicitCopilotAllowedTools(queryOptions?.allowedTools)) {
@@ -446,15 +450,18 @@ export class CopilotBridgeService {
   }
 
   private getCopilotPath(): string | null {
-    const settingsPath = this.plugin.settings.copilotCliPath?.trim();
-    if (settingsPath) {
-      return normalizePathForFilesystem(stripWrappingQuotes(settingsPath)) || settingsPath;
+    // Settings can change during a session, including after switching providers.
+    // Resolve an explicit override each request; cache only PATH discovery.
+    if (getConfiguredProviderCliPath(this.plugin.settings, 'copilot')) {
+      const configuredPath = resolveProviderCliPath(this.plugin.settings, 'copilot');
+      return configuredPath
+        ? normalizePathForFilesystem(stripWrappingQuotes(configuredPath)) || configuredPath
+        : null;
     }
-
     if (this.cachedCopilotPath === undefined) {
-      const detectedPath = findCopilotCLIPath();
-      this.cachedCopilotPath = detectedPath
-        ? normalizePathForFilesystem(stripWrappingQuotes(detectedPath)) || detectedPath
+      const resolvedPath = resolveProviderCliPath(this.plugin.settings, 'copilot');
+      this.cachedCopilotPath = resolvedPath
+        ? normalizePathForFilesystem(stripWrappingQuotes(resolvedPath)) || resolvedPath
         : null;
     }
     return this.cachedCopilotPath;
@@ -722,7 +729,7 @@ export class CopilotBridgeService {
     };
     const args = discovery[provider];
     if (!args) return [];
-    const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
+    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) throw new Error(`${provider} CLI not found`);
     // Discovery has to resolve the CLI exactly as dispatch does. Windows cannot
@@ -807,7 +814,7 @@ export class CopilotBridgeService {
     const cwd = this.getWorkingDirectory();
     const capabilities = await this.getCliCapabilities(copilotPath);
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
-    const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode));
+    const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode || queryOptions?.readOnly));
     const fullPrompt = this.buildPromptWithHistory(prompt, conversationHistory, cwd, queryOptions, permissionMode);
     const sessionId = this.ensureSessionId();
     const args = ['--no-color'];
@@ -996,7 +1003,7 @@ export class CopilotBridgeService {
     queryOptions?: QueryOptions
   ): AsyncGenerator<StreamChunk> {
     const provider = this.plugin.settings.selectedProvider as ProviderId;
-    const configuredPath = this.plugin.settings.providerCliPaths[provider] || '';
+    const configuredPath = getConfiguredProviderCliPath(this.plugin.settings, provider);
     const cliPath = findProviderCliPath(provider, configuredPath);
     if (!cliPath) {
       this.logError({ provider, stage: 'resolve', message: 'CLI not found on PATH or at the configured path' });
@@ -1018,7 +1025,7 @@ export class CopilotBridgeService {
     // The shared predicate so the toolbar, this dispatch, and both inline-bash gates
     // agree on what "Agent" means for this provider right now — see its doc comment
     // in providerRegistry.ts for why `settings.permissionMode` alone is not enough.
-    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions?.planMode));
+    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions?.planMode || queryOptions?.readOnly));
     const fullPrompt = this.buildPromptWithHistory(
       prompt,
       conversationHistory,
@@ -1041,7 +1048,7 @@ export class CopilotBridgeService {
       this.shownPermissionNotices.set(provider, notice);
       this.onPermissionNotice?.(notice);
     }
-    const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode);
+    const native = buildNativeProviderCommand(provider, fullPrompt, selection.model, selection.effort, permissionMode, Boolean(queryOptions?.readOnly));
     // The prompt carries note content, so it must stay one argv element. A shell
     // would flatten it into a command string where `&` and `|` are operators.
     const entry = resolveProviderEntry(cliPath, getProviderDescriptor(provider).npmPackage);

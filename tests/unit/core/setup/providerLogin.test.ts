@@ -89,6 +89,18 @@ describe('provider login driver', () => {
     expect(outcome.error).toContain('\ub85c\uadf8\uc778 \uba85\ub839\uc774 \uc5c6\uc2b5\ub2c8\ub2e4');
   });
 
+  it('starts login through a configured-only path selected from settings', async () => {
+    if (isWindows) return;
+    const marker = path.join(dir, 'configured-login.txt');
+    const cli = writeCli(dir, 'configured-claude', `#!/bin/sh\nprintf '%s' "$*" > '${marker}'\nexit 0\n`);
+    const session = startProviderLogin('claude', () => { /* ignore */ }, {
+      settings: { providerCliPaths: { claude: cli } },
+    });
+    const outcome = await session.done;
+    expect(outcome.success).toBe(true);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('auth login');
+  });
+
   it('announces the device code while the CLI is still running, then succeeds', async () => {
     if (isWindows) return;
     // Prints the real banner, waits, then exits 0 — like the CLI waiting on the

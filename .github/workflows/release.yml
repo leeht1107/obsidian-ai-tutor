@@ -9,10 +9,37 @@ on:
       tag:
         description: 'Version tag (e.g. 0.2.93)'
         required: true
-        default: '0.2.93'
 
 jobs:
+  macos-check:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand
+
+      - name: Build
+        run: npm run build
+
   release:
+    needs: macos-check
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,6 +82,9 @@ jobs:
           else
             echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Validate release identity
+        run: node scripts/validate-release.js "${{ steps.tag.outputs.name }}"
 
       - name: Get previous tag
         id: prev_tag

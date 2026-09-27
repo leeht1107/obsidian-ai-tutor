@@ -11,11 +11,11 @@ import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
 import {
-  findProviderCliPath,
   migrateProviderModels,
   type NativePermissionMode,
   type ProviderId,
   resolveEffectivePermissionMode,
+  resolveProviderCliPath,
 } from './core/providers/providerRegistry';
 import { applyRequestOutcome, type ConnectionState, type ProviderConnections } from './core/setup/providerConnection';
 import { StorageService } from './core/storage';
@@ -228,10 +228,8 @@ export default class ObsidianCopilotPlugin extends Plugin {
     try {
       const { hasShownThisSession } = await import('./core/setup/AutoSetupService');
       if (hasShownThisSession()) return;
-      if (this.settings.providerCliPaths[this.settings.selectedProvider]) return; // Manual path configured
-
       const { checkProviderSetupStatus } = await import('./core/setup/AutoSetupService');
-      const { cliFound } = checkProviderSetupStatus(this.settings.selectedProvider);
+      const { cliFound } = checkProviderSetupStatus(this.settings.selectedProvider, this.settings);
       if (cliFound) return; // Already found via auto-detect
 
       const { SetupWizardModal } = await import('./ui/modals/SetupWizardModal');
@@ -448,7 +446,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
   }
 
   getResolvedCopilotCliPath(): string | null {
-    return this.settings.copilotCliPath || findProviderCliPath(this.settings.selectedProvider, this.settings.providerCliPaths[this.settings.selectedProvider] || '') || 'copilot';
+    return resolveProviderCliPath(this.settings, this.settings.selectedProvider) || 'copilot';
   }
 
   get cliResolver(): { resolve: () => string | null; reset: () => void } {

@@ -644,7 +644,14 @@ ${promptToSend}`;
 
     // Add web search toggle state
     const webSearchEnabled = this.deps.getWebSearchToggle()?.isEnabled() ?? false;
-    queryOptions = { ...queryOptions, enableWebSearch: webSearchEnabled };
+    const learningRequest = Boolean(
+      quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
+    );
+    queryOptions = {
+      ...queryOptions,
+      enableWebSearch: webSearchEnabled,
+      readOnly: Boolean(queryOptions?.readOnly || learningRequest),
+    };
 
     let wasInterrupted = false;
     try {
