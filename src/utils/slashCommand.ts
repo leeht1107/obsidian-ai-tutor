@@ -4,6 +4,42 @@
  * Core parsing logic for slash command YAML frontmatter and warning formatting.
  */
 
+/** Shared slash-tool policy used by chat and inline edit. */
+export function resolveSlashAllowedTools(command: { allowedTools?: string[]; content: string }): string[] | undefined {
+  if (command.allowedTools !== undefined) return command.allowedTools;
+  return parseSlashCommandContent(command.content).allowedTools;
+}
+
+export function slashAllowsInlineBash(allowedTools?: string[]): boolean {
+  if (allowedTools === undefined) return true;
+  return allowedTools.some((tool) => tool.trim().toLowerCase() === 'bash');
+}
+
+function sharedSlashToolKey(tool: string): string {
+  const trimmed = tool.trim().toLowerCase();
+  const knownAlias = trimmed.replace(/[-_]/g, '');
+  if (knownAlias === 'read' || knownAlias === 'view') return 'view';
+  if (knownAlias === 'websearch') return 'websearch';
+  if (knownAlias === 'webfetch') return 'webfetch';
+  // Unknown/MCP tool names are identities, not spelling variants. Removing '-'/'_'
+  // here can collapse distinct provider permissions into the same key.
+  return trimmed;
+}
+
+/**
+ * Monotonic slash-tool policy: once a conversation is restricted, a later command
+ * may keep or narrow that policy but never widen it.
+ */
+export function intersectSlashAllowedTools(
+  existing: string[] | undefined,
+  next: string[] | undefined
+): string[] | undefined {
+  if (existing === undefined) return next;
+  if (next === undefined) return existing;
+  const nextSet = new Set(next.map(sharedSlashToolKey));
+  return existing.filter((tool) => nextSet.has(sharedSlashToolKey(tool)));
+}
+
 /** Formats expansion errors for display. */
 export function formatSlashCommandWarnings(errors: string[]): string {
   const maxItems = 3;

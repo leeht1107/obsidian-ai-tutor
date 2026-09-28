@@ -147,10 +147,22 @@ export class SlashCommandManager {
 
     return {
       expandedPrompt: result.trim(),
-      allowedTools: command.allowedTools || parsed.allowedTools,
+      allowedTools: command.allowedTools ?? parsed.allowedTools,
       model: command.model || parsed.model,
       errors,
     };
+  }
+
+  /**
+   * Builds the semantic prompt used for scope detection: arguments are substituted,
+   * but inline bash and @file references are removed before either can execute/read.
+   */
+  expandSemanticPrompt(command: SlashCommand, args: string): string {
+    const parsed = parseSlashCommandContent(command.content);
+    return this.replaceArgumentPlaceholders(parsed.promptContent, args)
+      .replace(/!`[^`]+`/g, ' ')
+      .replace(/(^|[^\w])@(?:"[^"]+"|'[^']+'|[^\s]+\.\w+)/g, '$1 ')
+      .trim();
   }
 
   /**

@@ -531,6 +531,7 @@ export class ConversationController {
   async regenerateTitle(conversationId: string): Promise<void> {
     const { plugin } = this.deps;
     if (!plugin.settings.enableAutoTitleGeneration) return;
+    if (plugin.settings.selectedProvider === 'agy') return;
     const titleService = this.deps.getTitleGenerationService();
     if (!titleService) return;
 

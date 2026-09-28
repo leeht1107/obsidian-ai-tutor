@@ -6,8 +6,14 @@
  * It must survive two of those overlapping: whichever finishes first must not unlock
  * the Ask/Agent toggle while the other is still running.
  */
+jest.mock('@/ui/modals/InlineEditModal', () => ({
+  InlineEditModal: jest.fn(),
+  cancelActiveInlineEdit: jest.fn(),
+}));
+
 import { DEFAULT_SETTINGS, type ObsidianCopilotSettings } from '@/core/types/settings';
 import ObsidianCopilotPlugin from '@/main';
+import { cancelActiveInlineEdit } from '@/ui/modals/InlineEditModal';
 
 function buildPlugin(settingsOverrides: Partial<ObsidianCopilotSettings> = {}): ObsidianCopilotPlugin {
   const app: any = {
@@ -22,6 +28,19 @@ function buildPlugin(settingsOverrides: Partial<ObsidianCopilotSettings> = {}): 
   plugin.settings = { ...DEFAULT_SETTINGS, ...settingsOverrides };
   return plugin;
 }
+
+describe('ObsidianCopilotPlugin - lifecycle ownership', () => {
+  it('cancels the isolated active Inline Edit before cleaning up the main chat bridge', () => {
+    const plugin = buildPlugin();
+    const cleanup = jest.fn();
+    plugin.agentService = { cleanup } as any;
+
+    plugin.onunload();
+
+    expect(cancelActiveInlineEdit).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('ObsidianCopilotPlugin - write-authority counter', () => {
   it('starts settled', () => {

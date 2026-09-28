@@ -11,15 +11,16 @@ import { MarkdownView, Notice } from 'obsidian';
 import * as path from 'path';
 
 import { SlashCommandManager } from '../../core/commands';
-import { resolveEffectivePermissionMode } from '../../core/providers/providerRegistry';
-import { isCommandBlocked } from '../../core/security/BlocklistChecker';
-import { getBashToolBlockedCommands } from '../../core/types';
 import { type InlineEditMode, InlineEditService } from '../../features/inline-edit/InlineEditService';
 import type ObsidianCopilotPlugin from '../../main';
 import { type CursorContext } from '../../utils/editor';
 import { escapeHtml, normalizeInsertionText } from '../../utils/inlineEdit';
 import { getVaultPath, isPathWithinVault, normalizePathForFilesystem } from '../../utils/path';
-import { formatSlashCommandWarnings } from '../../utils/slashCommand';
+import {
+  formatSlashCommandWarnings,
+  intersectSlashAllowedTools,
+  resolveSlashAllowedTools,
+} from '../../utils/slashCommand';
 import { MentionDropdownController } from '../components/file-context/mention/MentionDropdownController';
 import { hideSelectionHighlight, showSelectionHighlight } from '../components/SelectionHighlight';
 import { SlashCommandDropdown } from '../components/SlashCommandDropdown';
@@ -59,6 +60,11 @@ const hideInlineEdit = StateEffect.define<null>();
 
 // Singleton
 let activeController: InlineEditController | null = null;
+
+/** Plugin-lifecycle ownership hook for the isolated Inline Edit provider child. */
+export function cancelActiveInlineEdit(): void {
+  activeController?.reject();
+}
 
 // Diff widget that replaces the selection
 class DiffWidget extends WidgetType {
@@ -279,6 +285,10 @@ export class InlineEditController {
   private slashCommandDropdown: SlashCommandDropdown | null = null;
   private mentionDropdown: MentionDropdownController | null = null;
   private attachedFiles: Set<string> = new Set();
+  private conversationAllowedTools: string[] | undefined;
+  private lifecycleEpoch = 0;
+  private disposed = false;
+  private generating = false;
 
   constructor(
     private app: App,
@@ -475,9 +485,14 @@ export class InlineEditController {
   }
 
   private async generate() {
-    if (!this.inputEl || !this.spinnerEl) return;
+    if (!this.inputEl || !this.spinnerEl || this.disposed || this.generating) return;
     let userMessage = this.inputEl.value.trim();
     if (!userMessage) return;
+
+    this.generating = true;
+    const lifecycleEpoch = this.lifecycleEpoch;
+    try {
+      let requestAllowedTools: string[] | undefined;
 
     // Expand slash command if detected
     if (this.slashCommandManager) {
@@ -489,31 +504,31 @@ export class InlineEditController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
+          const nextAllowedTools = resolveSlashAllowedTools(cmd);
+          requestAllowedTools = this.isConversing
+            ? intersectSlashAllowedTools(this.conversationAllowedTools, nextAllowedTools)
+            : nextAllowedTools;
+          if (requestAllowedTools !== undefined && this.plugin.settings.selectedProvider !== 'copilot') {
+            this.handleError('This provider cannot enforce this slash command’s Allowed tools restriction. Use Copilot or remove the restriction.');
+            return;
+          }
+          if (requestAllowedTools !== undefined && requestAllowedTools.length === 0) {
+            this.handleError('This slash command has no tools in common with the existing inline-edit restriction.');
+            return;
+          }
+
           this.plugin.setBashExpansionActive(true);
           try {
             const expansion = await this.slashCommandManager.expandCommand(cmd, detected.args, {
               bash: {
-                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
-                // for approval there, it is replaced with the same placeholder used when
-                // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
-                // The raw setting is not enough: a provider still awaiting blanket-write
-                // consent (reachable by switching providers while in Agent) must also keep
-                // bash read-only, or it runs with full authority while the toggle shows Ask.
-                enabled: this.plugin.settings.enableInlineBash
-                  && resolveEffectivePermissionMode(
-                    this.plugin.settings.permissionMode,
-                    this.plugin.settings.selectedProvider,
-                    this.plugin.settings.blanketWriteAcknowledged
-                  ) === 'agent',
-                shouldBlockCommand: (bashCommand) =>
-                  isCommandBlocked(
-                    bashCommand,
-                    getBashToolBlockedCommands(this.plugin.settings.blockedCommands),
-                    this.plugin.settings.enableBlocklist
-                  ),
+                // Inline Edit is a proposal surface. Local shell expansion can mutate
+                // files before the diff is accepted, so it is never executable here.
+                enabled: false,
               },
             });
+            if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
             userMessage = expansion.expandedPrompt;
+            this.conversationAllowedTools = requestAllowedTools;
 
             if (expansion.errors.length > 0) {
               new Notice(formatSlashCommandWarnings(expansion.errors));
@@ -523,6 +538,15 @@ export class InlineEditController {
           }
         }
       }
+    }
+
+    const effectiveAllowedTools = requestAllowedTools ?? this.conversationAllowedTools;
+    if (effectiveAllowedTools !== undefined && this.plugin.settings.selectedProvider !== 'copilot') {
+      // A restricted Copilot inline-edit conversation can outlive a provider switch.
+      // Re-check at dispatch time so a clarification follow-up cannot carry the
+      // allowlist into a native provider that does not enforce it.
+      this.handleError('This provider cannot enforce this inline-edit Allowed tools restriction. Use Copilot or start a new unrestricted inline edit.');
+      return;
     }
 
     // Remove selection listeners during generation
@@ -538,7 +562,7 @@ export class InlineEditController {
     let result;
     if (this.isConversing) {
       // Continue conversation with any new @-mentioned files
-      result = await this.inlineEditService.continueConversation(userMessage, contextFiles);
+      result = await this.inlineEditService.continueConversation(userMessage, contextFiles, effectiveAllowedTools);
     } else {
       // Initial edit request - build request based on mode
       if (this.mode === 'cursor') {
@@ -548,6 +572,7 @@ export class InlineEditController {
           notePath: this.notePath,
           cursorContext: this.cursorContext as CursorContext,
           contextFiles,
+          allowedTools: effectiveAllowedTools,
         });
       } else {
         const lineCount = this.selectedText.split(/\r?\n/).length;
@@ -559,10 +584,12 @@ export class InlineEditController {
           startLine: this.startLine,
           lineCount,
           contextFiles,
+          allowedTools: effectiveAllowedTools,
         });
       }
     }
 
+    if (!this.isLifecycleCurrent(lifecycleEpoch)) return;
     this.spinnerEl.style.display = 'none';
 
     if (result.success) {
@@ -589,6 +616,13 @@ export class InlineEditController {
     } else {
       this.handleError(result.error || 'Error - try again');
     }
+    } finally {
+      this.generating = false;
+    }
+  }
+
+  private isLifecycleCurrent(epoch: number): boolean {
+    return !this.disposed && epoch === this.lifecycleEpoch;
   }
 
   /** Show agent's clarification message. */
@@ -679,6 +713,7 @@ export class InlineEditController {
   }
 
   accept() {
+    if (this.disposed) return;
     const textToInsert = this.editedText ?? this.insertedText;
     if (textToInsert !== null) {
       // Convert CM6 positions back to Obsidian Editor positions
@@ -698,6 +733,7 @@ export class InlineEditController {
   }
 
   reject() {
+    if (this.disposed) return;
     this.cleanup({ keepSelectionHighlight: true });
     this.restoreSelectionHighlight();
     this.resolve({ decision: 'reject' });
@@ -712,6 +748,9 @@ export class InlineEditController {
   }
 
   private cleanup(options?: { keepSelectionHighlight?: boolean }) {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.lifecycleEpoch += 1;
     this.inlineEditService.cancel();
     this.inlineEditService.resetConversation();
     this.isConversing = false;

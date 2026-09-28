@@ -5,6 +5,7 @@
  * Simplified from Claude SDK-based implementation.
  */
 
+import { CopilotBridgeService } from '../../core/agent/CopilotBridgeService';
 import { getInlineEditSystemPrompt } from '../../core/prompts/inlineEdit';
 import type ObsidianCopilotPlugin from '../../main';
 import { prependContextFiles } from '../../utils/context';
@@ -12,7 +13,11 @@ import { type CursorContext } from '../../utils/editor';
 
 export type InlineEditMode = 'selection' | 'cursor';
 
-export interface InlineEditSelectionRequest {
+interface InlineEditToolPolicy {
+  allowedTools?: string[];
+}
+
+export interface InlineEditSelectionRequest extends InlineEditToolPolicy {
   mode: 'selection';
   instruction: string;
   notePath: string;
@@ -22,7 +27,7 @@ export interface InlineEditSelectionRequest {
   contextFiles?: string[];
 }
 
-export interface InlineEditCursorRequest {
+export interface InlineEditCursorRequest extends InlineEditToolPolicy {
   mode: 'cursor';
   instruction: string;
   notePath: string;
@@ -40,34 +45,87 @@ export interface InlineEditResult {
   error?: string;
 }
 
+type InlineEditAgentService = Pick<CopilotBridgeService, 'streamQuery' | 'cancel'>;
+type InlineEditTurn = { role: 'user' | 'assistant'; content: string };
+const MAX_INLINE_EDIT_FOLLOWUP_MESSAGES = 4;
+
 export class InlineEditService {
   private plugin: ObsidianCopilotPlugin;
   private abortController: AbortController | null = null;
+  private readonly agentService: InlineEditAgentService;
+  private conversation: InlineEditTurn[] = [];
 
-  constructor(plugin: ObsidianCopilotPlugin) {
+  constructor(
+    plugin: ObsidianCopilotPlugin,
+    serviceFactory: () => InlineEditAgentService = () => new CopilotBridgeService(plugin)
+  ) {
     this.plugin = plugin;
+    // Inline Edit owns its provider process/session. It must never mutate the main
+    // chat bridge's Copilot session or cancel a chat request.
+    this.agentService = serviceFactory();
   }
 
   resetConversation(): void {
-    // No-op for now (stateless)
+    this.conversation = [];
   }
 
   async editText(request: InlineEditRequest): Promise<InlineEditResult> {
     const prompt = this.buildPrompt(request);
-    return this.sendMessage(prompt);
+    return this.sendTurn(prompt, request.allowedTools, true);
   }
 
-  async continueConversation(message: string, contextFiles?: string[]): Promise<InlineEditResult> {
+  async continueConversation(
+    message: string,
+    contextFiles?: string[],
+    allowedTools?: string[]
+  ): Promise<InlineEditResult> {
     let prompt = message;
     if (contextFiles && contextFiles.length > 0) {
       prompt = prependContextFiles(message, contextFiles);
     }
-    return this.sendMessage(prompt);
+    return this.sendTurn(prompt, allowedTools, false);
   }
 
-  private async sendMessage(prompt: string): Promise<InlineEditResult> {
+  private trimConversation(turns: InlineEditTurn[]): InlineEditTurn[] {
+    if (turns.length <= MAX_INLINE_EDIT_FOLLOWUP_MESSAGES + 1) return turns;
+    const first = turns[0];
+    let tail = turns.slice(-MAX_INLINE_EDIT_FOLLOWUP_MESSAGES);
+    // Follow-up continuity is question/reply shaped. Never retain a user reply
+    // after trimming if the assistant clarification it answered was just removed.
+    if (tail[0]?.role === 'user') {
+      tail = tail.slice(1);
+    }
+    return [first, ...tail];
+  }
+
+  private buildConversationPrompt(turns: InlineEditTurn[]): string {
+    if (turns.length === 1) return turns[0].content;
+    const transcript = turns
+      .map((turn) => `${turn.role === 'user' ? 'User' : 'Assistant'}:\n${turn.content}`)
+      .join('\n\n');
+    return `<inline_edit_conversation>\n${transcript}\n</inline_edit_conversation>`;
+  }
+
+  private async sendTurn(
+    prompt: string,
+    allowedTools: string[] | undefined,
+    resetConversation: boolean
+  ): Promise<InlineEditResult> {
+    const base = resetConversation ? [] : this.conversation;
+    const candidate = this.trimConversation([
+      ...base,
+      { role: 'user', content: prompt },
+    ]);
+    return this.sendConversation(candidate, allowedTools);
+  }
+
+  private async sendConversation(
+    candidate: InlineEditTurn[],
+    allowedTools?: string[]
+  ): Promise<InlineEditResult> {
     this.abortController = new AbortController();
     const systemPrompt = getInlineEditSystemPrompt();
+    const prompt = this.buildConversationPrompt(candidate);
     const fullPrompt = `${systemPrompt}\n\n${prompt}`;
 
     // The CLI child spawns with whatever permission mode was current when the stream
@@ -78,14 +136,32 @@ export class InlineEditService {
     try {
       let responseText = '';
 
-      for await (const chunk of this.plugin.agentService.streamQuery(fullPrompt)) {
+      for await (const chunk of this.agentService.streamQuery(fullPrompt, {
+        allowedTools,
+        // Inline Edit is a proposal surface: provider tools must never mutate files
+        // before the user accepts the rendered diff.
+        readOnly: true,
+        // Continuity is local and explicit above. Never let a provider-side Copilot
+        // session become hidden state that disappears when the provider changes.
+        skipResume: true,
+      })) {
         if (this.abortController?.signal.aborted) {
           return { success: false, error: 'Cancelled' };
         }
         responseText += chunk;
       }
 
-      return this.parseResponse(responseText);
+      const result = this.parseResponse(responseText);
+      if (result.success) {
+        const committed = [...candidate];
+        if (result.clarification) {
+          committed.push({ role: 'assistant', content: result.clarification });
+        }
+        // Commit only after a successful provider turn. Failed/cancelled attempts must
+        // not become part of the continuity SSOT or evict older valid context.
+        this.conversation = this.trimConversation(committed);
+      }
+      return result;
     } catch (error) {
       console.error('[InlineEditService] Error:', error);
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -172,5 +248,7 @@ export class InlineEditService {
     if (this.abortController) {
       this.abortController.abort();
     }
+    // Abort the owned CLI child immediately; do not wait for another stream chunk.
+    this.agentService.cancel();
   }
 }

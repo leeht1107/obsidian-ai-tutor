@@ -32,7 +32,7 @@ import type { ObsidianCopilotView } from './features/chat/ObsidianCopilotView';
 import { ObsidianCopilotView as ObsidianCopilotViewImpl } from './features/chat/ObsidianCopilotView';
 import { ObsidianCopilotSettingTab } from './features/settings/ObsidianCopilotSettings';
 import type { InlineEditContext } from './ui/modals/InlineEditModal';
-import { InlineEditModal } from './ui/modals/InlineEditModal';
+import { cancelActiveInlineEdit, InlineEditModal } from './ui/modals/InlineEditModal';
 import { buildCursorContext } from './utils/editor';
 
 /**
@@ -196,6 +196,9 @@ export default class ObsidianCopilotPlugin extends Plugin {
   }
 
   onunload() {
+    // Inline Edit owns an isolated bridge, so the plugin lifecycle must explicitly
+    // terminate it before cleaning up the main chat bridge.
+    cancelActiveInlineEdit();
     this.agentService.cleanup();
   }
 

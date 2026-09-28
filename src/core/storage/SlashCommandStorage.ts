@@ -268,10 +268,14 @@ export class SlashCommandStorage {
     if (command.argumentHint) {
       lines.push(`argument-hint: ${this.yamlString(command.argumentHint)}`);
     }
-    if (command.allowedTools && command.allowedTools.length > 0) {
-      lines.push('allowed-tools:');
-      for (const tool of command.allowedTools) {
-        lines.push(`  - ${tool}`);
+    if (command.allowedTools !== undefined) {
+      if (command.allowedTools.length === 0) {
+        lines.push('allowed-tools: []');
+      } else {
+        lines.push('allowed-tools:');
+        for (const tool of command.allowedTools) {
+          lines.push(`  - ${tool}`);
+        }
       }
     }
     if (command.model) {

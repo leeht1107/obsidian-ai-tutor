@@ -538,6 +538,26 @@ describe('ConversationController - Title Generation', () => {
       expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
     });
 
+    it('does not regenerate an AI title with Agy', async () => {
+      deps.plugin.settings.selectedProvider = 'agy' as any;
+      (deps.plugin.getConversationById as any) = jest.fn().mockReturnValue({
+        id: 'conv-1',
+        title: 'Fallback Title',
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi there!' },
+        ],
+      });
+
+      await controller.regenerateTitle('conv-1');
+
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+      expect(deps.plugin.updateConversation).not.toHaveBeenCalledWith(
+        'conv-1',
+        { titleGenerationStatus: 'pending' }
+      );
+    });
+
     it('should set pending status before generating', async () => {
       (deps.plugin.getConversationById as any) = jest.fn().mockReturnValue({
         id: 'conv-1',

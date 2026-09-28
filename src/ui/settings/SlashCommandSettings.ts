@@ -77,10 +77,16 @@ export class SlashCommandModal extends Modal {
 
     new Setting(contentEl)
       .setName('Allowed tools')
-      .setDesc('Comma-separated list of tools to allow (empty = all)')
+      .setDesc('Comma-separated tools to allow. Leave blank for unrestricted. Zero-tool mode is not supported by the current CLI contract.')
       .addText(text => {
         toolsInput = text.inputEl;
-        text.setValue(this.existingCmd?.allowedTools?.join(', ') || '');
+        text.setValue(
+          this.existingCmd?.allowedTools === undefined
+            ? ''
+            : this.existingCmd.allowedTools.length === 0
+              ? 'none'
+              : this.existingCmd.allowedTools.join(', ')
+        );
       });
 
     new Setting(contentEl)
@@ -143,6 +149,10 @@ export class SlashCommandModal extends Modal {
 
       const parsed = parseSlashCommandContent(content);
       const promptContent = parsed.promptContent;
+      if (toolsInput.value.trim().toLowerCase() === 'none') {
+        new Notice('Zero-tool mode is not supported. Specify at least one tool or leave Allowed tools blank.');
+        return;
+      }
 
       const cmd: SlashCommand = {
         id: this.existingCmd?.id || `cmd-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -152,9 +162,7 @@ export class SlashCommandModal extends Modal {
         model: modelInput.value.trim() || parsed.model || undefined,
         allowedTools: toolsInput.value.trim()
           ? toolsInput.value.split(',').map(s => s.trim()).filter(Boolean)
-          : parsed.allowedTools && parsed.allowedTools.length > 0
-            ? parsed.allowedTools
-            : undefined,
+          : parsed.allowedTools,
         content: promptContent,
       };
 
@@ -381,9 +389,6 @@ export class SlashCommandSettings {
 
           if (Array.isArray(cmd.allowedTools)) {
             cmd.allowedTools = cmd.allowedTools.filter((t) => typeof t === 'string' && t.trim().length > 0);
-            if (cmd.allowedTools.length === 0) {
-              cmd.allowedTools = undefined;
-            }
           }
 
           if (cmd.description && typeof cmd.description !== 'string') {
@@ -401,7 +406,7 @@ export class SlashCommandSettings {
           cmd.description = cmd.description || parsed.description;
           cmd.argumentHint = cmd.argumentHint || parsed.argumentHint;
           cmd.model = cmd.model || parsed.model;
-          cmd.allowedTools = cmd.allowedTools || parsed.allowedTools;
+          cmd.allowedTools = cmd.allowedTools ?? parsed.allowedTools;
           cmd.content = parsed.promptContent;
 
           // Check for duplicate names

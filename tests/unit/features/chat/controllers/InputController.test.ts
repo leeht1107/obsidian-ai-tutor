@@ -483,11 +483,12 @@ describe('InputController - Message Queue', () => {
         }),
       };
       deps.getSlashCommandManager = () => slashCommandManager as any;
-      deps.plugin.settings.slashCommands = [{ id: 'read-only', name: 'read-only', content: 'Inspect' }];
+      deps.plugin.settings.slashCommands = [{ id: 'read-only', name: 'read-only', content: 'Inspect', allowedTools: ['Read'] }];
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
       await controller.sendMessage({ content: '/read-only' });
 
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
       expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
       expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
       expect(deps.state.messages[1].requestOutcome).toBe('failed');
@@ -501,14 +502,216 @@ describe('InputController - Message Queue', () => {
         expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: 'Prompt', allowedTools: [], errors: [] }),
       };
       deps.getSlashCommandManager = () => slashCommandManager as any;
-      deps.plugin.settings.slashCommands = [{ id: 'no-tools', name: 'no-tools', content: 'Prompt' }];
+      deps.plugin.settings.slashCommands = [{ id: 'no-tools', name: 'no-tools', content: 'Prompt', allowedTools: [] }];
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
       await controller.sendMessage({ content: '/no-tools' });
 
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
       expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
       expect(deps.streamController.appendText).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
       expect(deps.state.messages[1].requestOutcome).toBe('failed');
+    });
+
+    it('does not enable inline bash when a Copilot slash allowlist omits Bash', async () => {
+      deps.plugin.settings.permissionMode = 'agent';
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      (deps.plugin.settings as any).enableInlineBash = true;
+      let seenBashOptions: any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+          seenBashOptions = options.bash;
+          return Promise.resolve({ expandedPrompt: 'expanded', allowedTools: ['Read'], errors: [] });
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: 'inspect notes',
+        allowedTools: ['Read'],
+      }];
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      expect(seenBashOptions.enabled).toBe(false);
+    });
+
+    it('does not infer current-note scope from expanded @file content', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'review', args: ['other.md'] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: 'Review <referenced_file>This note explains another topic.</referenced_file>',
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'review',
+        name: 'review',
+        content: 'Review @$1',
+      }];
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE SECRET');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '/review other.md' });
+
+      expect(readCurrentNoteContent).not.toHaveBeenCalled();
+      expect(promptSeen).not.toContain('ACTIVE NOTE SECRET');
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools).toBeUndefined();
+    });
+
+    it('detects current-note scope after argument substitution but before side-effect expansion', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'sum', args: 'this' }),
+        expandSemanticPrompt: jest.fn().mockReturnValue('Summarize this note'),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: 'Summarize this note',
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'sum',
+        name: 'sum',
+        content: 'Summarize $ARGUMENTS note',
+      }];
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE CONTENT');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '/sum this' });
+
+      expect(slashCommandManager.expandSemanticPrompt).toHaveBeenCalled();
+      expect(readCurrentNoteContent).toHaveBeenCalledWith('active.md');
+      expect(promptSeen).toContain('ACTIVE NOTE CONTENT');
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools)
+        .toEqual(expect.arrayContaining(['view']));
+    });
+
+    it('intersects current-note tools with an explicit slash allowlist instead of broadening it', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'grep-only', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: '현재 노트에서 찾아줘',
+          allowedTools: ['Grep'],
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'grep-only',
+        name: 'grep-only',
+        content: '현재 노트에서 찾아줘',
+        allowedTools: ['Grep'],
+      }];
+      (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('note body');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('db.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/grep-only' });
+
+      const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
+      expect(queryOptions.allowedTools).toEqual([]);
+    });
+
+    it('does not auto-generate a title after a restricted native slash command is rejected', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      (deps.plugin.settings as any).enableAutoTitleGeneration = true;
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+      deps.getTitleGenerationService = () => mockTitleService as any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn(),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: 'Inspect',
+        allowedTools: ['Read'],
+      }];
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      expect(slashCommandManager.expandCommand).not.toHaveBeenCalled();
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+    });
+
+    it('treats Read and view as the same tool when intersecting current-note scope', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'read-only', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({
+          expandedPrompt: '현재 노트를 읽어줘',
+          allowedTools: ['Read'],
+          errors: [],
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'read-only',
+        name: 'read-only',
+        content: '현재 노트를 읽어줘',
+        allowedTools: ['Read'],
+      }];
+      (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('note body');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('db.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/read-only' });
+
+      const queryOptions = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][3];
+      expect(queryOptions.allowedTools).toEqual(['Read']);
     });
 
     it('does not enable inline bash when permissionMode is agent but the selected provider still needs blanket-write consent', async () => {
@@ -1107,6 +1310,40 @@ describe('InputController - Message Queue', () => {
       expect(imageContextManager.clearImages).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['failed', [{ type: 'text', content: 'partial plan' }, { type: 'error', content: 'provider failed' }]],
+      ['interrupted', [{ type: 'text', content: 'partial plan' }, { type: 'done' }]],
+    ] as const)('does not generate a title after a %s first plan turn', async (kind, chunks) => {
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+      deps.getTitleGenerationService = () => mockTitleService as any;
+      deps.state.currentConversationId = 'conv-plan';
+      deps.plugin.settings.enableAutoTitleGeneration = true;
+      deps.plugin.settings.permissionMode = 'plan';
+      deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
+        for (const chunk of chunks) {
+          yield chunk;
+          if (kind === 'interrupted' && chunk.type === 'text') {
+            deps.state.cancelRequested = true;
+          }
+        }
+      });
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation(async (chunk: any, msg: any) => {
+        if (chunk.type === 'text') msg.content += chunk.content;
+      });
+
+      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe(kind);
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+      expect(deps.plugin.updateConversation).not.toHaveBeenCalledWith(
+        'conv-plan',
+        { titleGenerationStatus: 'pending' }
+      );
+    });
+
     it('restores ask, not agent, when exiting plan mode with no prior mode recorded', async () => {
       // lastNonPlanPermissionMode unset is the fallback path — it must never silently
       // escalate to agent (full write access, no blanket-write consent gate).
@@ -1160,6 +1397,36 @@ describe('InputController - Message Queue', () => {
   });
 
   describe('Title generation', () => {
+    it('keeps only the fallback title for Agy without starting AI title generation', async () => {
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+      deps = createMockDeps({
+        getTitleGenerationService: () => mockTitleService as any,
+      });
+      deps.plugin.settings.selectedProvider = 'agy' as any;
+      deps.plugin.settings.enableAutoTitleGeneration = true;
+      deps.state.currentConversationId = 'conv-agy';
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([
+        { type: 'text', content: 'Response' },
+        { type: 'done' },
+      ]));
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation(async (chunk: any, msg: any) => {
+        if (chunk.type === 'text') msg.content = chunk.content;
+      });
+      controller = new InputController(deps);
+
+      await controller.sendMessage({ content: 'Hello Agy' });
+
+      expect(deps.plugin.renameConversation).toHaveBeenCalledWith('conv-agy', 'Test Title');
+      expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
+      expect(deps.plugin.updateConversation).not.toHaveBeenCalledWith(
+        'conv-agy',
+        { titleGenerationStatus: 'pending' }
+      );
+    });
+
     it('should set pending status and fallback title after first exchange', async () => {
       const mockTitleService = {
         generateTitle: jest.fn().mockResolvedValue(undefined),

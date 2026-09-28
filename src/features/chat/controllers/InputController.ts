@@ -41,7 +41,13 @@ import {
 import { prependCurrentNote, prependCurrentNoteContent } from '../../../utils/context';
 import { type EditorSelectionContext, prependEditorContext } from '../../../utils/editor';
 import { appendMarkdownSnippet } from '../../../utils/markdown';
-import { formatSlashCommandWarnings } from '../../../utils/slashCommand';
+import {
+  formatSlashCommandWarnings,
+  intersectSlashAllowedTools,
+  parseSlashCommandContent,
+  resolveSlashAllowedTools,
+  slashAllowsInlineBash,
+} from '../../../utils/slashCommand';
 import type { MessageRenderer } from '../rendering/MessageRenderer';
 import type { InstructionRefineService } from '../services/InstructionRefineService';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
@@ -487,10 +493,8 @@ export class InputController {
 
     const currentNotePath = fileContextManager?.getCurrentNotePath() || null;
     const shouldSendCurrentNote = fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false;
-    const shouldForceCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
-    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
-      ? this.readCurrentNoteContent(currentNotePath)
-      : Promise.resolve<string | null>(null);
+    const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
+    let slashTemplateCurrentNoteScope = false;
 
     // Check for slash command and expand it
     const displayContent = content;
@@ -504,7 +508,19 @@ export class InputController {
           c => c.name.toLowerCase() === detected.commandName.toLowerCase()
         );
         if (cmd) {
-          this.deps.setBashExpansionActive(true);
+          const parsedCommand = parseSlashCommandContent(cmd.content);
+          const semanticPrompt = typeof slashCommandManager.expandSemanticPrompt === 'function'
+            ? slashCommandManager.expandSemanticPrompt(cmd, detected.args)
+            : parsedCommand.promptContent;
+          slashTemplateCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(semanticPrompt);
+          const parsedAllowedTools = resolveSlashAllowedTools(cmd);
+          slashAllowedToolsRequested = parsedAllowedTools !== undefined;
+          if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
+            // Fail before expansion: inline bash and file substitutions are part of expansion
+            // and must not run for a command whose tool restriction this provider cannot honor.
+            queryOptions = { allowedTools: parsedAllowedTools, model: cmd.model };
+          } else {
+            this.deps.setBashExpansionActive(true);
           try {
             const result = await slashCommandManager.expandCommand(cmd, detected.args, {
               bash: {
@@ -515,6 +531,7 @@ export class InputController {
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
                 enabled: !learningRequest
+                  && slashAllowsInlineBash(parsedAllowedTools)
                   && plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
                     plugin.settings.permissionMode,
@@ -535,7 +552,7 @@ export class InputController {
               new Notice(formatSlashCommandWarnings(result.errors));
             }
 
-            if (result.allowedTools || result.model) {
+            if (result.allowedTools !== undefined || result.model) {
               slashAllowedToolsRequested = result.allowedTools !== undefined;
               queryOptions = {
                 allowedTools: result.allowedTools,
@@ -545,9 +562,16 @@ export class InputController {
           } finally {
             this.deps.setBashExpansionActive(false);
           }
+          }
         }
       }
     }
+
+    const shouldForceCurrentNoteScope =
+      rawCurrentNoteScope || slashTemplateCurrentNoteScope;
+    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
+      ? this.readCurrentNoteContent(currentNotePath)
+      : Promise.resolve<string | null>(null);
 
     // Only clear images if we consumed user input (not for programmatic content override)
     if (shouldUseInput) {
@@ -575,7 +599,10 @@ export class InputController {
           promptToSend = prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent);
           queryOptions = {
             ...queryOptions,
-            allowedTools: ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
+            allowedTools: intersectSlashAllowedTools(
+              queryOptions?.allowedTools,
+              ['view', ...(quizWebSearchEnabled ? ['web_search', 'web_fetch'] : [])],
+            ),
           };
         } else {
           promptToSend = prependCurrentNote(promptToSend, currentNotePath);
@@ -753,8 +780,11 @@ ${promptToSend}`;
       if (!skipPostCompletionFollowups) {
         await this.activatePendingPlanMode();
 
-        // Generate AI title after first complete exchange (user + assistant)
-        await this.triggerTitleGeneration();
+        // A failed/interrupted first turn has no trustworthy assistant answer to title,
+        // and must not launch a second provider request after the primary one was rejected.
+        if (streamOutcome === 'completed') {
+          await this.triggerTitleGeneration();
+        }
 
         this.processQueuedMessage();
       }
@@ -1059,8 +1089,11 @@ ${content}
       await conversationController.save(true);
       await this.activatePendingPlanMode();
 
-      // Generate AI title after first complete plan mode exchange
-      await this.triggerTitleGeneration({ isPlanMode: true });
+      // Failed/interrupted plan turns can leave partial prose. Do not start a second
+      // provider request to title an answer that never completed.
+      if (streamOutcome === 'completed') {
+        await this.triggerTitleGeneration({ isPlanMode: true });
+      }
 
       this.processQueuedMessage();
     }
@@ -1167,6 +1200,11 @@ ${content}
     await plugin.renameConversation(state.currentConversationId, displayTitle);
 
     if (!plugin.settings.enableAutoTitleGeneration) {
+      return;
+    }
+    // Agy cannot technically enforce Web-off. Auto-title is non-essential, so keep
+    // the local fallback title instead of issuing a background request with weaker privacy.
+    if (plugin.settings.selectedProvider === 'agy') {
       return;
     }
 

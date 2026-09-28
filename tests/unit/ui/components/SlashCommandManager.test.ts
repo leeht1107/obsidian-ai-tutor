@@ -5,7 +5,7 @@ import * as path from 'path';
 
 import { SlashCommandManager } from '@/core/commands';
 import type { SlashCommand } from '@/core/types';
-import { parseSlashCommandContent } from '@/utils/slashCommand';
+import { intersectSlashAllowedTools, parseSlashCommandContent } from '@/utils/slashCommand';
 
 function createMockApp(files: Record<string, string>) {
   const fileEntries = Object.keys(files).map((filePath) => ({
@@ -66,6 +66,36 @@ describe('SlashCommandManager', () => {
       expect(parsed.model).toBe('sonnet');
       expect(parsed.allowedTools).toEqual(['Read', 'Write']);
       expect(parsed.promptContent.trim()).toBe('Hello');
+    });
+  });
+
+  describe('intersectSlashAllowedTools', () => {
+    it('normalizes only known aliases and preserves arbitrary tool identities', () => {
+      expect(intersectSlashAllowedTools(['Read'], ['view'])).toEqual(['Read']);
+      expect(intersectSlashAllowedTools(['WebSearch'], ['web_search'])).toEqual(['WebSearch']);
+      expect(intersectSlashAllowedTools(['mcp__ab__c'], ['mcp__a__bc'])).toEqual([]);
+      expect(intersectSlashAllowedTools(['my-tool'], ['my_tool'])).toEqual([]);
+    });
+  });
+
+  describe('expandSemanticPrompt', () => {
+    it('substitutes arguments before scope detection without reading referenced files', () => {
+      const app = createMockApp({
+        'other.md': 'This note text must not influence scope detection',
+      });
+      const manager = new SlashCommandManager(app, '/vault');
+      const command: SlashCommand = {
+        id: 'semantic',
+        name: 'semantic',
+        content: 'Summarize $ARGUMENTS note\nRef: @other.md',
+      };
+
+      const semantic = manager.expandSemanticPrompt(command, 'this');
+
+      expect(semantic).toContain('Summarize this note');
+      expect(semantic).not.toContain('@other.md');
+      expect(semantic).not.toContain('This note text must not influence scope detection');
+      expect(app.vault.read).not.toHaveBeenCalled();
     });
   });
 

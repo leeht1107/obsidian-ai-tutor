@@ -15,6 +15,7 @@ jest.mock('obsidian', () => ({
 }));
 
 import { readSecrets } from '@/core/storage/SecretStorage';
+import { SlashCommandStorage } from '@/core/storage/SlashCommandStorage';
 import { StorageService } from '@/core/storage/StorageService';
 import type { ChatMessage, Conversation, ConversationMeta, SlashCommand } from '@/core/types';
 import { parseSlashCommandContent } from '@/utils/slashCommand';
@@ -392,6 +393,20 @@ Do something`;
       expect(parsed.promptContent).toBe('Just a prompt without frontmatter');
     });
 
+    it('preserves an explicitly empty allowed-tools block without widening it', () => {
+      const content = [
+        '---',
+        'allowed-tools:',
+        '---',
+        'Prompt',
+      ].join('\n');
+
+      const parsed = parseSlashCommandContent(content);
+
+      expect(parsed.allowedTools).toEqual([]);
+      expect(parsed.promptContent).toBe('Prompt');
+    });
+
     it('should handle inline array syntax for allowed-tools', () => {
       const content = `---
 allowed-tools: [Read, Write, Bash]
@@ -438,6 +453,45 @@ Prompt`;
       expect(serialized).toContain('  - Write');
       expect(serialized).toContain('model: claude-sonnet-4-5');
       expect(serialized).toContain('Original prompt');
+    });
+
+    it('serializes an explicit empty allowlist so it survives reload', () => {
+      const command: SlashCommand = {
+        id: 'cmd-no-tools',
+        name: 'no-tools',
+        allowedTools: [],
+        content: 'Prompt',
+      };
+
+      const serialized = serializeCommandHelper(command);
+
+      expect(serialized).toContain('allowed-tools: []');
+      expect(parseSlashCommandContent(serialized).allowedTools).toEqual([]);
+    });
+
+    it('round-trips an empty allowlist through SlashCommandStorage save and reload', async () => {
+      const files = new Map<string, string>();
+      const adapter = {
+        exists: async (path: string) => path === '.ai-tutor/commands' || files.has(path),
+        read: async (path: string) => files.get(path) ?? '',
+        write: async (path: string, content: string) => { files.set(path, content); },
+        listFilesRecursive: async () => [...files.keys()],
+        delete: async (path: string) => { files.delete(path); },
+      };
+      const storage = new SlashCommandStorage(adapter as any);
+      const command: SlashCommand = {
+        id: 'cmd-no-tools',
+        name: 'no-tools',
+        allowedTools: [],
+        content: 'Prompt',
+      };
+
+      await storage.save(command);
+      const savedPath = storage.getFilePath(command);
+      const reloaded = await storage.loadFromFile(savedPath);
+
+      expect(files.get(savedPath)).toContain('allowed-tools: []');
+      expect(reloaded?.allowedTools).toEqual([]);
     });
 
     it('should quote description with special characters', () => {
@@ -1149,10 +1203,14 @@ function serializeCommandHelper(command: SlashCommand): string {
   if (command.argumentHint) {
     lines.push(`argument-hint: ${yamlStringHelper(command.argumentHint)}`);
   }
-  if (command.allowedTools && command.allowedTools.length > 0) {
-    lines.push('allowed-tools:');
-    for (const tool of command.allowedTools) {
-      lines.push(`  - ${tool}`);
+  if (command.allowedTools !== undefined) {
+    if (command.allowedTools.length === 0) {
+      lines.push('allowed-tools: []');
+    } else {
+      lines.push('allowed-tools:');
+      for (const tool of command.allowedTools) {
+        lines.push(`  - ${tool}`);
+      }
     }
   }
   if (command.model) {
