@@ -759,6 +759,38 @@ describe('InlineEditController - bash expansion busy flag', () => {
     expect(handleError).toHaveBeenCalledWith(expect.stringContaining('cannot enforce'));
   });
 
+  it('allows only one generate call while slash expansion is pending', async () => {
+    let resolveExpansion!: (value: any) => void;
+    const expansionPromise = new Promise<any>((resolve) => { resolveExpansion = resolve; });
+    const slashCommandManager = {
+      setCommands: jest.fn(),
+      detectCommand: jest.fn().mockReturnValue({ commandName: 'slow', args: [] }),
+      expandCommand: jest.fn().mockReturnValue(expansionPromise),
+    };
+    const { controller, inputEl } = buildController({
+      slashCommands: [{ id: 'slow', name: 'slow', content: 'Slow expansion' }],
+    });
+    const editText = jest.fn().mockResolvedValue({ success: true, clarification: 'Done' });
+    (controller as any).inlineEditService = {
+      editText,
+      continueConversation: jest.fn(),
+      cancel: jest.fn(),
+      resetConversation: jest.fn(),
+    };
+    (controller as any).slashCommandManager = slashCommandManager;
+    inputEl.value = '/slow';
+
+    const first = (controller as any).generate();
+    const second = (controller as any).generate();
+
+    expect(slashCommandManager.expandCommand).toHaveBeenCalledTimes(1);
+
+    resolveExpansion({ expandedPrompt: 'expanded once', errors: [] });
+    await Promise.all([first, second]);
+
+    expect(editText).toHaveBeenCalledTimes(1);
+  });
+
   it('does not start the provider after reject while slash expansion is still pending', async () => {
     let resolveExpansion!: (value: any) => void;
     const expansionPromise = new Promise<any>((resolve) => { resolveExpansion = resolve; });

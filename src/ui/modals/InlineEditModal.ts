@@ -288,6 +288,7 @@ export class InlineEditController {
   private conversationAllowedTools: string[] | undefined;
   private lifecycleEpoch = 0;
   private disposed = false;
+  private generating = false;
 
   constructor(
     private app: App,
@@ -484,11 +485,14 @@ export class InlineEditController {
   }
 
   private async generate() {
-    if (!this.inputEl || !this.spinnerEl || this.disposed) return;
-    const lifecycleEpoch = this.lifecycleEpoch;
+    if (!this.inputEl || !this.spinnerEl || this.disposed || this.generating) return;
     let userMessage = this.inputEl.value.trim();
     if (!userMessage) return;
-    let requestAllowedTools: string[] | undefined;
+
+    this.generating = true;
+    const lifecycleEpoch = this.lifecycleEpoch;
+    try {
+      let requestAllowedTools: string[] | undefined;
 
     // Expand slash command if detected
     if (this.slashCommandManager) {
@@ -611,6 +615,9 @@ export class InlineEditController {
       }
     } else {
       this.handleError(result.error || 'Error - try again');
+    }
+    } finally {
+      this.generating = false;
     }
   }
 
