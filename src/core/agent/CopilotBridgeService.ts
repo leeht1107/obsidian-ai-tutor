@@ -9,6 +9,7 @@ import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath, parseEnvironmentVariables } from '../../utils/env';
 import { normalizePathForFilesystem } from '../../utils/path';
 import { buildContextFromHistory } from '../../utils/session';
+import { fitsWindowsCommandLine, WINDOWS_COMMAND_LINE_MAX, windowsCommandLineLength } from '../../utils/windowsCommandLine';
 import { buildSystemPrompt } from '../prompts/mainAgent';
 import {
   buildNativeProviderCommand,
@@ -1152,6 +1153,11 @@ export class CopilotBridgeService {
       return;
     }
     const [command, args] = [entry[0], [...entry[1], ...native.args]];
+    const tooLong = this.windowsCommandLineTooLong(provider, command, args, cliPath, `${command} ${entry[1].join(' ')}`.trim());
+    if (tooLong) {
+      yield { type: 'error', content: tooLong };
+      return;
+    }
     let child: ChildProcess;
     try {
       child = spawn(command, args, {
@@ -1396,6 +1402,29 @@ export class CopilotBridgeService {
     return null;
   }
 
+  /**
+   * The prompt is one argument and Windows caps the whole command line, so a long
+   * conversation or note would otherwise surface as a raw spawn error. Returns the
+   * student-facing message when the line cannot fit, after logging it.
+   */
+  private windowsCommandLineTooLong(
+    provider: ProviderId,
+    command: string,
+    args: readonly string[],
+    cliPath: string,
+    resolved: string,
+  ): string | null {
+    if (!isWindows || fitsWindowsCommandLine(command, args)) return null;
+    this.logError({
+      provider,
+      stage: 'launch',
+      message: `Windows command line too long: ${windowsCommandLineLength(command, args)} UTF-16 units (limit ${WINDOWS_COMMAND_LINE_MAX})`,
+      cliPath,
+      resolved,
+    });
+    return `대화나 노트가 너무 길어 Windows에서 ${getProviderDescriptor(provider).label} CLI를 실행할 수 없습니다. 새 대화를 시작하거나, 필요한 부분만 선택해서 질문해 주세요.`;
+  }
+
   private async *spawnCopilot(
     command: string,
     args: string[],
@@ -1421,6 +1450,11 @@ export class CopilotBridgeService {
     // shim resolves to `node.exe <script>`, and recording `node.exe` alone, as
     // this used to, threw away the half that says which install is broken.
     const resolvedCommand = [spawnCmd, ...entry[1]].join(' ').trim();
+    const tooLong = this.windowsCommandLineTooLong('copilot', spawnCmd, spawnArgs, command, resolvedCommand);
+    if (tooLong) {
+      yield { type: 'error', content: tooLong };
+      return;
+    }
     let child: ChildProcess;
     try {
       child = spawn(spawnCmd, spawnArgs, {
