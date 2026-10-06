@@ -34,6 +34,22 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
   { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', manualInstallCommand: 'curl -fsSL https://antigravity.google/cli/install.sh | bash', windowsManualInstallCommand: 'irm https://antigravity.google/cli/install.ps1 | iex', status: 'manual-setup' },
 ];
 
+/**
+ * A command for the student to type, naming the executable the plugin found when it
+ * found one: an installer can leave the CLI off PATH, where a bare name would not run.
+ */
+export function formatManualCliCommand(
+  command: string,
+  resolvedPath: string | null,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (!resolvedPath) return command;
+  const rest = command.split(' ').slice(1);
+  // PowerShell runs a quoted path only through its call operator.
+  const invoke = platform === 'win32' ? `& "${resolvedPath}"` : `"${resolvedPath}"`;
+  return [invoke, ...rest].join(' ');
+}
+
 export function getManualInstallCommand(
   descriptor: ProviderDescriptor,
   platform: NodeJS.Platform = process.platform

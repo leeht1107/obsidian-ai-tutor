@@ -18,7 +18,7 @@ jest.mock('@/core/setup/nodeInstall', () => ({
 
 import { App } from 'obsidian';
 
-import { getManualInstallCommand, getProviderDescriptor } from '@/core/providers/providerRegistry';
+import { formatManualCliCommand, getManualInstallCommand, getProviderDescriptor } from '@/core/providers/providerRegistry';
 import { checkProviderSetupStatus } from '@/core/setup/AutoSetupService';
 import { detectPackageManager } from '@/core/setup/nodeInstall';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
@@ -61,5 +61,22 @@ describe('the setup wizard for agy on a machine without Node.js', () => {
     expect(getManualInstallCommand(agy, 'win32')).toBe('irm https://antigravity.google/cli/install.ps1 | iex');
     expect(getManualInstallCommand(agy, 'darwin')).toBe('curl -fsSL https://antigravity.google/cli/install.sh | bash');
     expect(getManualInstallCommand(getProviderDescriptor('claude'), 'win32')).toBeUndefined();
+  });
+});
+
+// The installer may fail to put agy on PATH; the plugin can still find agy.exe, so the
+// login step must name that file instead of a bare `agy` the terminal cannot resolve.
+describe('the agy login command', () => {
+  it('invokes the discovered executable through the PowerShell call operator on Windows', () => {
+    expect(formatManualCliCommand('agy', 'C:\\Users\\홍 길동\\AppData\\Local\\agy\\bin\\agy.exe', 'win32'))
+      .toBe('& "C:\\Users\\홍 길동\\AppData\\Local\\agy\\bin\\agy.exe"');
+  });
+
+  it('quotes the discovered executable elsewhere', () => {
+    expect(formatManualCliCommand('agy', '/Users/s/.local/bin/agy', 'darwin')).toBe('"/Users/s/.local/bin/agy"');
+  });
+
+  it('keeps the plain command when nothing was discovered', () => {
+    expect(formatManualCliCommand('agy', null, 'win32')).toBe('agy');
   });
 });

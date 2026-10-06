@@ -15,7 +15,7 @@
 import { type App, Modal, Notice } from 'obsidian';
 import * as os from 'os';
 
-import { getConfiguredProviderCliPath, getManualInstallCommand, getProviderDescriptor, type ProviderId,resolveProviderCliPath } from '../../core/providers/providerRegistry';
+import { formatManualCliCommand, getConfiguredProviderCliPath, getManualInstallCommand, getProviderDescriptor, type ProviderId,resolveProviderCliPath } from '../../core/providers/providerRegistry';
 import {
   checkProviderSetupStatus,
   type InstallSession,
@@ -760,10 +760,13 @@ export class SetupWizardModal extends Modal {
     if (this.manualLoginRequired) {
       // agy only: there is no login subcommand to drive.
       wrap.createEl('p', {
-        text: `${descriptor.label}에는 플러그인이 실행할 수 있는 로그인 명령이 없습니다. 터미널에서 직접 로그인해 주세요.`,
+        text: `${descriptor.label}에는 플러그인이 실행할 수 있는 로그인 명령이 없습니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에서 아래 명령을 실행해 직접 로그인한 뒤 "다시 확인"을 눌러주세요.`,
         cls: 'ocop-setup-desc',
       });
-      this.renderCmdRow(wrap, descriptor.loginCommand);
+      this.renderCmdRow(wrap, formatManualCliCommand(
+        descriptor.loginCommand,
+        resolveProviderCliPath(this.plugin.settings, this.provider)
+      ));
       this.renderRecheckButton(wrap);
       this.renderSkipStepButton(wrap);
       return;
