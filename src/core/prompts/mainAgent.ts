@@ -6,6 +6,7 @@
  */
 
 import { getTodayDate } from '../../utils/date';
+import type { ProviderId } from '../providers/providerRegistry';
 import type { PermissionMode } from '../types/settings';
 
 export interface SystemPromptSettings {
@@ -23,6 +24,8 @@ export interface SystemPromptSettings {
   permissionMode?: PermissionMode;
   /** Effective per-request Web availability passed through from dispatch options. */
   enableWebSearch?: boolean;
+  /** Provider this prompt is sent to, for the few lines that only one CLI needs. */
+  providerId?: ProviderId;
 }
 
 /** Task (Subagents) instructions — AGENT mode only, since spawning a subagent is a mutation-capable action. */
@@ -64,14 +67,19 @@ Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`descript
 }
 
 /** Returns the base system prompt with core instructions. */
-function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode, enableWebSearch = true): string {
+function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode, enableWebSearch = true, providerId?: ProviderId): string {
   const vaultInfo = vaultPath ? `\n\nVault absolute path: ${vaultPath}` : '';
   const subagentInstructions = permissionMode === 'agent' ? getSubagentInstructions() : '';
   const readOnly = permissionMode === 'ask' || permissionMode === 'plan';
   const toolNames = readOnly
     ? ['Read', 'Glob', 'Grep', 'LS', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])]
     : ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'LS', 'Bash', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])];
-  const toolsInstruction = `Standard tools (${toolNames.join(', ')}) work as expected.`;
+  // Headless agy auto-denies shell commands, but its view_file tool needs no permission.
+  // Its own line: plan mode rewrites the tools line by anchoring on its end.
+  const agyReadHint = readOnly && providerId === 'agy'
+    ? '\nShell commands are unavailable in this mode; read notes with the view_file tool instead of cat/ls.'
+    : '';
+  const toolsInstruction = `Standard tools (${toolNames.join(', ')}) work as expected.${agyReadHint}`;
   const webSearchInstructions = enableWebSearch
     ? `### WebSearch
 
@@ -371,6 +379,7 @@ export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
     settings.vaultPath,
     settings.planMode ? 'plan' : settings.permissionMode,
     settings.enableWebSearch ?? true,
+    settings.providerId,
   );
 
   // Stable content (ordered for context cache optimization)

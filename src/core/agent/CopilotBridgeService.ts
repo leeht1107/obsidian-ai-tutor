@@ -527,6 +527,7 @@ export class CopilotBridgeService {
       planMode: queryOptions?.planMode,
       enableWebSearch: queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch,
       appendedPlan: this.approvedPlanContent ?? undefined,
+      providerId: this.plugin.settings.selectedProvider as ProviderId,
       permissionMode: permissionMode ?? this.effectivePermissionMode(
         this.plugin.settings.selectedProvider as ProviderId,
         Boolean(queryOptions?.planMode),

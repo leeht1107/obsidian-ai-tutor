@@ -189,3 +189,22 @@ describe('systemPrompt', () => {
     });
   });
 });
+
+// Headless agy auto-denies shell commands, and one model reached for a shell read of
+// the note anyway; its file tool needs no permission, so a read-only agy is told so.
+describe('agy read-only file reading hint', () => {
+  it.each(['ask', 'plan'] as const)('tells agy in %s mode to read files with view_file', (permissionMode) => {
+    expect(buildSystemPrompt({ permissionMode, providerId: 'agy' })).toContain('view_file');
+  });
+
+  it('is absent for agy in agent mode and for other providers', () => {
+    expect(buildSystemPrompt({ permissionMode: 'agent', providerId: 'agy' })).not.toContain('view_file');
+    expect(buildSystemPrompt({ permissionMode: 'ask', providerId: 'claude' })).not.toContain('view_file');
+  });
+});
+
+it('keeps the plan-mode tool restriction line intact alongside the agy hint', () => {
+  const prompt = buildSystemPrompt({ planMode: true, permissionMode: 'plan', providerId: 'agy' });
+  expect(prompt).toContain('Write, Edit, and Bash are disabled in plan mode.');
+  expect(prompt).toContain('view_file');
+});
