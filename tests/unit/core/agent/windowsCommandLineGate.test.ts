@@ -46,7 +46,8 @@ describe('the Windows command-line gate', () => {
       // A real Windows host only runs a real executable; any .exe will do, since the
       // gate must stop the request before it is spawned.
       cliPath = path.join(tmpDir, 'agy.exe');
-      try { fs.linkSync(process.execPath, cliPath); } catch { fs.copyFileSync(process.execPath, cliPath); }
+      // A copy, not a hard link: Windows will not delete a link to the running node.exe.
+      fs.copyFileSync(process.execPath, cliPath);
     } else {
       cliPath = path.join(tmpDir, 'agy');
       fs.writeFileSync(cliPath, '#!/bin/sh\nexit 0\n');
