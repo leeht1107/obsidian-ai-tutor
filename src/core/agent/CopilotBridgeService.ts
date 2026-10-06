@@ -1302,7 +1302,10 @@ export class CopilotBridgeService {
               : 'Antigravity가 요청한 작업 권한을 얻지 못해 답변을 완료하지 못했습니다.';
           } else if (providerStatus !== 'SUCCESS') {
             failureCode = 'provider-error';
-            failureMessage = `Antigravity가 실패 상태${providerStatus ? ` (${providerStatus})` : ''}를 반환했습니다.`;
+            // The `error` key is the shape agy printed for an empty prompt; other failures
+            // (quota, sign-in) were not observed, so it is optional. Redacted once below.
+            const agyError = typeof parsed.error === 'string' ? parsed.error.trim().slice(0, 300) : '';
+            failureMessage = `Antigravity가 실패 상태${providerStatus ? ` (${providerStatus})` : ''}를 반환했습니다.${agyError ? ` (${agyError})` : ''}`;
           } else if (!response.trim()) {
             failureCode = 'empty-response';
             failureMessage = explainEmptyAnswer(provider, errorOutput, permissionMode);

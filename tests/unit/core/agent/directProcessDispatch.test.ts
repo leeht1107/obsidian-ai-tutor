@@ -268,6 +268,7 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
   it.each([
     ['denied action outranks SUCCESS and partial response', '{"status":"SUCCESS","response":"먼저 해볼게요","denied_actions":[{"action":"command"}]}', '권한'],
     ['provider error', '{"status":"ERROR","response":"","denied_actions":[]}', '실패 상태'],
+    ['provider error with agy reason', '{"status":"ERROR","response":"","denied_actions":[],"error":"quota exhausted"}', 'quota exhausted'],
     ['malformed JSON', 'not-json', '최신 버전'],
     ['empty response', '{"status":"SUCCESS","response":"","denied_actions":[]}', '아무 답도'],
   ])('rejects Agy %s', async (_name, output, expectedError) => {
@@ -278,6 +279,17 @@ describe('native provider response parsing (codex, agy) via the real query() -> 
 
     expect(chunks.some((chunk) => chunk.type === 'text')).toBe(false);
     expect(chunks.some((chunk) => chunk.type === 'error' && chunk.content.includes(expectedError))).toBe(true);
+  });
+
+  it('ignores a non-string agy error field', async () => {
+    const fixturePath = writeFixtureCli(tmpDir, 'agy', '{"status":"ERROR","response":"","denied_actions":[],"error":123}');
+    const service = makeService(fixturePath, tmpDir, 'agy');
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of service.query('agy failure prompt')) chunks.push(chunk);
+
+    const error = chunks.find((chunk): chunk is Extract<StreamChunk, { type: 'error' }> => chunk.type === 'error');
+    expect(error?.content).toContain('실패 상태');
+    expect(error?.content).not.toContain('123');
   });
 
   it.each(['claude', 'codex'] as const)('does not promote malformed %s JSON stdout to an answer', async (provider) => {
