@@ -569,7 +569,16 @@ export class InputController {
 
     const shouldForceCurrentNoteScope =
       rawCurrentNoteScope || slashTemplateCurrentNoteScope;
-    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath && shouldForceCurrentNoteScope
+    // Headless agy auto-denies the shell tool its model uses to open a file, so in a
+    // read-only mode a path-only prompt leaves it unable to answer about the note.
+    const shouldInlineNoteForAgy = plugin.settings.selectedProvider === 'agy'
+      && resolveEffectivePermissionMode(
+        plugin.settings.permissionMode,
+        plugin.settings.selectedProvider,
+        plugin.settings.blanketWriteAcknowledged
+      ) !== 'agent';
+    const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath
+      && (shouldForceCurrentNoteScope || shouldInlineNoteForAgy)
       ? this.readCurrentNoteContent(currentNotePath)
       : Promise.resolve<string | null>(null);
 
@@ -607,6 +616,11 @@ export class InputController {
         } else {
           promptToSend = prependCurrentNote(promptToSend, currentNotePath);
         }
+      } else if (shouldInlineNoteForAgy) {
+        const currentNoteContent = await currentNoteContentPromise;
+        promptToSend = currentNoteContent !== null
+          ? prependCurrentNoteContent(promptToSend, currentNotePath, currentNoteContent)
+          : prependCurrentNote(promptToSend, currentNotePath);
       } else {
         promptToSend = prependCurrentNote(promptToSend, currentNotePath);
       }

@@ -578,6 +578,57 @@ describe('InputController - Message Queue', () => {
       expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3].allowedTools).toBeUndefined();
     });
 
+    // agy in a read-only mode cannot read the note itself: headless agy auto-denies the
+    // shell tool its model reaches for, so a path-only prompt ends with no answer.
+    it('inlines the attached current note body for agy in ask mode', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'agy';
+      (deps.plugin.settings as any).permissionMode = 'ask';
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '이 내용이 뭐야?' });
+
+      expect(promptSeen).toContain('<current_note_content path="active.md">');
+      expect(promptSeen).toContain('ACTIVE NOTE BODY');
+      expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]?.allowedTools).toBeUndefined();
+    });
+
+    it('does not read a current note the user excluded, even for agy in ask mode', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'agy';
+      (deps.plugin.settings as any).permissionMode = 'ask';
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('EXCLUDED NOTE BODY');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(false),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '이 내용이 뭐야?' });
+
+      expect(readCurrentNoteContent).not.toHaveBeenCalled();
+      expect(promptSeen).not.toContain('EXCLUDED NOTE BODY');
+    });
+
     it('detects current-note scope after argument substitution but before side-effect expansion', async () => {
       (deps.plugin.settings as any).selectedProvider = 'copilot';
       const slashCommandManager = {
