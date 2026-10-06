@@ -57,17 +57,24 @@ describe('startProviderInstall for agy', () => {
   beforeEach(() => spawnMock.mockReset());
 
   it('spawns the installer with stdin closed and reports a failing exit', async () => {
+    if (process.platform !== 'win32' && process.platform !== 'darwin') return;
     const child = fakeChild();
     spawnMock.mockReturnValue(child);
     const session = startProviderInstall('agy', () => undefined);
-    const expected = resolveInstallSpawn('agy');
-    expect(expected).not.toBeNull();
+    const expected = resolveInstallSpawn('agy') as NonNullable<ReturnType<typeof resolveInstallSpawn>>;
 
-    expect(spawnMock).toHaveBeenCalledWith(expected!.command, expected!.args, expect.objectContaining({
+    expect(spawnMock).toHaveBeenCalledWith(expected.command, expected.args, expect.objectContaining({
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     }));
     child.emit('close', 1);
-    await expect(session.done).resolves.toMatchObject({ success: false, error: `${expected!.label} exited with code 1` });
+    await expect(session.done).resolves.toMatchObject({ success: false, error: `${expected.label} exited with code 1` });
+  });
+
+  it('runs nothing where agy has no official installer', async () => {
+    if (process.platform === 'win32' || process.platform === 'darwin') return;
+    const session = startProviderInstall('agy', () => undefined);
+    expect(spawnMock).not.toHaveBeenCalled();
+    await expect(session.done).resolves.toMatchObject({ success: false });
   });
 });
