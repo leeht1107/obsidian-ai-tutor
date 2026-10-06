@@ -232,3 +232,28 @@ export function startProviderLogin(
     done,
   };
 }
+
+/**
+ * Open a CLI in its own terminal window for a login the plugin cannot drive (agy
+ * signs in from its interactive screen). A detached child with ignored stdio gets
+ * a console but no usable input, so Windows goes through `start`, which creates a
+ * real one; macOS hands the file to Terminal. Returns false when nothing opened.
+ */
+export function openLoginTerminal(cliPath: string, platform: NodeJS.Platform = process.platform): boolean {
+  try {
+    let child: ChildProcess;
+    if (platform === 'win32') {
+      // The empty argument is start's window title; without it a quoted path is taken as the title.
+      child = spawn('cmd.exe', ['/d', '/c', 'start', '', cliPath], { windowsHide: true, detached: true, stdio: 'ignore' });
+    } else if (platform === 'darwin') {
+      child = spawn('open', ['-a', 'Terminal', cliPath], { detached: true, stdio: 'ignore' });
+    } else {
+      return false;
+    }
+    child.on('error', () => { /* nothing to recover: the copyable command stays on screen */ });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}

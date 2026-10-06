@@ -18,9 +18,11 @@ jest.mock('@/core/setup/nodeInstall', () => ({
 
 import { App } from 'obsidian';
 
+import * as providerRegistry from '@/core/providers/providerRegistry';
 import { formatManualCliCommand, getManualInstallCommand, getProviderDescriptor } from '@/core/providers/providerRegistry';
 import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager } from '@/core/setup/nodeInstall';
+import * as providerLogin from '@/core/setup/providerLogin';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { SetupWizardModal } from '@/ui/modals/SetupWizardModal';
 
@@ -150,5 +152,35 @@ describe('the agy install failure screen', () => {
       .filter((call: any[]) => call[0] === 'code')
       .map((call: any[]) => call[1].text);
     expect(commands).toContain(getManualInstallCommand(getProviderDescriptor('agy')));
+  });
+});
+
+describe('the agy login screen opens a terminal for the sign-in', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function loginScreen() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wizard = makeWizard() as any;
+    wizard.current = 'agy';
+    wizard.phase = 'login';
+    wizard.render();
+    return renderedButtons(wizard);
+  }
+
+  it('opens the discovered agy when the student presses 로그인 창 열기', () => {
+    if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('C:\\agy\\agy.exe');
+    const open = jest.spyOn(providerLogin, 'openLoginTerminal').mockReturnValue(true);
+
+    const button = loginScreen().find((b) => b.text === '로그인 창 열기');
+    expect(button).toBeDefined();
+    button!.click();
+
+    expect(open).toHaveBeenCalledWith('C:\\agy\\agy.exe');
+  });
+
+  it('offers no button when agy was not found', () => {
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue(null);
+    expect(loginScreen().some((b) => b.text === '로그인 창 열기')).toBe(false);
   });
 });

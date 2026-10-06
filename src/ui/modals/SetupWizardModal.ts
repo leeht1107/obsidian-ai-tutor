@@ -34,6 +34,7 @@ import {
   canDriveLogin,
   getLoginRecipe,
   type LoginSession,
+  openLoginTerminal,
   startProviderLogin,
 } from '../../core/setup/providerLogin';
 import { hasLoginCheck } from '../../core/setup/providerReadiness';
@@ -764,10 +765,17 @@ export class SetupWizardModal extends Modal {
         text: `${descriptor.label}에는 플러그인이 실행할 수 있는 로그인 명령이 없습니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에서 아래 명령을 실행해 직접 로그인한 뒤 "다시 확인"을 눌러주세요.`,
         cls: 'ocop-setup-desc',
       });
-      this.renderCmdRow(wrap, formatManualCliCommand(
-        descriptor.loginCommand,
-        resolveProviderCliPath(this.plugin.settings, this.provider)
-      ));
+      const cliPath = resolveProviderCliPath(this.plugin.settings, this.provider);
+      this.renderCmdRow(wrap, formatManualCliCommand(descriptor.loginCommand, cliPath));
+      if (cliPath && (process.platform === 'win32' || process.platform === 'darwin')) {
+        // The sign-in happens on agy's own interactive screen, which needs a real terminal.
+        const open = wrap.createEl('button', { text: '로그인 창 열기', cls: 'mod-cta ocop-setup-action-btn' });
+        open.addEventListener('click', () => {
+          if (!openLoginTerminal(cliPath)) {
+            new Notice('터미널을 열지 못했습니다. 위 명령을 직접 실행해 주세요.');
+          }
+        });
+      }
       this.renderRecheckButton(wrap);
       this.renderSkipStepButton(wrap);
       return;
