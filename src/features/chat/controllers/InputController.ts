@@ -571,12 +571,15 @@ export class InputController {
       rawCurrentNoteScope || slashTemplateCurrentNoteScope;
     // Headless agy auto-denies the shell tool its model uses to open a file, so in a
     // read-only mode a path-only prompt leaves it unable to answer about the note.
+    // Mirrors CopilotBridgeService.effectivePermissionMode: the request-level read-only
+    // override (set below for learning sessions) and the unsafe-agent gate both apply.
     const shouldInlineNoteForAgy = plugin.settings.selectedProvider === 'agy'
-      && resolveEffectivePermissionMode(
+      && !(plugin.settings.allowUnsafeAgyAgent && resolveEffectivePermissionMode(
         plugin.settings.permissionMode,
         plugin.settings.selectedProvider,
-        plugin.settings.blanketWriteAcknowledged
-      ) !== 'agent';
+        plugin.settings.blanketWriteAcknowledged,
+        Boolean(queryOptions?.readOnly || learningRequest)
+      ) === 'agent');
     const currentNoteContentPromise = shouldSendCurrentNote && currentNotePath
       && (shouldForceCurrentNoteScope || shouldInlineNoteForAgy)
       ? this.readCurrentNoteContent(currentNotePath)

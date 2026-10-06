@@ -605,6 +605,59 @@ describe('InputController - Message Queue', () => {
       expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]?.allowedTools).toBeUndefined();
     });
 
+    // The inline decision must follow the mode agy is actually dispatched in, not the toggle:
+    // a learning session forces read-only, and agy stays read-only unless unsafe agent is on.
+    it.each([
+      ['an active learning session', true, () => {
+        deps.state.socraticSession = { maxDepth: 20, currentDepth: 2, scopeLabel: 'socratic', supportLevel: 1, isSummaryPhase: false } as any;
+      }],
+      ['unsafe agy agent disabled', false, () => {}],
+    ])('inlines the attached note for agy dispatched read-only by %s', async (_label, allowUnsafe, arrange) => {
+      (deps.plugin.settings as any).selectedProvider = 'agy';
+      (deps.plugin.settings as any).permissionMode = 'agent';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['agy'];
+      (deps.plugin.settings as any).allowUnsafeAgyAgent = allowUnsafe;
+      (arrange as () => void)();
+      (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '이 내용이 뭐야?' });
+
+      expect(promptSeen).toContain('ACTIVE NOTE BODY');
+    });
+
+    it('keeps agy path-only when it is really dispatched in agent mode', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'agy';
+      (deps.plugin.settings as any).permissionMode = 'agent';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['agy'];
+      (deps.plugin.settings as any).allowUnsafeAgyAgent = true;
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
+      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '이 내용이 뭐야?' });
+
+      expect(readCurrentNoteContent).not.toHaveBeenCalled();
+    });
+
     it('does not read a current note the user excluded, even for agy in ask mode', async () => {
       (deps.plugin.settings as any).selectedProvider = 'agy';
       (deps.plugin.settings as any).permissionMode = 'ask';
