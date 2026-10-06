@@ -17,7 +17,7 @@
   - GitHub Copilot: GitHub 계정 + Copilot 사용 권한
   - Claude Code: Anthropic Claude Code CLI 계정
   - Codex: OpenAI Codex CLI 계정
-  - agy(Antigravity): agy 자체 계정 (설치/로그인은 안내형 수동 절차)
+  - agy(Antigravity): agy 자체 계정 (설치 마법사가 동의를 받은 뒤 공식 설치 스크립트로 설치, 로그인은 새 창에서 직접)
 
 중요:
 
@@ -51,7 +51,7 @@ provider는 항상 하나뿐입니다.
 | GitHub Copilot | GitHub 계정 + Copilot 사용 권한 |
 | Claude Code | Anthropic 계정 |
 | Codex | OpenAI 계정 |
-| agy (Antigravity) | agy 자체 계정, 수동 설치/로그인 |
+| agy (Antigravity) | agy 자체 계정, 마법사 설치(동의 후) · 새 창에서 로그인 |
 
 - 학교나 조직 계정이라면 관리자 정책에 따라 일부 모델이 보이지 않을 수 있습니다.
 - 조직 계정이라면 관리자가 특정 CLI 사용을 막아두었을 수도 있습니다.
@@ -211,8 +211,9 @@ codex login
 
 ### 3-4. agy (Antigravity)
 
-- agy는 이 플러그인이 자동으로 설치해주는 npm 패키지가 없습니다. **안내형 수동 설치**만 지원합니다. Node.js는 필요 없습니다.
-- 아래 공식 설치 명령을 직접 실행하세요. (출처: [Google Antigravity CLI codelab](https://codelabs.developers.google.com/antigravity-cli-hands-on))
+- agy는 npm 패키지가 없고 Node.js도 필요 없습니다.
+- Windows/Mac에서는 플러그인 설정의 설치 마법사에서 **설치 시작**을 누르면 아래 공식 설치 명령을 그대로 실행합니다. 로그인은 마법사의 **로그인 창 열기**를 누르면 새 창에서 진행됩니다.
+- 직접 설치하려면 아래 공식 설치 명령을 실행하세요. (출처: [Google Antigravity CLI codelab](https://codelabs.developers.google.com/antigravity-cli-hands-on))
 
 Windows (PowerShell):
 
@@ -239,7 +240,7 @@ agy
 ```
 
 - 정상 동작이 확인되면 Obsidian 플러그인 설정에서 provider를 agy로 선택하고 "설치 완료 확인"을 누르면 됩니다.
-- 이 플러그인은 agy를 위해 원격 설치 스크립트를 실행하지 않습니다.
+- 이 플러그인은 학생이 **설치 시작**을 눌렀을 때만, 실행할 명령을 먼저 보여준 뒤 agy 공식 설치 스크립트를 실행합니다.
 - Ask 모드에서는 첨부된 현재 노트는 함께 전달되지만, @로 언급한 다른 파일·폴더는 agy가 읽기를 거부할 수 있습니다. 그런 질문은 다른 provider를 사용해 주세요.
 
 ### 공통 문제: 명령을 찾을 수 없다고 나올 때

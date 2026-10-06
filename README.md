@@ -39,7 +39,7 @@ provider supports today.
 | GitHub Copilot | `npm install -g @github/copilot` | `copilot login` | Standalone `copilot` CLI, not `gh copilot`. WinGet (Windows) / Homebrew (macOS/Linux) also work; the plugin's auto-install uses npm because it works cross-platform. |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | `claude` (interactive login on first run) | |
 | Codex | `npm install -g @openai/codex` | `codex login` | |
-| agy (Antigravity) | Official installer (commands below) | `agy` | No npm package and no Node.js needed; the plugin never runs a remote install script for agy. Recheck after the CLI's own login flow. |
+| agy (Antigravity) | Official installer (commands below) | `agy` | No npm package and no Node.js needed. On Windows/macOS the setup wizard runs the official install script only after you press **설치 시작**, showing the exact command first; **로그인 창 열기** opens agy in a new terminal to sign in. |
 
 agy official install ([Google Antigravity CLI codelab](https://codelabs.developers.google.com/antigravity-cli-hands-on)):
 
@@ -147,7 +147,7 @@ login command.
 |---|---|---|---|---|
 | Chat + Context | ✅ | ✅ | ✅ | ✅ |
 | Quiz / Socratic learning modes | ✅ | ✅ | ✅ | ✅* |
-| Auto-install (npm) | ✅ | ✅ | ✅ | ❌ guided manual only |
+| Auto-install | ✅ npm | ✅ npm | ✅ npm | ✅ official install script, after consent (Windows/macOS) |
 | Tool approvals, MCP, plan mode, live diffs | ✅ | native CLI output only | native CLI output only | native CLI output only |
 | Disable Web search for one request | ✅ | ✅ | ✅ | ❌ Agy may still search while the global Web toggle is off |
 | Dispatch model | 1 native CLI process per request, no shared runtime/proxy/relay | same | same | same |
