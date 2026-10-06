@@ -18,6 +18,10 @@ export interface ProviderDescriptor {
   /** npm package this CLI ships in. Lets us find its real entry point when a
    *  Windows .cmd shim cannot be parsed, instead of falling back to a shell. */
   npmPackage?: string;
+  /** Official install command the student runs themselves; the plugin never runs it.
+   *  Only for a CLI with no npm recipe, which therefore needs no Node.js either. */
+  manualInstallCommand?: string;
+  windowsManualInstallCommand?: string;
   status: ProviderStatus;
 }
 
@@ -26,8 +30,16 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
   { id: 'copilot', label: 'GitHub Copilot', command: 'copilot', loginCommand: 'copilot login', installCommand: 'npm install -g @github/copilot', windowsInstallCommand: 'npm install -g @github/copilot', npmPackage: '@github/copilot', status: 'ready' },
   { id: 'claude', label: 'Claude Code', command: 'claude', loginCommand: 'claude', installCommand: 'npm install -g @anthropic-ai/claude-code', windowsInstallCommand: 'npm install -g @anthropic-ai/claude-code', npmPackage: '@anthropic-ai/claude-code', status: 'ready' },
   { id: 'codex', label: 'OpenAI Codex', command: 'codex', loginCommand: 'codex login', installCommand: 'npm install -g @openai/codex', windowsInstallCommand: 'npm install -g @openai/codex', npmPackage: '@openai/codex', status: 'ready' },
-  { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', status: 'manual-setup' },
+  // Commands from Google's Antigravity CLI codelab (codelabs.developers.google.com/antigravity-cli-hands-on).
+  { id: 'agy', label: 'Antigravity (agy)', command: 'agy', loginCommand: 'agy', manualInstallCommand: 'curl -fsSL https://antigravity.google/cli/install.sh | bash', windowsManualInstallCommand: 'irm https://antigravity.google/cli/install.ps1 | iex', status: 'manual-setup' },
 ];
+
+export function getManualInstallCommand(
+  descriptor: ProviderDescriptor,
+  platform: NodeJS.Platform = process.platform
+): string | undefined {
+  return platform === 'win32' ? descriptor.windowsManualInstallCommand : descriptor.manualInstallCommand;
+}
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 

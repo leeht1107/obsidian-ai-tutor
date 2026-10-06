@@ -15,7 +15,7 @@
 import { type App, Modal, Notice } from 'obsidian';
 import * as os from 'os';
 
-import { getConfiguredProviderCliPath, getProviderDescriptor, type ProviderId,resolveProviderCliPath } from '../../core/providers/providerRegistry';
+import { getConfiguredProviderCliPath, getManualInstallCommand, getProviderDescriptor, type ProviderId,resolveProviderCliPath } from '../../core/providers/providerRegistry';
 import {
   checkProviderSetupStatus,
   type InstallSession,
@@ -346,7 +346,7 @@ export class SetupWizardModal extends Modal {
       this.settleStep();
       return;
     }
-    if (!npmFound) {
+    if (!npmFound && descriptor.installCommand) {
       // Node.js is not a per-provider concept: the first entry that installs it
       // makes every later entry see npmFound, so no queue index is special-cased.
       this.packageManager = detectPackageManager();
@@ -556,7 +556,7 @@ export class SetupWizardModal extends Modal {
       // student was never offered the login this wizard can actually drive.
       else if (state === 'unknown') this.phase = 'unverified';
       else this.phase = 'login';
-    } else if (!npmFound) {
+    } else if (!npmFound && descriptor.installCommand) {
       // Node.js is the missing piece. The plugin can install it on a machine
       // with a package manager instead of handing over a download link.
       this.packageManager = detectPackageManager();
@@ -956,7 +956,10 @@ export class SetupWizardModal extends Modal {
   private renderManual() {
     const descriptor = getProviderDescriptor(this.provider);
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
-    const needsNode = !checkProviderSetupStatus(this.provider, this.plugin.settings).npmFound;
+    // agy installs from its own script, so Node.js is never what it is missing.
+    const needsNode = Boolean(descriptor.installCommand)
+      && !checkProviderSetupStatus(this.provider, this.plugin.settings).npmFound;
+    const manualInstallCommand = getManualInstallCommand(descriptor);
 
     if (needsNode && this.nodeInstallRan) {
       // Windows: the install worked, but a running Obsidian keeps the PATH it
@@ -978,10 +981,12 @@ export class SetupWizardModal extends Modal {
       open.addEventListener('click', () => { window.open(NODE_DOWNLOAD_URL, '_blank'); });
     } else {
       wrap.createEl('p', {
-        text: `${descriptor.label}는 공식 안내대로 직접 설치해야 합니다.`,
+        text: manualInstallCommand
+          ? `${descriptor.label}는 공식 설치 명령을 직접 실행해야 합니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에 아래 명령을 붙여넣어 실행한 뒤 "다시 확인"을 눌러주세요.`
+          : `${descriptor.label}는 공식 안내대로 직접 설치해야 합니다.`,
         cls: 'ocop-setup-desc',
       });
-      this.renderCmdRow(wrap, descriptor.installCommand ?? descriptor.command);
+      this.renderCmdRow(wrap, descriptor.installCommand ?? manualInstallCommand ?? descriptor.command);
     }
 
     this.renderRecheckButton(wrap);
