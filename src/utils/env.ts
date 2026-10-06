@@ -221,6 +221,11 @@ function getExtraBinaryPaths(): string[] {
       paths.push(path.join(home, 'scoop', 'apps', 'nodejs', 'current'));
     }
 
+    // agy (Antigravity CLI): its installer writes %LOCALAPPDATA%\agy\bin\agy.exe
+    if (localAppData) {
+      paths.push(path.join(localAppData, 'agy', 'bin'));
+    }
+
     // Docker
     paths.push(path.join(programFiles, 'Docker', 'Docker', 'resources', 'bin'));
 

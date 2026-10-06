@@ -231,6 +231,16 @@ describe('getEnhancedPath', () => {
       // Should have added some extra paths beyond just process.env.PATH
       expect(segments.length).toBeGreaterThan(1);
     });
+
+    // The agy installer puts agy.exe here, and a running Obsidian keeps its pre-install
+    // PATH — without this entry the wizard's recheck cannot find a fresh install.
+    (isWindows ? describe : describe.skip)('on Windows', () => {
+      it('includes the agy install directory', () => {
+        process.env.LOCALAPPDATA = 'C:\\Users\\u\\AppData\\Local';
+        const segments = getEnhancedPath().split(SEP);
+        expect(segments).toContain(path.join('C:\\Users\\u\\AppData\\Local', 'agy', 'bin'));
+      });
+    });
   });
 
   describe('CLI path parameter for Node.js detection', () => {
