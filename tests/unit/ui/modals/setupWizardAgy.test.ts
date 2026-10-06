@@ -69,14 +69,36 @@ describe('the setup wizard for agy on a machine without Node.js', () => {
 describe('the agy login command', () => {
   it('invokes the discovered executable through the PowerShell call operator on Windows', () => {
     expect(formatManualCliCommand('agy', 'C:\\Users\\홍 길동\\AppData\\Local\\agy\\bin\\agy.exe', 'win32'))
-      .toBe('& "C:\\Users\\홍 길동\\AppData\\Local\\agy\\bin\\agy.exe"');
+      .toBe("& 'C:\\Users\\홍 길동\\AppData\\Local\\agy\\bin\\agy.exe'");
   });
 
   it('quotes the discovered executable elsewhere', () => {
-    expect(formatManualCliCommand('agy', '/Users/s/.local/bin/agy', 'darwin')).toBe('"/Users/s/.local/bin/agy"');
+    expect(formatManualCliCommand('agy', "/Users/o'b/.local/bin/agy", 'darwin')).toBe("'/Users/o'\\''b/.local/bin/agy'");
+  });
+
+  // PowerShell expands $ and backticks inside double quotes; a Windows profile name may
+  // contain either, so only a single-quoted literal names the file exactly.
+  it('keeps $, backticks and apostrophes literal in PowerShell', () => {
+    expect(formatManualCliCommand('agy', "C:\\Users\\a$b`c'd\\agy.exe", 'win32'))
+      .toBe("& 'C:\\Users\\a$b`c''d\\agy.exe'");
   });
 
   it('keeps the plain command when nothing was discovered', () => {
     expect(formatManualCliCommand('agy', null, 'win32')).toBe('agy');
+  });
+});
+
+describe('the agy login screen after a recheck finds the fresh install', () => {
+  it('shows the terminal login, not the in-window login agy cannot drive', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wizard = makeWizard() as any;
+    wizard.current = 'agy';
+    wizard.phase = 'login';
+    wizard.render();
+    // The obsidian mock does not track children: collect every text handed to createEl.
+    const wrap = wizard.contentEl.createDiv.mock.results[0].value;
+    const text = wrap.createEl.mock.calls.map((call: any[]) => call[1]?.text ?? '').join('\n');
+    expect(text).not.toContain('터미널은 필요 없습니다');
+    expect(text).toContain('직접 로그인');
   });
 });

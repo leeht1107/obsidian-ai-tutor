@@ -757,7 +757,8 @@ export class SetupWizardModal extends Modal {
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
     wrap.createEl('p', { text: `${descriptor.label} 로그인`, cls: 'ocop-setup-status' });
 
-    if (this.manualLoginRequired) {
+    // A recheck can land here without beginLogin having run, so ask the provider too.
+    if (this.manualLoginRequired || !canDriveLogin(this.provider)) {
       // agy only: there is no login subcommand to drive.
       wrap.createEl('p', {
         text: `${descriptor.label}에는 플러그인이 실행할 수 있는 로그인 명령이 없습니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에서 아래 명령을 실행해 직접 로그인한 뒤 "다시 확인"을 눌러주세요.`,

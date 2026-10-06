@@ -45,8 +45,11 @@ export function formatManualCliCommand(
 ): string {
   if (!resolvedPath) return command;
   const rest = command.split(' ').slice(1);
-  // PowerShell runs a quoted path only through its call operator.
-  const invoke = platform === 'win32' ? `& "${resolvedPath}"` : `"${resolvedPath}"`;
+  // Single quotes are literal in both shells, so $ and backticks in a profile name survive.
+  // PowerShell escapes a quote by doubling it and runs a quoted path only through `&`.
+  const invoke = platform === 'win32'
+    ? `& '${resolvedPath.replace(/'/g, "''")}'`
+    : `'${resolvedPath.replace(/'/g, "'\\''")}'`;
   return [invoke, ...rest].join(' ');
 }
 
