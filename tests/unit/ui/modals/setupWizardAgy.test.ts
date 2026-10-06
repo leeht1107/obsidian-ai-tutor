@@ -19,13 +19,26 @@ jest.mock('@/core/setup/nodeInstall', () => ({
 import { App } from 'obsidian';
 
 import { formatManualCliCommand, getManualInstallCommand, getProviderDescriptor } from '@/core/providers/providerRegistry';
-import { checkProviderSetupStatus } from '@/core/setup/AutoSetupService';
+import { checkProviderSetupStatus, startProviderInstall } from '@/core/setup/AutoSetupService';
 import { detectPackageManager } from '@/core/setup/nodeInstall';
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { SetupWizardModal } from '@/ui/modals/SetupWizardModal';
 
 const setupStatus = checkProviderSetupStatus as jest.MockedFunction<typeof checkProviderSetupStatus>;
 const packageManager = detectPackageManager as jest.MockedFunction<typeof detectPackageManager>;
+const install = startProviderInstall as jest.MockedFunction<typeof startProviderInstall>;
+
+/** Every text the obsidian mock was handed under the first section, plus its buttons. */
+function renderedButtons(wizard: any): { text: string; click: () => void }[] {
+  const wrap = wizard.contentEl.createDiv.mock.results[0].value;
+  return wrap.createEl.mock.calls
+    .map((call: any[], i: number) => ({ call, el: wrap.createEl.mock.results[i].value }))
+    .filter(({ call }: any) => call[0] === 'button')
+    .map(({ call, el }: any) => ({
+      text: call[1]?.text ?? '',
+      click: () => el.addEventListener.mock.calls.find((c: any[]) => c[0] === 'click')?.[1](),
+    }));
+}
 
 function makeWizard() {
   const adapter = { exists: async () => false, read: async () => '', write: async () => undefined };
@@ -100,5 +113,42 @@ describe('the agy login screen after a recheck finds the fresh install', () => {
     const text = wrap.createEl.mock.calls.map((call: any[]) => call[1]?.text ?? '').join('\n');
     expect(text).not.toContain('터미널은 필요 없습니다');
     expect(text).toContain('직접 로그인');
+  });
+});
+
+describe('the agy install screen runs the official installer on consent', () => {
+  it('offers 설치 시작, and pressing it starts the agy install', async () => {
+    // The installer recipes exist for Windows and macOS only.
+    if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+    install.mockReturnValue({ cancel: jest.fn(), done: new Promise(() => undefined) });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wizard = makeWizard() as any;
+    await wizard.chooseProvider('agy');
+    expect(wizard.phase).toBe('manual');
+
+    const start = renderedButtons(wizard).find((b) => b.text === '설치 시작');
+    expect(start).toBeDefined();
+    start!.click();
+
+    expect(wizard.phase).toBe('installing');
+    expect(install).toHaveBeenCalledWith('agy', expect.any(Function));
+  });
+});
+
+describe('the agy install failure screen', () => {
+  it('offers the official install command to run by hand, not the bare name', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wizard = makeWizard() as any;
+    wizard.current = 'agy';
+    wizard.phase = 'error';
+    wizard.errorDetail = 'PowerShell exited with code 1';
+    wizard.render();
+
+    const wrap = wizard.contentEl.createDiv.mock.results[0].value;
+    const commands = wrap.createDiv.mock.results
+      .flatMap((r: any) => r.value.createEl.mock.calls)
+      .filter((call: any[]) => call[0] === 'code')
+      .map((call: any[]) => call[1].text);
+    expect(commands).toContain(getManualInstallCommand(getProviderDescriptor('agy')));
   });
 });

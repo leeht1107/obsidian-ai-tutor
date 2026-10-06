@@ -688,7 +688,7 @@ export class SetupWizardModal extends Modal {
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
     wrap.createEl('p', { text: `${descriptor.label} 설치 중…`, cls: 'ocop-setup-status' });
     if (this.installLog.length === 0) {
-      wrap.createEl('p', { text: descriptor.installCommand ?? '', cls: 'ocop-setup-hint' });
+      wrap.createEl('p', { text: descriptor.installCommand ?? getManualInstallCommand(descriptor) ?? '', cls: 'ocop-setup-hint' });
     }
     this.renderLog(wrap, this.installLog);
     // A stalled npm install would otherwise hold the wizard with no way out.
@@ -984,13 +984,28 @@ export class SetupWizardModal extends Modal {
       const open = wrap.createEl('button', { text: 'nodejs.org 열기', cls: 'mod-cta ocop-setup-action-btn' });
       open.addEventListener('click', () => { window.open(NODE_DOWNLOAD_URL, '_blank'); });
     } else {
+      // A script installer runs only on this click, and the student sees the exact command first.
+      const canRunInstaller = !descriptor.installCommand && Boolean(manualInstallCommand)
+        && (process.platform === 'win32' || process.platform === 'darwin');
+      const shellName = process.platform === 'win32' ? 'PowerShell' : '터미널';
       wrap.createEl('p', {
-        text: manualInstallCommand
-          ? `${descriptor.label}는 공식 설치 명령을 직접 실행해야 합니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에 아래 명령을 붙여넣어 실행한 뒤 "다시 확인"을 눌러주세요.`
-          : `${descriptor.label}는 공식 안내대로 직접 설치해야 합니다.`,
+        text: canRunInstaller
+          ? `${descriptor.label}는 공식 설치 스크립트로 설치합니다. "설치 시작"을 누르면 아래 명령을 이 컴퓨터의 ${shellName}에서 그대로 실행합니다. 직접 하려면 명령을 복사해 실행한 뒤 "다시 확인"을 눌러주세요.`
+          : manualInstallCommand
+            ? `${descriptor.label}는 공식 설치 명령을 직접 실행해야 합니다. ${shellName}에 아래 명령을 붙여넣어 실행한 뒤 "다시 확인"을 눌러주세요.`
+            : `${descriptor.label}는 공식 안내대로 직접 설치해야 합니다.`,
         cls: 'ocop-setup-desc',
       });
       this.renderCmdRow(wrap, descriptor.installCommand ?? manualInstallCommand ?? descriptor.command);
+      if (canRunInstaller) {
+        const start = wrap.createEl('button', { text: '설치 시작', cls: 'mod-cta ocop-setup-action-btn' });
+        start.addEventListener('click', () => {
+          this.installLog = [];
+          this.phase = 'installing';
+          this.render();
+          void this.runInstall();
+        });
+      }
     }
 
     this.renderRecheckButton(wrap);
@@ -1006,8 +1021,11 @@ export class SetupWizardModal extends Modal {
     const wrap = this.contentEl.createDiv({ cls: 'ocop-setup-section' });
     wrap.createEl('p', { text: '설치에 실패했습니다', cls: 'ocop-setup-warn' });
     if (this.errorDetail) this.renderLog(wrap, [this.errorDetail]);
-    wrap.createEl('p', { text: '아래 명령을 터미널에서 직접 실행해 주세요.', cls: 'ocop-setup-desc' });
-    this.renderCmdRow(wrap, descriptor.installCommand ?? descriptor.command);
+    wrap.createEl('p', {
+      text: `아래 명령을 ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에서 직접 실행한 뒤 "다시 확인"을 눌러주세요.`,
+      cls: 'ocop-setup-desc',
+    });
+    this.renderCmdRow(wrap, descriptor.installCommand ?? getManualInstallCommand(descriptor) ?? descriptor.command);
     this.renderRecheckButton(wrap);
     this.renderSkipStepButton(wrap);
   }

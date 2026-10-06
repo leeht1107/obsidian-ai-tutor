@@ -168,19 +168,68 @@ export interface InstallSession {
  * The wizard needs this because closing it mid-install otherwise leaves a global
  * npm install running with no window and no way to stop it.
  */
+export interface InstallSpawn {
+  command: string;
+  args: string[];
+  shell: boolean;
+  detached: boolean;
+  /** Names the program in an exit-code error, since it is not always npm. */
+  label: string;
+}
+
+/**
+ * What to run for a provider with no npm package: its official installer script,
+ * which the wizard only starts after the student presses 설치 시작.
+ *
+ * PowerShell is named by absolute path because Obsidian's inherited PATH is not
+ * trustworthy, and its console code page would mangle Korean output without UTF-8.
+ */
+export function resolveInstallSpawn(
+  providerId: ProviderId,
+  platform: NodeJS.Platform = process.platform,
+  systemRoot: string | undefined = process.env.SystemRoot,
+): InstallSpawn | null {
+  const descriptor = getProviderDescriptor(providerId);
+  if (platform === 'win32' && descriptor.windowsManualInstallCommand) {
+    return {
+      command: path.join(systemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      args: [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+        `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${descriptor.windowsManualInstallCommand}`,
+      ],
+      shell: false,
+      detached: false,
+      label: 'PowerShell',
+    };
+  }
+  if (platform === 'darwin' && descriptor.manualInstallCommand) {
+    return { command: '/bin/bash', args: ['-c', descriptor.manualInstallCommand], shell: false, detached: true, label: 'bash' };
+  }
+  return null;
+}
+
 export function startProviderInstall(providerId: ProviderId, onProgress: (msg: string) => void): InstallSession {
   const descriptor = getProviderDescriptor(providerId);
   const packageName = providerId === 'copilot'
     ? '@github/copilot'
     : descriptor.installCommand?.split(' ').slice(3).join(' ');
   const npmPath = findNpmPath();
+  const scriptSpawn = packageName ? null : resolveInstallSpawn(providerId);
 
-  if (!packageName || !npmPath) {
+  if (!scriptSpawn && (!packageName || !npmPath)) {
     const error = !packageName
       ? '이 provider는 공식 package-manager 설치 명령이 없어 수동 설치가 필요합니다.'
       : 'npm을 찾을 수 없습니다.';
     return { cancel: () => { /* nothing started */ }, done: Promise.resolve({ success: false, error }) };
   }
+  const install: InstallSpawn = scriptSpawn ?? {
+    command: npmPath as string,
+    args: ['install', '-g', packageName as string],
+    // shell:true is needed on Windows for the .cmd shim, and rules out detaching.
+    shell: isWindows,
+    detached: !isWindows,
+    label: 'npm',
+  };
 
   let settled = false;
   /** The result the child's own exit should report, once we asked it to stop. */
@@ -196,11 +245,14 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
     resolveDone(result);
   };
 
-  const child = spawn(npmPath, ['install', '-g', packageName], {
+  const child = spawn(install.command, install.args, {
     env: { ...process.env, PATH: getEnhancedPath() },
-    // shell:true is needed on Windows for the .cmd shim, and rules out detaching.
-    shell: isWindows,
-    detached: !isWindows,
+    shell: install.shell,
+    detached: install.detached,
+    // Closed stdin: an installer that stops to ask exits instead of hanging the wizard.
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // Its log streams into the wizard; a console window would only flash over it.
+    windowsHide: true,
   });
 
   const teardown = () => {
@@ -226,7 +278,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
     } else if (code === 0) {
       finish(verifyProviderInstall(providerId));
     } else {
-      finish({ success: false, error: errors.join('\n') || `npm exited with code ${code ?? '?'}` });
+      finish({ success: false, error: errors.join('\n') || `${install.label} exited with code ${code ?? '?'}` });
     }
   });
 
@@ -254,7 +306,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
   };
 }
 
-/** Installs only a provider with a verified npm recipe; script-only providers stay manual. */
+/** Installs a provider with an npm recipe, or one whose official installer script is known. */
 export async function installProviderCLI(providerId: ProviderId, onProgress: (msg: string) => void): Promise<InstallResult> {
   return startProviderInstall(providerId, onProgress).done;
 }
