@@ -184,3 +184,23 @@ describe('the agy login screen opens a terminal for the sign-in', () => {
     expect(loginScreen().some((b) => b.text === '로그인 창 열기')).toBe(false);
   });
 });
+
+describe('the agy unverified screen after a recheck that could not decide', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('names the discovered agy, not a bare command the terminal may not resolve', () => {
+    jest.spyOn(providerRegistry, 'resolveProviderCliPath').mockReturnValue('C:\\agy\\agy.exe');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wizard = makeWizard() as any;
+    wizard.current = 'agy';
+    wizard.phase = 'unverified';
+    wizard.render();
+
+    const wrap = wizard.contentEl.createDiv.mock.results[0].value;
+    const commands = wrap.createDiv.mock.results
+      .flatMap((r: any) => r.value.createEl.mock.calls)
+      .filter((call: any[]) => call[0] === 'code')
+      .map((call: any[]) => call[1].text);
+    expect(commands).toEqual([providerRegistry.formatManualCliCommand('agy', 'C:\\agy\\agy.exe')]);
+  });
+});

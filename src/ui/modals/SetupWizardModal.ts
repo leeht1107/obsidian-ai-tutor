@@ -765,17 +765,7 @@ export class SetupWizardModal extends Modal {
         text: `${descriptor.label}에는 플러그인이 실행할 수 있는 로그인 명령이 없습니다. ${process.platform === 'win32' ? 'PowerShell' : '터미널'}에서 아래 명령을 실행해 직접 로그인한 뒤 "다시 확인"을 눌러주세요.`,
         cls: 'ocop-setup-desc',
       });
-      const cliPath = resolveProviderCliPath(this.plugin.settings, this.provider);
-      this.renderCmdRow(wrap, formatManualCliCommand(descriptor.loginCommand, cliPath));
-      if (cliPath && (process.platform === 'win32' || process.platform === 'darwin')) {
-        // The sign-in happens on agy's own interactive screen, which needs a real terminal.
-        const open = wrap.createEl('button', { text: '로그인 창 열기', cls: 'mod-cta ocop-setup-action-btn' });
-        open.addEventListener('click', () => {
-          if (!openLoginTerminal(cliPath)) {
-            new Notice('터미널을 열지 못했습니다. 위 명령을 직접 실행해 주세요.');
-          }
-        });
-      }
+      this.renderManualLoginCommand(wrap);
       this.renderRecheckButton(wrap);
       this.renderSkipStepButton(wrap);
       return;
@@ -957,7 +947,9 @@ export class SetupWizardModal extends Modal {
         : `이 컴퓨터에서는 ${descriptor.label}의 로그인 여부를 확인할 방법이 없습니다. 로그인을 이미 마쳤다면 그대로 시작하시고, 인증 오류가 나면 아래 명령으로 로그인해 주세요.`,
       cls: 'ocop-setup-desc',
     });
-    this.renderCmdRow(wrap, descriptor.loginCommand);
+    // A login the plugin cannot drive may also be off PATH, so it names the discovered file.
+    if (canDriveLogin(this.provider)) this.renderCmdRow(wrap, descriptor.loginCommand);
+    else this.renderManualLoginCommand(wrap);
     const start = wrap.createEl('button', { text: '그래도 시작하기', cls: 'mod-cta ocop-setup-action-btn' });
     start.addEventListener('click', () => this.close());
     this.renderRecheckButton(wrap);
@@ -1039,6 +1031,21 @@ export class SetupWizardModal extends Modal {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /** The login command for a CLI the plugin cannot log in itself (agy), plus a terminal for it. */
+  private renderManualLoginCommand(parent: HTMLElement) {
+    const cliPath = resolveProviderCliPath(this.plugin.settings, this.provider);
+    this.renderCmdRow(parent, formatManualCliCommand(getProviderDescriptor(this.provider).loginCommand, cliPath));
+    if (cliPath && (process.platform === 'win32' || process.platform === 'darwin')) {
+      // The sign-in happens on agy's own interactive screen, which needs a real terminal.
+      const open = parent.createEl('button', { text: '로그인 창 열기', cls: 'mod-cta ocop-setup-action-btn' });
+      open.addEventListener('click', () => {
+        if (!openLoginTerminal(cliPath)) {
+          new Notice('터미널을 열지 못했습니다. 위 명령을 직접 실행해 주세요.');
+        }
+      });
+    }
+  }
 
   private renderRecheckButton(parent: HTMLElement) {
     const button = parent.createEl('button', { text: '다시 확인', cls: 'ocop-setup-action-btn' });
