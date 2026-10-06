@@ -39,7 +39,15 @@ provider supports today.
 | GitHub Copilot | `npm install -g @github/copilot` | `copilot login` | Standalone `copilot` CLI, not `gh copilot`. WinGet (Windows) / Homebrew (macOS/Linux) also work; the plugin's auto-install uses npm because it works cross-platform. |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | `claude` (interactive login on first run) | |
 | Codex | `npm install -g @openai/codex` | `codex login` | |
-| agy (Antigravity) | No verified package-manager recipe yet | `agy` | Guided manual setup only — the plugin never runs a remote install script for agy. Recheck after you finish the CLI's own official install/login flow. |
+| agy (Antigravity) | Official installer (commands below) | `agy` | No npm package and no Node.js needed; the plugin never runs a remote install script for agy. Recheck after the CLI's own login flow. |
+
+agy official install ([Google Antigravity CLI codelab](https://codelabs.developers.google.com/antigravity-cli-hands-on)):
+
+- Windows (PowerShell): `irm https://antigravity.google/cli/install.ps1 | iex`
+- Windows (cmd): `curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd`
+- macOS: `curl -fsSL https://antigravity.google/cli/install.sh | bash`
+
+In Ask mode the attached current note works; other @-mentioned files/folders may be refused by agy — use another provider for those.
 
 3.  **Verify** the CLI you installed, e.g. for Copilot:
     ```bash
