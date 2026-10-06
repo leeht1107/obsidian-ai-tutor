@@ -211,8 +211,28 @@ codex login
 
 ### 3-4. agy (Antigravity)
 
-- agy는 이 플러그인이 자동으로 설치해주는 npm 패키지가 없습니다. **안내형 수동 설치**만 지원합니다.
-- agy 자체의 공식 설치 절차를 먼저 완료한 뒤, 터미널에서 아래 명령이 정상 동작하는지 확인하세요.
+- agy는 이 플러그인이 자동으로 설치해주는 npm 패키지가 없습니다. **안내형 수동 설치**만 지원합니다. Node.js는 필요 없습니다.
+- 아래 공식 설치 명령을 직접 실행하세요. (출처: [Google Antigravity CLI codelab](https://codelabs.developers.google.com/antigravity-cli-hands-on))
+
+Windows (PowerShell):
+
+```powershell
+irm https://antigravity.google/cli/install.ps1 | iex
+```
+
+Windows (명령 프롬프트, cmd):
+
+```bat
+curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+Mac:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
+
+- 설치가 끝나면 **새 터미널**을 열고 아래 명령이 정상 동작하는지 확인하세요.
 
 ```bash
 agy
