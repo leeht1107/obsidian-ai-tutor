@@ -5,6 +5,8 @@
  * measures the line exactly so the caller can explain that instead of a raw spawn error.
  */
 
+import * as path from 'path';
+
 /** CreateProcessW `lpCommandLine` cap in UTF-16 units, including the terminating NUL. */
 export const WINDOWS_COMMAND_LINE_MAX = 32767;
 
@@ -34,4 +36,9 @@ export function windowsCommandLineLength(command: string, args: readonly string[
 
 export function fitsWindowsCommandLine(command: string, args: readonly string[]): boolean {
   return windowsCommandLineLength(command, args) + 1 <= WINDOWS_COMMAND_LINE_MAX;
+}
+
+/** Windows PowerShell by absolute path: Obsidian's inherited PATH is not trustworthy. */
+export function windowsPowerShellPath(systemRoot: string | undefined = process.env.SystemRoot): string {
+  return path.join(systemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }

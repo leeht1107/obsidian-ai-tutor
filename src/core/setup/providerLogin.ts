@@ -21,6 +21,7 @@ import { type ChildProcess,spawn } from 'child_process';
 
 import { resolveProviderEntry } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
+import { windowsPowerShellPath } from '../../utils/windowsCommandLine';
 import { findProviderCliPath, getProviderDescriptor, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { isWindows, killTree } from './processTree';
 
@@ -236,15 +237,24 @@ export function startProviderLogin(
 /**
  * Open a CLI in its own terminal window for a login the plugin cannot drive (agy
  * signs in from its interactive screen). A detached child with ignored stdio gets
- * a console but no usable input, so Windows goes through `start`, which creates a
+ * a console but no usable input, so Windows asks PowerShell's Start-Process for a
  * real one; macOS hands the file to Terminal. Returns false when nothing opened.
  */
-export function openLoginTerminal(cliPath: string, platform: NodeJS.Platform = process.platform): boolean {
+export function openLoginTerminal(
+  cliPath: string,
+  platform: NodeJS.Platform = process.platform,
+  systemRoot: string | undefined = process.env.SystemRoot,
+): boolean {
   try {
     let child: ChildProcess;
     if (platform === 'win32') {
-      // The empty argument is start's window title; without it a quoted path is taken as the title.
-      child = spawn('cmd.exe', ['/d', '/c', 'start', '', cliPath], { windowsHide: true, detached: true, stdio: 'ignore' });
+      // The path travels in the environment, never on a command line: cmd.exe reads
+      // `&`, `^` and `%` in an unquoted profile path as syntax.
+      child = spawn(
+        windowsPowerShellPath(systemRoot),
+        ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:OCOP_LOGIN_CLI'],
+        { windowsHide: true, detached: true, stdio: 'ignore', env: { ...process.env, OCOP_LOGIN_CLI: cliPath } },
+      );
     } else if (platform === 'darwin') {
       child = spawn('open', ['-a', 'Terminal', cliPath], { detached: true, stdio: 'ignore' });
     } else {

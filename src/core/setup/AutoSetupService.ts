@@ -11,6 +11,7 @@ import * as path from 'path';
 
 import { findCopilotCLIPath } from '../../utils/copilotCli';
 import { getEnhancedPath } from '../../utils/env';
+import { windowsPowerShellPath } from '../../utils/windowsCommandLine';
 import { findProviderCliPath, getProviderDescriptor, type ProviderCliPathSettings, type ProviderId,resolveProviderCliPath } from '../providers/providerRegistry';
 import { killTree } from './processTree';
 
@@ -181,8 +182,7 @@ export interface InstallSpawn {
  * What to run for a provider with no npm package: its official installer script,
  * which the wizard only starts after the student presses 설치 시작.
  *
- * PowerShell is named by absolute path because Obsidian's inherited PATH is not
- * trustworthy, and its console code page would mangle Korean output without UTF-8.
+ * PowerShell's console code page would mangle Korean output without UTF-8.
  */
 export function resolveInstallSpawn(
   providerId: ProviderId,
@@ -192,7 +192,7 @@ export function resolveInstallSpawn(
   const descriptor = getProviderDescriptor(providerId);
   if (platform === 'win32' && descriptor.windowsManualInstallCommand) {
     return {
-      command: path.join(systemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      command: windowsPowerShellPath(systemRoot),
       args: [
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
         `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${descriptor.windowsManualInstallCommand}`,
