@@ -15,6 +15,7 @@ jest.mock('obsidian', () => ({
 }));
 
 import { readSecrets } from '@/core/storage/SecretStorage';
+import { SessionStorage } from '@/core/storage/SessionStorage';
 import { SlashCommandStorage } from '@/core/storage/SlashCommandStorage';
 import { StorageService } from '@/core/storage/StorageService';
 import type { ChatMessage, Conversation, ConversationMeta, SlashCommand } from '@/core/types';
@@ -25,6 +26,25 @@ import { parseSlashCommandContent } from '@/utils/slashCommand';
 // ============================================================================
 
 describe('SessionStorage JSONL format', () => {
+  it('round trips an optional study goal reference through production JSONL storage', async () => {
+    const files = new Map<string, string>();
+    const adapter = {
+      exists: async (path: string) => files.has(path),
+      write: async (path: string, content: string) => { files.set(path, content); },
+      read: async (path: string) => files.get(path) ?? '',
+      delete: async (path: string) => { files.delete(path); },
+      listFiles: async () => [],
+    };
+    const sessions = new SessionStorage(adapter as never);
+    const conversation: Conversation = {
+      id: 'goal-conversation', title: 'Goal', createdAt: 1, updatedAt: 2,
+      sessionId: null, messages: [], studyGoalId: 'goal-1',
+    };
+
+    await sessions.saveConversation(conversation);
+
+    await expect(sessions.loadConversation(conversation.id)).resolves.toMatchObject({ studyGoalId: 'goal-1' });
+  });
   describe('parseJSONL', () => {
     it('should parse valid JSONL with meta and messages', () => {
       const jsonl = [
@@ -530,6 +550,84 @@ Prompt`;
 // ============================================================================
 
 describe('StorageService migration', () => {
+  it('preserves known machine state through initialization, migration, restart, and unrelated updates', async () => {
+    const files = new Map<string, string>();
+    const folders = new Set<string>();
+    const localStore = new Map<string, unknown>();
+    let data: Record<string, unknown> = {
+      model: 'gpt-4.1',
+      activeConversationId: 'conversation-1',
+      providerConnections: { codex: true },
+      skillsAutoInstalled: { codex: true },
+      studyGoalBindings: [{ id: 'goal-1', briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' }],
+    };
+    const fakePlugin = {
+      app: {
+        loadLocalStorage: (key: string) => localStore.get(key) ?? null,
+        saveLocalStorage: (key: string, value: unknown) => { localStore.set(key, value); },
+        vault: { adapter: {
+          exists: async (path: string) => files.has(path) || folders.has(path),
+          read: async (path: string) => files.get(path) ?? '',
+          write: async (path: string, content: string) => { files.set(path, content); },
+          mkdir: async (path: string) => { folders.add(path); },
+          list: async () => ({ files: [], folders: [] }),
+        } },
+      },
+      loadData: async () => data,
+      saveData: async (next: Record<string, unknown>) => { data = next; },
+    };
+
+    const first = new StorageService(fakePlugin as never);
+    await first.initialize();
+    const restarted = new StorageService(fakePlugin as never);
+    await restarted.initialize();
+    await restarted.updateState({ activeConversationId: 'conversation-2' });
+
+    expect(data).toMatchObject({
+      activeConversationId: 'conversation-2',
+      providerConnections: { codex: true },
+      skillsAutoInstalled: { codex: true },
+      studyGoalBindings: [{ id: 'goal-1', briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' }],
+    });
+    expect(JSON.parse(files.get('.ai-tutor/settings.json') ?? '{}')).not.toHaveProperty('studyGoalBindings');
+    expect(JSON.parse(files.get('.ai-tutor/settings.json') ?? '{}')).not.toHaveProperty('providerConnections');
+  });
+
+  it('preserves known machine state in genuine migration when no settings file exists', async () => {
+    const files = new Map<string, string>();
+    const folders = new Set<string>();
+    let data: Record<string, unknown> = {
+      activeConversationId: 'conversation-legacy',
+      providerConnections: { claude: true },
+      skillsAutoInstalled: { claude: true },
+      studyGoalBindings: [{ id: 'goal-legacy', briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/Context.md' }],
+      slashCommands: [{ id: 'legacy', name: 'legacy', content: 'prompt' }],
+    };
+    const fakePlugin = {
+      app: { vault: { adapter: {
+        exists: async (entry: string) => files.has(entry) || folders.has(entry),
+        read: async (entry: string) => files.get(entry) ?? '',
+        write: async (entry: string, content: string) => { files.set(entry, content); },
+        mkdir: async (entry: string) => { folders.add(entry); },
+        list: async () => ({ files: [], folders: [] }),
+      } } },
+      loadData: async () => data,
+      saveData: async (next: Record<string, unknown>) => { data = next; },
+    };
+
+    await new StorageService(fakePlugin as never).initialize();
+
+    expect(data).toMatchObject({
+      activeConversationId: 'conversation-legacy',
+      providerConnections: { claude: true },
+      skillsAutoInstalled: { claude: true },
+      studyGoalBindings: [{ id: 'goal-legacy', briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/Context.md' }],
+    });
+    const settings = JSON.parse(files.get('.ai-tutor/settings.json') ?? '{}');
+    expect(settings).not.toHaveProperty('providerConnections');
+    expect(settings).not.toHaveProperty('skillsAutoInstalled');
+  });
+
   describe('needsMigration', () => {
     it('should return false for null data', () => {
       expect(needsMigrationHelper(null)).toBe(false);

@@ -46,6 +46,7 @@ interface SessionMetaRecord {
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
   quizSession?: QuizSessionState;
   socraticSession?: SocraticSessionState;
+  studyGoalId?: string;
 }
 
 /** Message record stored as subsequent lines. */
@@ -258,6 +259,7 @@ export class SessionStorage {
       titleGenerationStatus: meta.titleGenerationStatus,
       quizSession: meta.quizSession,
       socraticSession: meta.socraticSession,
+      studyGoalId: meta.studyGoalId,
     };
   }
 
@@ -285,6 +287,7 @@ export class SessionStorage {
       titleGenerationStatus: conversation.titleGenerationStatus,
       quizSession: conversation.quizSession,
       socraticSession: conversation.socraticSession,
+      studyGoalId: conversation.studyGoalId,
     };
     lines.push(JSON.stringify(meta));
 

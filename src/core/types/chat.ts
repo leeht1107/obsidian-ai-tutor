@@ -122,6 +122,8 @@ export interface Conversation {
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
   quizSession?: QuizSessionState;
   socraticSession?: SocraticSessionState;
+  /** Local goal association; folder authorization remains machine-local. */
+  studyGoalId?: string;
 }
 
 /** Lightweight conversation metadata for the history dropdown. */

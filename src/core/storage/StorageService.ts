@@ -30,6 +30,8 @@ export const LEGACY_PATH = '.copilot';
 /** Machine-specific state stored in Obsidian's data.json. */
 export interface PluginState {
   activeConversationId: string | null;
+  /** Machine-local link between a selected Brief and its confirmed study folder. */
+  studyGoalBindings?: StudyGoalBinding[];
   /**
    * Whether each provider is connected on this machine. Machine state, not
    * vault settings: it describes this student's install and login, so it must
@@ -40,6 +42,13 @@ export interface PluginState {
    * Per provider, because each CLI reads a different folder — and machine
    * state, because it records what this install already did to this vault. */
   skillsAutoInstalled?: Partial<Record<ProviderId, boolean>>;
+}
+
+export interface StudyGoalBinding {
+  id: string;
+  briefPath: string;
+  folderPath: string;
+  contextPath: string;
 }
 
 const DEFAULT_STATE: PluginState = {
@@ -53,6 +62,9 @@ interface LegacyData extends Partial<ObsidianCopilotSettings> {
   activeConversationId?: string;
   lastEnvHash?: string;
   migrationVersion?: number;
+  providerConnections?: ProviderConnections;
+  skillsAutoInstalled?: Partial<Record<ProviderId, boolean>>;
+  studyGoalBindings?: StudyGoalBinding[];
 }
 
 export class StorageService {
@@ -137,6 +149,9 @@ export class StorageService {
       'activeConversationId',
       'lastEnvHash',
       'migrationVersion',
+      'providerConnections',
+      'skillsAutoInstalled',
+      'studyGoalBindings',
     ]);
     const hasSettings = Object.keys(legacyData).some(key => !stateKeys.has(key));
 
@@ -177,6 +192,9 @@ export class StorageService {
     // 4. Update data.json to state-only format
     await this.saveState({
       activeConversationId: legacyData.activeConversationId || null,
+      providerConnections: legacyData.providerConnections,
+      skillsAutoInstalled: legacyData.skillsAutoInstalled,
+      studyGoalBindings: legacyData.studyGoalBindings,
     });
 
     return true;
@@ -200,6 +218,7 @@ export class StorageService {
         activeConversationId: data?.activeConversationId ?? DEFAULT_STATE.activeConversationId,
         providerConnections: data?.providerConnections ?? undefined,
         skillsAutoInstalled: data?.skillsAutoInstalled ?? undefined,
+        studyGoalBindings: data?.studyGoalBindings ?? undefined,
       };
     } catch {
       return { ...DEFAULT_STATE };
@@ -354,6 +373,9 @@ export class StorageService {
       activeConversationId: ___,
       lastEnvHash: ____,
       migrationVersion: _____,
+      providerConnections: ______,
+      skillsAutoInstalled: _______,
+      studyGoalBindings: ________,
       ...settingsFields
     } = legacyData;
 
