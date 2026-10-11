@@ -1,5 +1,5 @@
 import type { App } from 'obsidian';
-import { TFile } from 'obsidian';
+import { Setting, TFile } from 'obsidian';
 
 import { LearningSetupModal } from '@/ui/modals/LearningSetupModal';
 
@@ -13,6 +13,106 @@ function createModal(mode: 'quiz' | 'socratic', focusText = '') {
 }
 
 describe('LearningSetupModal', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('lets the learner turn off an automatically detected Brief', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const modal = new LearningSetupModal({
+      vault: {
+        getMarkdownFiles: () => [brief],
+        getAbstractFileByPath: () => brief,
+      },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], study_folder: 'Study/Goal' } }) },
+    } as unknown as App, brief.path, 'quiz');
+    const dropdowns: Array<{ options: Array<[string, string]>; onChange?: (value: string) => void }> = [];
+    const makeElement = (): any => ({
+      empty: jest.fn(), addClass: jest.fn(), setAttribute: jest.fn(), addEventListener: jest.fn(),
+      createDiv: jest.fn(() => makeElement()), createSpan: jest.fn(() => makeElement()),
+      createEl: jest.fn(() => makeElement()),
+    });
+    (modal as any).contentEl = makeElement();
+    jest.spyOn(Setting.prototype, 'addDropdown').mockImplementation(function (callback: any) {
+      const record: { options: Array<[string, string]>; onChange?: (value: string) => void } = { options: [] };
+      const dropdown = {
+        addOption(value: string, label: string) { record.options.push([value, label]); return dropdown; },
+        setValue() { return dropdown; },
+        onChange(handler: (value: string) => void) { record.onChange = handler; return dropdown; },
+      };
+      callback(dropdown);
+      dropdowns.push(record);
+      return this;
+    });
+
+    (modal as any).renderContent();
+
+    const briefDropdown = dropdowns.find(item => item.options.some(([, label]) => label === 'Brief 없이 기존 방식으로 학습'));
+    expect(briefDropdown).toBeDefined();
+    briefDropdown?.onChange?.('');
+    expect((modal as any).buildResult().studyGoal).toBeUndefined();
+  });
+
+  it('does not reapply Brief defaults over settings the learner changes before starting', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], study_folder: 'Study/Goal', quiz_difficulty: '상', quiz_count: 5, quiz_style: 'application' } }) },
+    } as unknown as App, brief.path, 'quiz');
+
+    (modal as any).inferBriefFromSelectedSource();
+    (modal as any).difficulty = '하';
+    (modal as any).questionCount = '8';
+    (modal as any).questionStyle = 'material';
+
+    expect((modal as any).buildResult()).toMatchObject({ difficulty: '하', totalQuestions: 8, questionStyle: 'material' });
+  });
+
+  it('retains a saved folder binding for an inferred Brief during the rendered setup flow', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const goal = { id: 'goal-1', briefPath: brief.path, folderPath: 'Study/Goal', contextPath: 'Study/Goal/STUDY_CONTEXT.md' };
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], quiz_difficulty: '상' } }) },
+    } as unknown as App, brief.path, 'quiz', '', [goal]);
+    const makeElement = (): any => ({
+      empty: jest.fn(), addClass: jest.fn(), setAttribute: jest.fn(), addEventListener: jest.fn(),
+      createDiv: jest.fn(() => makeElement()), createSpan: jest.fn(() => makeElement()),
+      createEl: jest.fn(() => makeElement()),
+    });
+    (modal as any).contentEl = makeElement();
+    jest.spyOn(Setting.prototype, 'addDropdown').mockImplementation(function (callback: any) {
+      const dropdown = { addOption: () => dropdown, setValue: () => dropdown, onChange: () => dropdown };
+      callback(dropdown);
+      return this;
+    });
+
+    (modal as any).renderContent();
+
+    expect((modal as any).buildResult().studyGoal).toMatchObject({
+      briefPath: brief.path, folderPath: goal.folderPath, contextPath: goal.contextPath, existingId: goal.id,
+    });
+  });
+
+  it('excludes Brief and learner-history documents from selected folder quiz evidence', () => {
+    const paths = [
+      'Study/Brief.md', 'Study/QUIZ_HISTORY.md', 'Study/STUDY_CONTEXT.md', 'Study/Lecture.md',
+    ];
+    const files = paths.map(path => Object.assign(new TFile(), { path }));
+    const brief = files[0];
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+      metadataCache: { getFileCache: (file: TFile) => file === brief ? { frontmatter: { tags: ['StudyBrief'] } } : null },
+    } as unknown as App, 'Study/Lecture.md', 'quiz');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Study']);
+
+    const scope = (modal as any).buildScope();
+
+    expect(scope.sourceInstruction).toContain('@Study/Lecture.md');
+    expect(scope.sourceInstruction).not.toContain('@Study/Brief.md');
+    expect(scope.sourceInstruction).not.toContain('QUIZ_HISTORY.md');
+    expect(scope.sourceInstruction).not.toContain('STUDY_CONTEXT.md');
+  });
+
   it('opens on the requested quiz tab and returns a material-based quiz by default', () => {
     const modal = createModal('quiz');
     const result = (modal as any).buildResult();
@@ -140,8 +240,8 @@ describe('LearningSetupModal', () => {
         folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md', webSearch: true,
       },
     });
-    expect(result.sourceInstruction).toContain('@Briefs/skhynix.md');
-    expect(result.sourceInstruction).toContain('course concepts as ground truth');
+    expect(result.sourceInstruction).toContain('No markdown files found in selected folders: Briefs/skhynix.md.');
+    expect(result.sourceInstruction).not.toContain('@Briefs/skhynix.md');
   });
 
   it('does not turn ordinary quiz settings into Brief-driven defaults', () => {

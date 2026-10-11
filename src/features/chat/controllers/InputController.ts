@@ -78,6 +78,7 @@ function parseMentionedLearningCommand(
   content: string,
   fileContextManager: FileContextManager | null,
   app: ObsidianCopilotPlugin['app'],
+  allowImplicitBriefQuiz = true,
 ): { mode: 'quiz' | 'socratic'; notePath: string } | null {
   const mentions = fileContextManager && typeof fileContextManager.getResolvedMentionPaths === 'function'
     ? fileContextManager.getResolvedMentionPaths(content)
@@ -89,7 +90,7 @@ function parseMentionedLearningCommand(
   const command = withoutMention.trim();
   if (command === '/quiz') return { mode: 'quiz', notePath: mention.path };
   if (command === '/socratic') return { mode: 'socratic', notePath: mention.path };
-  if (!command) {
+  if (!command && allowImplicitBriefQuiz) {
     const file = app.vault.getAbstractFileByPath(mention.path);
     if (file instanceof TFile) {
       const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
@@ -340,7 +341,6 @@ export class InputController {
       try {
         const approvedGoal = await this.confirmStudyGoalSetup(result.studyGoal);
         if (!approvedGoal || state.cancelRequested) return;
-        if (approvedGoal.webSearch) this.deps.getWebSearchToggle()?.setEnabled?.(true);
         this.deps.setBashExpansionActive(true);
         authorityLocked = true;
         const prepared = await this.prepareStudyGoal(approvedGoal, result);
@@ -819,7 +819,12 @@ export class InputController {
       ? quizSessionInit?.enableWebSearch
         ?? shouldEnableQuizWebSearch(quizSessionInit?.difficulty ?? state.quizSession?.difficulty ?? '중')
       : undefined;
-    const mentionedLearningCommand = parseMentionedLearningCommand(content, fileContextManager, plugin.app);
+    const mentionedLearningCommand = parseMentionedLearningCommand(
+      content,
+      fileContextManager,
+      plugin.app,
+      !state.isStreaming && !state.quizSession && !state.socraticSession,
+    );
 
     if (mentionedLearningCommand?.mode === 'quiz' || content === '/quiz' || content.startsWith('/quiz ')) {
       const quizFocusText = mentionedLearningCommand ? '' : content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
@@ -1329,7 +1334,7 @@ ${promptToSend}`;
       if (completionFacts) await this.saveStudyCompletionSummary(completionFacts);
 
       await conversationController.save(true);
-      if (quizAnswerToArchive) {
+      if (streamOutcome === 'completed' && quizAnswerToArchive) {
         await this.saveStudyQuizAnswer(quizAnswerToArchive, content, assistantMsg);
       }
 

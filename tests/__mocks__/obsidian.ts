@@ -93,6 +93,8 @@ export class Setting {
   setName = jest.fn().mockReturnThis();
   setDesc = jest.fn().mockReturnThis();
   addToggle = jest.fn().mockReturnThis();
+  addDropdown() { return this; }
+  addText() { return this; }
   addTextArea = jest.fn().mockReturnThis();
   // The real Setting has this too; its absence made any modal with a button
   // throw on render rather than fail an assertion.

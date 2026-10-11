@@ -535,6 +535,33 @@ describe('InputController - Message Queue', () => {
       expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
     });
 
+    it.each(['quiz', 'socratic'] as const)('treats a bare Brief mention as a normal answer during an active %s session', async (mode) => {
+      const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+      (deps.plugin as any).app = {
+        vault: { getAbstractFileByPath: jest.fn(() => brief) },
+        metadataCache: { getFileCache: jest.fn(() => ({ frontmatter: { tags: ['StudyBrief'] } })) },
+      };
+      if (mode === 'quiz') {
+        deps.state.quizSession = { totalQuestions: 3, currentQuestion: 1, scopeLabel: 'quiz' };
+      } else {
+        deps.state.socraticSession = { maxDepth: 20, currentDepth: 1, scopeLabel: 'socratic', supportLevel: 1, isSummaryPhase: false };
+      }
+      (deps.plugin as any).storage = { loadState: jest.fn().mockResolvedValue({}) };
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(), getCurrentNotePath: jest.fn().mockReturnValue(null),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(false),
+        transformContextMentions: jest.fn((text: string) => text),
+        getResolvedMentionPaths: jest.fn().mockReturnValue([{ start: 0, end: 15, path: brief.path }]),
+      }) as any;
+      const openModal = jest.spyOn(LearningSetupModal.prototype, 'openAndWait').mockResolvedValue(null);
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '@Briefs/Goal.md' });
+
+      expect(openModal).not.toHaveBeenCalled();
+      expect(deps.plugin.agentService.query).toHaveBeenCalled();
+    });
+
     it('clears the bash-expansion busy flag even when expandCommand throws', async () => {
       const slashCommandManager = {
         setCommands: jest.fn(),
@@ -2866,7 +2893,7 @@ describe('InputController study goal preparation', () => {
   });
 
 
-  it('enables Web for a user-approved Brief without changing ordinary learning defaults', async () => {
+  it('uses Brief Web permission for preparation without changing the global toggle', async () => {
     let enabled = false;
     const setEnabled = jest.fn((value: boolean) => { enabled = value; });
     const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: () => enabled, setEnabled }) });
@@ -2874,20 +2901,28 @@ describe('InputController study goal preparation', () => {
     plugin.settings.selectedProvider = 'copilot';
     plugin.settings.permissionMode = 'agent';
     plugin.settings.blanketWriteAcknowledged = ['copilot'];
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState: jest.fn() };
+    plugin.getActiveConversation = jest.fn().mockReturnValue(null);
     const controller = new InputController(deps);
-    const preparation = jest.spyOn(controller as any, 'prepareStudyGoal').mockResolvedValue(null);
+    const result = {
+      mode: 'quiz' as const, prompt: 'initial', displayContent: 'quiz', totalQuestions: 5,
+      difficulty: '상' as const, questionStyle: 'application' as const, sourceInstruction: 'prepared',
+      enableWebSearch: true,
+      studyGoal: { briefPath: 'Briefs/Goal.md', folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md', existingId: 'goal-1', webSearch: true },
+    };
+    const preparation = jest.spyOn(controller as any, 'prepareStudyGoal').mockResolvedValue(result);
+    deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
 
-    await (controller as any).sendLearningSetupResult({
-      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 5,
-      difficulty: '상', questionStyle: 'application', sourceInstruction: 'prepared', enableWebSearch: true,
-      studyGoal: {
-        briefPath: 'Briefs/Goal.md', folderPath: 'skhynix',
-        contextPath: 'skhynix/STUDY_CONTEXT.md', existingId: 'goal-1', webSearch: true,
-      },
-    }, {});
+    await (controller as any).sendLearningSetupResult(result, {});
 
-    expect(setEnabled).toHaveBeenCalledWith(true);
+    expect(setEnabled).not.toHaveBeenCalled();
     expect(preparation).toHaveBeenCalledWith(expect.objectContaining({ webSearch: true }), expect.anything());
+    expect((deps.plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: true });
+
+    deps.state.quizSession = null;
+    await controller.sendMessage({ content: '일반 채팅' });
+
+    expect((deps.plugin.agentService.query as jest.Mock).mock.calls[1][3]).toMatchObject({ enableWebSearch: false });
   });
 
   it('can start from Brief concept evidence alone and stores it in skhynix before the first quiz', async () => {
@@ -2972,6 +3007,40 @@ describe('InputController study goal preparation', () => {
     expect(saved).toContain('**첫 제출 답변:** A');
     expect(saved).toContain('범주를 예측합니다');
     expect(saved).not.toContain('## 2/5번 문제');
+  });
+
+  it.each(['error', 'interrupted'] as const)('does not archive a quiz answer when provider outcome is %s', async (outcome) => {
+    const history = makeFile('Study/QUIZ_HISTORY.md');
+    const contents = new Map<string, string>();
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: jest.fn((filePath: string) => filePath === history.path && contents.has(filePath) ? history : null),
+      create: jest.fn(async (filePath: string, initial: string) => { contents.set(filePath, initial); return history; }),
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { contents.set(history.path, transform(contents.get(history.path) ?? '')); }),
+      read: jest.fn(async () => contents.get(history.path) ?? ''),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    (deps.plugin as any).getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'goal-1' });
+    (deps.plugin as any).storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{ id: 'goal-1', folderPath: 'Study' }] }) };
+    deps.state.quizSession = { totalQuestions: 1, currentQuestion: 1, scopeLabel: 'quiz' };
+    deps.state.addMessage({
+      id: 'question-1', role: 'assistant', content: '', timestamp: Date.now(),
+      contentBlocks: [{ type: 'text', content: '## 1/1번 문제\n\n#### 원본 질문인가요?\n\nA. 예\nB. 아니요' }],
+      quizQuestion: { current: 1, total: 1, multiSelect: false, freeText: false, options: [{ label: 'A', text: '예' }] },
+    });
+    deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([
+      ...(outcome === 'interrupted' ? [{ type: 'text', content: 'partial feedback' }] : []),
+      { type: outcome === 'error' ? 'error' : 'done', content: 'provider failed' },
+    ]));
+    if (outcome === 'interrupted') {
+      deps.streamController.handleStreamChunk = jest.fn().mockImplementation(() => { deps.state.cancelRequested = true; });
+    }
+    const controller = new InputController(deps);
+
+    await controller.sendMessage({ content: 'A' });
+
+    expect(vault.process).not.toHaveBeenCalled();
   });
 
   it('appends a bounded proposal to the latest context and uses Web toggle even at medium Quiz difficulty', async () => {
