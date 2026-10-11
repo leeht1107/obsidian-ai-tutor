@@ -616,7 +616,12 @@ export class ObsidianCopilotView extends ItemView {
         if (storedQuizControl.kind === 'hint') {
           this.inputController.requestQuizHint();
         } else if (storedQuizControl.kind === 'review') {
-          void this.inputController.startQuizReview();
+          void this.inputController.startQuizReview(storedQuizControl.messageId).then((started) => {
+            if (started) {
+              const button = target?.closest('.ocop-quiz-review-btn') as HTMLButtonElement | null;
+              if (button) button.disabled = true;
+            }
+          });
         } else {
           void this.inputController.sendMessage({ content: storedQuizControl.content });
         }
@@ -767,7 +772,7 @@ async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: 
 /** What a stored quiz message's 힌트 / 모르겠어요 button fires. */
 export type StoredQuizControlAction =
   | { kind: 'hint' }
-  | { kind: 'review' }
+  | { kind: 'review'; messageId: string }
   | { kind: 'answer'; content: string };
 
 /**
@@ -779,7 +784,11 @@ export type StoredQuizControlAction =
  * Exported to be tested without a DOM.
  */
 export function resolveStoredQuizControl(target: Element | null): StoredQuizControlAction | null {
-  if (target?.closest('.ocop-quiz-review-btn')) return { kind: 'review' };
+  const review = target?.closest('.ocop-quiz-review-btn') as HTMLElement | null;
+  if (review) {
+    const messageId = review.dataset.messageId;
+    return messageId ? { kind: 'review', messageId } : null;
+  }
   if (target?.closest('.ocop-quiz-hint-btn')) return { kind: 'hint' };
   if (target?.closest('.ocop-quiz-stuck-btn')) return { kind: 'answer', content: QUIZ_STUCK_ANSWER };
   return null;

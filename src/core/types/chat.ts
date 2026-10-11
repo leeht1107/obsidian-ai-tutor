@@ -50,6 +50,7 @@ export interface QuizSessionState {
   scopeLabel: string;
   focusText?: string;
   difficulty?: '하' | '중' | '상';
+  enableWebSearch?: boolean;
   questionStyle?: 'material' | 'application';
   sourceInstruction?: string;
 }
@@ -60,6 +61,7 @@ export interface SocraticSessionState {
   scopeLabel: string;
   focusText?: string;
   sourceInstruction?: string;
+  enableWebSearch?: boolean;
   supportLevel?: 0 | 1 | 2 | 3;
   isSummaryPhase: boolean;
 }
@@ -95,6 +97,7 @@ export interface ChatMessage {
   /** Final Quiz turn offers an optional Socratic review action. */
   quizReviewAvailable?: boolean;
   quizReviewSourceInstruction?: string;
+  quizReviewEnableWebSearch?: boolean;
   socraticTurn?: SocraticTurnMeta;
   /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
   requestOutcome?: 'completed' | 'failed' | 'interrupted';

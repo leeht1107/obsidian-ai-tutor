@@ -51,6 +51,31 @@ describe('LearningSetupModal', () => {
     expect((modal as any).buildResult().studyGoal).toBeUndefined();
   });
 
+  it('hides a saved Brief binding whose note was deleted or renamed', () => {
+    const course = Object.assign(new TFile(), { path: 'Study/Lecture.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [course], getAbstractFileByPath: (path: string) => path === course.path ? course : null },
+      metadataCache: { getFileCache: () => null },
+    } as unknown as App, null, 'quiz', '', [{
+      id: 'goal-old', briefPath: 'Briefs/Removed.md', folderPath: 'Study/Goal', contextPath: 'Study/Goal/STUDY_CONTEXT.md',
+    }]);
+    const dropdownOptions: string[] = [];
+    const makeElement = (): any => ({
+      empty: jest.fn(), addClass: jest.fn(), setAttribute: jest.fn(), addEventListener: jest.fn(),
+      createDiv: jest.fn(() => makeElement()), createSpan: jest.fn(() => makeElement()), createEl: jest.fn(() => makeElement()),
+    });
+    (modal as any).contentEl = makeElement();
+    jest.spyOn(Setting.prototype, 'addDropdown').mockImplementation(function (callback: any) {
+      const dropdown = { addOption(value: string) { dropdownOptions.push(value); return dropdown; }, setValue: () => dropdown, onChange: () => dropdown };
+      callback(dropdown);
+      return this;
+    });
+
+    (modal as any).renderContent();
+
+    expect(dropdownOptions).not.toContain('Briefs/Removed.md');
+  });
+
   it('does not reapply Brief defaults over settings the learner changes before starting', () => {
     const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
     const modal = new LearningSetupModal({
@@ -64,6 +89,31 @@ describe('LearningSetupModal', () => {
     (modal as any).questionStyle = 'material';
 
     expect((modal as any).buildResult()).toMatchObject({ difficulty: '하', totalQuestions: 8, questionStyle: 'material' });
+  });
+
+  it('clears Brief defaults when the learner opts out, preserving settings they changed manually', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: {
+        tags: ['StudyBrief'], study_folder: 'Study/Goal', quiz_difficulty: '상', quiz_count: 8,
+        quiz_style: 'application', study_web_search: true,
+      } }) },
+    } as unknown as App, brief.path, 'quiz');
+    jest.spyOn(modal as any, 'renderContent').mockImplementation(() => undefined);
+
+    (modal as any).handleBriefSelection(brief.path);
+    expect((modal as any).buildResult()).toMatchObject({ difficulty: '상', totalQuestions: 8, questionStyle: 'application' });
+    expect((modal as any).buildResult().studyGoal.webSearch).toBe(true);
+
+    (modal as any).difficulty = '하';
+    (modal as any).quizPreferencesTouched.add('difficulty');
+    (modal as any).handleBriefSelection('');
+
+    expect((modal as any).briefPath).toBe('');
+    expect((modal as any).studyWebSearch).toBe(false);
+    expect((modal as any).buildResult()).toMatchObject({ difficulty: '하', totalQuestions: 5, questionStyle: 'material' });
+    expect((modal as any).buildResult().studyGoal).toBeUndefined();
   });
 
   it('retains a saved folder binding for an inferred Brief during the rendered setup flow', () => {
@@ -104,6 +154,29 @@ describe('LearningSetupModal', () => {
     } as unknown as App, 'Study/Lecture.md', 'quiz');
     (modal as any).learningScope = 'folder';
     (modal as any).selectedFolderPaths = new Set(['Study']);
+    (modal as any).studyFolderPath = 'Study/Goal';
+    (modal as any).briefPath = brief.path;
+
+    const scope = (modal as any).buildScope();
+
+    expect(scope.sourceInstruction).toContain('@Study/Lecture.md');
+    expect(scope.sourceInstruction).not.toContain('@Study/Brief.md');
+    expect(scope.sourceInstruction).not.toContain('QUIZ_HISTORY.md');
+    expect(scope.sourceInstruction).not.toContain('STUDY_CONTEXT.md');
+  });
+
+  it('uses prepared concepts instead of Brief or learner-history files in Socratic evidence', () => {
+    const paths = ['Study/Brief.md', 'Study/QUIZ_HISTORY.md', 'Study/STUDY_CONTEXT.md', 'Study/Lecture.md'];
+    const files = paths.map(path => Object.assign(new TFile(), { path }));
+    const brief = files[0];
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+      metadataCache: { getFileCache: (file: TFile) => file === brief ? { frontmatter: { tags: ['StudyBrief'] } } : null },
+    } as unknown as App, 'Study/Lecture.md', 'socratic');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Study']);
+    (modal as any).briefPath = brief.path;
+    (modal as any).studyFolderPath = 'Study/Goal';
 
     const scope = (modal as any).buildScope();
 
@@ -240,8 +313,47 @@ describe('LearningSetupModal', () => {
         folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md', webSearch: true,
       },
     });
-    expect(result.sourceInstruction).toContain('No markdown files found in selected folders: Briefs/skhynix.md.');
-    expect(result.sourceInstruction).not.toContain('@Briefs/skhynix.md');
+    expect(result.sourceInstruction).toContain('prepared concept evidence only');
+  });
+
+  it('reports when selected-note filtering leaves a Quiz with no usable evidence', () => {
+    const paths = ['Study/STUDY_CONTEXT.md', 'Study/QUIZ_HISTORY.md'];
+    const files = paths.map(path => Object.assign(new TFile(), { path }));
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'note';
+    (modal as any).selectedNotePaths = new Set(paths);
+
+    const result = (modal as any).buildResult();
+
+    expect(result.sourceInstruction).toContain('No eligible course notes selected');
+    expect(result.studyGoal).toBeUndefined();
+    expect((modal as any).canStart(result)).toBe(false);
+  });
+
+  it('preserves manual Quiz settings when a checked Brief is inferred at start', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const goal = { id: 'goal-1', briefPath: brief.path, folderPath: 'Study/Goal', contextPath: 'Study/Goal/STUDY_CONTEXT.md' };
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], study_folder: 'Suggested/Folder', quiz_difficulty: '상', quiz_count: 5, quiz_style: 'application' } }) },
+    } as unknown as App, null, 'quiz', '', [goal]);
+    (modal as any).learningScope = 'note';
+    (modal as any).selectedNotePaths = new Set([brief.path]);
+    (modal as any).difficulty = '하';
+    (modal as any).questionCount = '8';
+    (modal as any).questionStyle = 'material';
+    (modal as any).quizPreferencesTouched = new Set(['difficulty', 'questionCount', 'questionStyle']);
+
+    (modal as any).inferBriefFromSelectedSource();
+    const result = (modal as any).buildResult();
+
+    expect(result).toMatchObject({ difficulty: '하', totalQuestions: 8, questionStyle: 'material' });
+    expect(result.studyGoal).toMatchObject({
+      briefPath: brief.path, folderPath: goal.folderPath, contextPath: goal.contextPath, existingId: goal.id,
+    });
+    expect(result.sourceInstruction).toBe('No selected course notes. Use prepared concept evidence only.');
   });
 
   it('does not turn ordinary quiz settings into Brief-driven defaults', () => {

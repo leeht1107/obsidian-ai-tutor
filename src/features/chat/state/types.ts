@@ -30,6 +30,7 @@ export interface QueuedMessage {
   editorContext: EditorSelectionContext | null;
   hidden?: boolean;
   promptPrefix?: string;
+  skipLearningCommand?: boolean;
 }
 
 /** Stored selection state from editor polling. */

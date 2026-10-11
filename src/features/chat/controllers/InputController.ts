@@ -17,6 +17,7 @@ import {
   buildSocraticContinuationPrompt,
   buildSocraticPrompt,
   inferSocraticSupportLevel,
+  isStudyBriefFrontmatter,
   parseQuizDisplayContent,
   type QuizQuestionContext,
   type QuizQuestionStyle,
@@ -93,9 +94,8 @@ function parseMentionedLearningCommand(
   if (!command && allowImplicitBriefQuiz) {
     const file = app.vault.getAbstractFileByPath(mention.path);
     if (file instanceof TFile) {
-      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
-      const tags = Array.isArray(frontmatter?.tags) ? frontmatter.tags : [frontmatter?.tags];
-      if (tags.includes('StudyBrief') || tags.includes('#StudyBrief') || typeof frontmatter?.study_folder === 'string') {
+      const frontmatter = app.metadataCache?.getFileCache(file)?.frontmatter;
+      if (isStudyBriefFrontmatter(frontmatter)) {
         return { mode: 'quiz', notePath: mention.path };
       }
     }
@@ -171,6 +171,7 @@ interface SocraticSessionInit {
   scopeLabel: string;
   focusText?: string;
   sourceInstruction?: string;
+  enableWebSearch?: boolean;
 }
 
 interface StudyGoalSelection {
@@ -225,11 +226,14 @@ export class InputController {
     void this.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
   }
 
-  async startQuizReview(): Promise<void> {
+  async startQuizReview(messageId: string): Promise<boolean> {
     const { state } = this.deps;
-    if (state.isStreaming || state.quizSession || state.socraticSession) return;
-    const finalTurn = [...state.messages].reverse().find((message) => message.quizReviewAvailable);
-    if (!finalTurn) return;
+    if (state.isStreaming || state.quizSession || state.socraticSession) {
+      new Notice('진행 중인 학습이 끝난 뒤 퀴즈 복습을 시작할 수 있습니다.');
+      return false;
+    }
+    const finalTurn = state.messages.find((message) => message.id === messageId && message.quizReviewAvailable);
+    if (!finalTurn) return false;
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
     await this.sendMessage({
@@ -238,8 +242,13 @@ export class InputController {
         scopeInstruction: finalTurn.quizReviewSourceInstruction ?? 'Use the completed Quiz conversation as source context.',
         supportLevel: 1,
       }),
-      socraticSessionInit: { scopeLabel: 'Quiz 복습', sourceInstruction: finalTurn.quizReviewSourceInstruction },
+      socraticSessionInit: {
+        scopeLabel: 'Quiz 복습',
+        sourceInstruction: finalTurn.quizReviewSourceInstruction,
+        enableWebSearch: finalTurn.quizReviewEnableWebSearch,
+      },
     });
+    return true;
   }
 
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
@@ -329,6 +338,12 @@ export class InputController {
   ) {
     if (result.studyGoal) {
       const { state } = this.deps;
+      const vault = this.deps.plugin.app?.vault;
+      if (vault?.getAbstractFileByPath
+        && !(vault.getAbstractFileByPath(result.studyGoal.briefPath) instanceof TFile)) {
+        new Notice('선택한 Brief가 Vault에 없습니다. 노트를 다시 선택한 뒤 학습을 시작해 주세요.');
+        return;
+      }
       if (this.preparingStudyGoal || state.isStreaming) {
         new Notice('현재 학습 응답이 진행 중이라 Brief 설정을 시작하지 않았습니다. 완료 후 다시 시도해 주세요.');
         return;
@@ -371,7 +386,7 @@ export class InputController {
           scopeLabel: result.displayContent,
           focusText: result.focusText,
           difficulty: result.difficulty,
-          enableWebSearch: result.enableWebSearch,
+          enableWebSearch: result.enableWebSearch || result.studyGoal?.webSearch === true,
           questionStyle: result.questionStyle,
           sourceInstruction: result.sourceInstruction,
         },
@@ -386,6 +401,7 @@ export class InputController {
         scopeLabel: result.displayContent,
         focusText: result.focusText,
         sourceInstruction: result.sourceInstruction,
+        enableWebSearch: result.studyGoal?.webSearch,
       },
       studyGoal: result.studyGoal,
     });
@@ -588,7 +604,7 @@ export class InputController {
 
       new Notice(`학습 맥락을 준비했습니다. ${concepts ? '개념을 보충했습니다.' : '기존 개념을 재사용합니다.'} 출처: ${observedUrls.length ? observedUrls.join(', ') : '출처 미확인'}${unresolved.length ? ` · 미해결: ${unresolved.join(', ')}` : ''}`);
 
-      const evidenceScope = /No markdown files found in selected folders:/.test(result.sourceInstruction)
+      const evidenceScope = /^(?:No markdown files found in selected folders:|No selected course notes\.)/.test(result.sourceInstruction)
         ? 'No selected course notes. Use prepared concept evidence only.'
         : result.sourceInstruction;
       const learningScope = [
@@ -796,9 +812,17 @@ export class InputController {
     /** Sends a non-advancing quiz hint request instead of grading the current answer. */
     quizHintRequest?: boolean;
     studyGoal?: StudyGoalSelection;
+    /** Prevent a deferred ordinary message from opening a learning setup after queueing. */
+    skipLearningCommand?: boolean;
   }): Promise<void> {
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
+    const activeConversationAtSend = plugin.getActiveConversation?.();
+    const conversationAtSend = conversationIdAtSend
+      ? plugin.getConversationById?.(conversationIdAtSend)
+        ?? (activeConversationAtSend?.id === conversationIdAtSend ? activeConversationAtSend : undefined)
+      : activeConversationAtSend;
+    const goalIdAtSend = conversationAtSend?.studyGoalId;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
@@ -817,16 +841,18 @@ export class InputController {
     const quizRequest = Boolean(quizSessionInit || (!socraticSessionInit && state.quizSession));
     const quizWebSearchEnabled = quizRequest
       ? quizSessionInit?.enableWebSearch
+        ?? state.quizSession?.enableWebSearch
         ?? shouldEnableQuizWebSearch(quizSessionInit?.difficulty ?? state.quizSession?.difficulty ?? '중')
       : undefined;
-    const mentionedLearningCommand = parseMentionedLearningCommand(
+    const mentionedLearningCommand = options?.skipLearningCommand ? null : parseMentionedLearningCommand(
       content,
       fileContextManager,
       plugin.app,
       !state.isStreaming && !state.quizSession && !state.socraticSession,
     );
 
-    if (mentionedLearningCommand?.mode === 'quiz' || content === '/quiz' || content.startsWith('/quiz ')) {
+    if (!options?.skipLearningCommand
+      && (mentionedLearningCommand?.mode === 'quiz' || content === '/quiz' || content.startsWith('/quiz '))) {
       const quizFocusText = mentionedLearningCommand ? '' : content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
       const goals = (await plugin.storage.loadState()).studyGoalBindings ?? [];
       const quizModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'quiz', quizFocusText, goals);
@@ -847,7 +873,8 @@ export class InputController {
       return;
     }
 
-    if (mentionedLearningCommand?.mode === 'socratic' || content === '/socratic' || content.startsWith('/socratic ')) {
+    if (!options?.skipLearningCommand
+      && (mentionedLearningCommand?.mode === 'socratic' || content === '/socratic' || content.startsWith('/socratic '))) {
       const socraticFocusText = mentionedLearningCommand ? '' : content === '/socratic' ? '' : content.slice('/socratic'.length).trim();
       const goals = (await plugin.storage.loadState()).studyGoalBindings ?? [];
       const socraticModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'socratic', socraticFocusText, goals);
@@ -886,6 +913,7 @@ export class InputController {
         if (promptPrefix) {
           state.queuedMessage.promptPrefix = state.queuedMessage.promptPrefix ?? promptPrefix;
         }
+        state.queuedMessage.skipLearningCommand = true;
       } else {
         state.queuedMessage = {
           content,
@@ -893,6 +921,7 @@ export class InputController {
           editorContext,
           hidden: options?.hidden,
           promptPrefix,
+          skipLearningCommand: true,
         };
       }
 
@@ -951,6 +980,7 @@ export class InputController {
         scopeLabel: quizSessionInit.scopeLabel,
         focusText: quizSessionInit.focusText,
         difficulty: quizSessionInit.difficulty,
+        enableWebSearch: quizSessionInit.enableWebSearch,
         questionStyle: quizSessionInit.questionStyle,
         sourceInstruction: quizSessionInit.sourceInstruction,
       };
@@ -965,6 +995,7 @@ export class InputController {
         scopeLabel: socraticSessionInit.scopeLabel,
         focusText: socraticSessionInit.focusText,
         sourceInstruction: socraticSessionInit.sourceInstruction,
+        enableWebSearch: socraticSessionInit.enableWebSearch,
         supportLevel: 1,
         isSummaryPhase: false,
       };
@@ -1238,7 +1269,10 @@ ${promptToSend}`;
 
     // Add web search toggle state
     const webSearchEnabled = this.deps.getWebSearchToggle()?.isEnabled() ?? false;
-    const requestWebSearchEnabled = quizWebSearchEnabled ?? webSearchEnabled;
+    const sessionWebSearchEnabled = quizRequest
+      ? quizWebSearchEnabled
+      : socraticSessionInit?.enableWebSearch ?? state.socraticSession?.enableWebSearch;
+    const requestWebSearchEnabled = sessionWebSearchEnabled ?? webSearchEnabled;
     queryOptions = {
       ...queryOptions,
       enableWebSearch: requestWebSearchEnabled,
@@ -1292,8 +1326,12 @@ ${promptToSend}`;
       if (finishedQuiz && state.quizSession) {
         assistantMsg.quizReviewAvailable = true;
         assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
+        assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
         const reviewButton = contentEl?.createEl('button', { cls: 'ocop-quiz-review-btn', text: '오답을 소크라테스식으로 복습하기' });
-        if (reviewButton) reviewButton.type = 'button';
+        if (reviewButton) {
+          reviewButton.type = 'button';
+          reviewButton.dataset.messageId = assistantMsg.id;
+        }
       }
 
       if (streamOutcome !== 'completed' && quizSessionInit) {
@@ -1331,11 +1369,11 @@ ${promptToSend}`;
         }
       }
 
-      if (completionFacts) await this.saveStudyCompletionSummary(completionFacts);
+      if (completionFacts) await this.saveStudyCompletionSummary(completionFacts, goalIdAtSend);
 
       await conversationController.save(true);
       if (streamOutcome === 'completed' && quizAnswerToArchive) {
-        await this.saveStudyQuizAnswer(quizAnswerToArchive, content, assistantMsg);
+        await this.saveStudyQuizAnswer(quizAnswerToArchive, content, assistantMsg, conversationIdAtSend, goalIdAtSend);
       }
 
       // Show quiz answer panel if the assistant message has a quiz question
@@ -1373,14 +1411,13 @@ ${promptToSend}`;
   }
 
   /** Append a source-faithful Q/A trace to the confirmed goal folder, not a second score ledger. */
-  private async saveStudyQuizAnswer(question: QuizQuestionContext, studentAnswer: string, response: ChatMessage): Promise<void> {
+  private async saveStudyQuizAnswer(question: QuizQuestionContext, studentAnswer: string, response: ChatMessage, conversationId: string | null, studyGoalId?: string): Promise<void> {
     if (!question.messageId) return;
     const { plugin } = this.deps;
-    const conversation = plugin.getActiveConversation?.();
-    if (!conversation?.studyGoalId) return;
+    if (!studyGoalId || !conversationId) return;
     try {
       const bindings = (await plugin.storage.loadState()).studyGoalBindings ?? [];
-      const binding = bindings.find(goal => goal.id === conversation.studyGoalId);
+      const binding = bindings.find(goal => goal.id === studyGoalId);
       if (!binding) return;
       const vaultPath = getVaultPath(plugin.app);
       if (!vaultPath) return;
@@ -1398,7 +1435,7 @@ ${promptToSend}`;
       }
       if (!(file instanceof TFile)) throw new Error('퀴즈 기록 파일을 만들 수 없습니다.');
       // The question message ID is stable across feedback retries and app restarts.
-      const marker = `<!-- tutor-quiz:${conversation.id}:${question.messageId} -->`;
+      const marker = `<!-- tutor-quiz:${conversationId}:${question.messageId} -->`;
       const summary = response.content.trim().split(/^##\s*\d+\s*\/\s*\d+번 문제/m)[0].trim().slice(0, 3500)
         || 'AI 해설이 생성되지 않았습니다.';
       const entry = `\n\n${marker}\n## ${new Date().toISOString().slice(0, 10)} · 문제 ${question.questionNumber}/${question.totalQuestions}\n\n**문제**\n\n${question.questionText.slice(0, 3500)}\n\n**첫 제출 답변:** ${studentAnswer.slice(0, 350)}\n\n**AI 해설(검토 필요)**\n\n${summary}\n`;
@@ -1410,12 +1447,11 @@ ${promptToSend}`;
     }
   }
 
-  private async saveStudyCompletionSummary(facts: { mode: string; topic: string; questionCount?: number }): Promise<void> {
+  private async saveStudyCompletionSummary(facts: { mode: string; topic: string; questionCount?: number }, studyGoalId?: string): Promise<void> {
     const { plugin } = this.deps;
-    const conversation = plugin.getActiveConversation();
-    if (!conversation?.studyGoalId) return;
+    if (!studyGoalId) return;
     const state = await plugin.storage.loadState();
-    const binding = state.studyGoalBindings?.find(item => item.id === conversation.studyGoalId);
+    const binding = state.studyGoalBindings?.find(item => item.id === studyGoalId);
     if (!binding) return;
     const contextPath = binding.contextPath;
     const vaultPath = getVaultPath(plugin.app);
@@ -1794,7 +1830,7 @@ ${content}
     const { state } = this.deps;
     if (!state.queuedMessage) return;
 
-    const { content, images, editorContext, hidden, promptPrefix } = state.queuedMessage;
+    const { content, images, editorContext, hidden, promptPrefix, skipLearningCommand } = state.queuedMessage;
     state.queuedMessage = null;
     this.updateQueueIndicator();
 
@@ -1813,7 +1849,7 @@ ${content}
       this.deps.getImageContextManager()?.setImages(images);
     }
 
-    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, hidden, promptPrefix }), 0);
+    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, hidden, promptPrefix, skipLearningCommand }), 0);
   }
 
   // ============================================

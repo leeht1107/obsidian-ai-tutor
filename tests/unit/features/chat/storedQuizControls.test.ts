@@ -6,8 +6,11 @@ import { QUIZ_STUCK_ANSWER } from '../../../../src/ui/components/QuizAnswerPanel
  * delegation is all that stands behind them. Drawing them without registering here is
  * worse than not drawing them: a stuck student presses and nothing happens.
  */
-const clickOn = (...classes: string[]) =>
-  ({ closest: (selector: string) => (classes.includes(selector.slice(1)) ? {} : null) }) as unknown as Element;
+const clickOn = (...classes: string[]) => ({
+  closest: (selector: string) => (classes.includes(selector.slice(1))
+    ? { dataset: { messageId: 'quiz-message-1' } }
+    : null),
+}) as unknown as Element;
 
 describe('stored quiz controls reach the same actions as the live panel', () => {
   it('routes 힌트 to the non-advancing hint request', () => {
@@ -15,7 +18,13 @@ describe('stored quiz controls reach the same actions as the live panel', () => 
   });
 
   it('routes the optional end-of-quiz review button', () => {
-    expect(resolveStoredQuizControl(clickOn('ocop-quiz-review-btn'))).toEqual({ kind: 'review' });
+    expect(resolveStoredQuizControl(clickOn('ocop-quiz-review-btn')))
+      .toEqual({ kind: 'review', messageId: 'quiz-message-1' });
+  });
+
+  it('does not route a review control that has no message identity', () => {
+    const target = { closest: (selector: string) => selector === '.ocop-quiz-review-btn' ? { dataset: {} } : null } as unknown as Element;
+    expect(resolveStoredQuizControl(target)).toBeNull();
   });
 
   it('sends 모르겠어요 as the exact text the live panel submits', () => {
