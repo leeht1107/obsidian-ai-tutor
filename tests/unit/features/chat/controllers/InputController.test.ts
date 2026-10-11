@@ -2917,7 +2917,9 @@ describe('InputController study goal preparation', () => {
     expect(query.mock.calls[2][0]).toContain('@Course.md');
     expect(proposed.length > 0 && query.mock.calls[2][0].includes(proposed)).toBe(false);
     expect(query.mock.calls[2][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
-    expect(query.mock.calls[2][0].includes('저장되지 않은 개념은 문항 근거에 포함하지 않습니다.')).toBe(caseName !== 'unsupported');
+    // A goal document without a concept section still guides the session through its own text.
+    expect(query.mock.calls[2][0]).toContain('목표: 확률');
+    expect(query.mock.calls[2][0].includes('저장되지 않은 개념은 쓰지 않고')).toBe(caseName !== 'unsupported');
   });
 
   it.each(['success', 'failure'] as const)('writes completion summary through the scoped Vault process on %s', async (outcome) => {
@@ -3502,5 +3504,92 @@ describe('InputController study goal preparation', () => {
     expect(contents.get(context.path)).toContain('표본공간은 가능한 결과의 집합이다.');
     expect(result.sourceInstruction).toContain('Selected course evidence');
     expect(result.prompt).toContain('개념을 보충했습니다.');
+  });
+});
+
+describe('InputController goal binding and goal documents', () => {
+  const makeFile = (path: string) => Object.assign(new TFile(), { path });
+
+  it.each([
+    ['without a goal', {}],
+    ['for another goal', { studyGoal: { existingId: 'goal-b', briefPath: 'B.md', folderPath: 'B', contextPath: 'B/STUDY_CONTEXT.md' } }],
+  ])('restores the earlier goal when a new learning session %s fails to start, so its Quiz review still works', async (_label, extra) => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    const conversation: any = { id: 'conv-1', studyGoalId: 'goal-a' };
+    plugin.getActiveConversation = jest.fn(() => conversation);
+    plugin.updateConversation = jest.fn(async (_id: string, updates: object) => { Object.assign(conversation, updates); });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState: jest.fn() };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; });
+    const controller = new InputController(deps);
+    const quizA = {
+      id: 'quiz-a', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A', quizReviewStudyGoalId: 'goal-a',
+    };
+    deps.state.addMessage(quizA);
+
+    await controller.sendMessage({ content: 'quiz B', quizSessionInit: { totalQuestions: 3, scopeLabel: 'B' }, ...extra } as any);
+    expect(conversation.studyGoalId).toBe('goal-a');
+
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '복습 질문' }; yield { type: 'done' }; });
+    await expect(controller.startQuizReview('quiz-a')).resolves.toBe(true);
+    expect(plugin.agentService.query).toHaveBeenCalled();
+    expect(conversation.studyGoalId).toBe('goal-a');
+  });
+
+  it('keeps the new goal and retires earlier reviews when the new learning session starts', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    const conversation: any = { id: 'conv-1', studyGoalId: 'goal-a' };
+    plugin.getActiveConversation = jest.fn(() => conversation);
+    plugin.updateConversation = jest.fn(async (_id: string, updates: object) => { Object.assign(conversation, updates); });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState: jest.fn() };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '1/3번 문제' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    const quizA = {
+      id: 'quiz-a', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A', quizReviewStudyGoalId: 'goal-a',
+    };
+    deps.state.addMessage(quizA);
+
+    await controller.sendMessage({
+      content: 'quiz B', quizSessionInit: { totalQuestions: 3, scopeLabel: 'B' },
+      studyGoal: { existingId: 'goal-b', briefPath: 'B.md', folderPath: 'B', contextPath: 'B/STUDY_CONTEXT.md' },
+    } as any);
+
+    expect(conversation.studyGoalId).toBe('goal-b');
+    expect(quizA.quizReviewAvailable).toBe(false);
+  });
+
+  it('adapts to how an untagged overview document says to prepare, without a fixed concept section', async () => {
+    const overview = makeFile('Hackathon/Overview.md');
+    const context = makeFile('Hackathon/Prep/STUDY_CONTEXT.md');
+    const body = '# 해커톤 개요\n심사 기준: 문제 정의, 구현 완성도, 발표.\n준비 방식: 심사 기준별로 예상 질문에 답하는 발표 연습 위주로 준비한다.';
+    let content = '';
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (p: string) => p === overview.path ? overview : p === context.path ? context : p === 'Hackathon/Prep' ? { path: p } : null,
+      read: jest.fn(async (file: TFile) => file.path === overview.path ? body : content),
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { content = transform(content); }),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    const prompts: string[] = [];
+    const answers = [{ sufficient: false, summary: '준비 자료가 없습니다.' }, { concepts: '' }];
+    (deps.plugin as any).agentService.query = jest.fn(async function* (prompt: string) {
+      prompts.push(prompt);
+      yield { type: 'text', content: JSON.stringify(answers.shift() ?? {}) };
+    });
+
+    const prepared = await (new InputController(deps) as any).prepareStudyGoal({
+      briefPath: overview.path, folderPath: 'Hackathon/Prep', contextPath: context.path,
+    }, { mode: 'quiz', focusText: '', sourceInstruction: 'No eligible course notes selected.', hasSourceNotes: false,
+      totalQuestions: 3, difficulty: '중', questionStyle: 'material' });
+
+    expect(prompts[1]).toContain('Follow the preparation approach the Brief describes');
+    expect(prepared).not.toBeNull();
+    expect(prepared.sourceInstruction).toContain('[Goal document — how the student is preparing]');
+    expect(prepared.sourceInstruction).toContain('발표 연습 위주로 준비한다');
+    expect(prepared.prompt).toContain('목표 문서의 준비 방식에 맞춰 진행');
   });
 });

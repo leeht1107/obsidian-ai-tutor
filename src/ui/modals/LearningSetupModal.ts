@@ -15,6 +15,7 @@ import {
   type QuizDifficulty,
   type QuizQuestionStyle,
   shouldEnableQuizWebSearch,
+  stripFrontmatter,
   summarizeFolder,
   summarizeSelectedNotes,
 } from '../../core/learning';
@@ -232,14 +233,16 @@ export class LearningSetupModal extends Modal {
         });
       });
 
+    // Detected Briefs come first, but any note that says what to prepare and how can be the goal.
     const briefPaths = this.getBriefPaths(candidateNotes);
-    if (briefPaths.length > 0) {
+    const otherGoalPaths = candidateNotes.filter((path) => !briefPaths.includes(path) && !this.isTutorRecordPath(path));
+    if (briefPaths.length + otherGoalPaths.length > 0) {
       new Setting(this.contentEl)
         .setName('학습 목표 Brief (선택)')
-        .setDesc('Brief를 적용하지 않고 기존 방식으로 학습할 수도 있습니다.')
+        .setDesc('무엇을 어떻게 준비할지 적은 문서(Brief·개요·요강 등)를 고르면 그 내용에 맞춰 학습합니다. 태그나 정해진 형식은 필요 없습니다.')
         .addDropdown((dropdown) => {
           dropdown.addOption('', 'Brief 없이 기존 방식으로 학습');
-          for (const path of briefPaths) dropdown.addOption(path, path);
+          for (const path of [...briefPaths, ...otherGoalPaths]) dropdown.addOption(path, path);
           dropdown.setValue(this.briefPath).onChange((value) => this.handleBriefSelection(value));
         });
     }
@@ -289,7 +292,7 @@ export class LearningSetupModal extends Modal {
       const supportEl = this.contentEl.createDiv({ cls: 'ocop-learning-prerequisite-note' });
       supportEl.createEl('strong', { text: '막히는 개념은 예시로 풀어봐요' });
       supportEl.createEl('p', {
-        text: '선수과목 기초가 비어 있거나 강의자료의 설명이 부족하면, 이해에 필요한 만큼 쉬운 예시로 설명한 뒤 수업 주제와 연결합니다.',
+        text: '선수 지식이 비어 있거나 자료의 설명이 부족하면, 이해에 필요한 만큼 쉬운 예시로 설명한 뒤 학습 주제와 연결합니다.',
       });
     }
 
@@ -322,6 +325,12 @@ export class LearningSetupModal extends Modal {
       // Empty notes are no evidence: drop them, so a prepared Brief goal may still start and
       // a selection with no content left is refused by canStart.
       for (const path of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path);
+      // The selection stays editable during the check; never submit notes that were not checked.
+      const checked = new Set(paths);
+      if (this.buildScope().paths.some((path) => !checked.has(path))) {
+        new Notice('자료를 확인하는 동안 선택이 바뀌었습니다. 다시 시작해 주세요.');
+        return;
+      }
       const result = this.buildResult();
       if (!this.canStart(result)) return;
       this.finish(result);
@@ -337,7 +346,7 @@ export class LearningSetupModal extends Modal {
       if (!(file instanceof TFile)) return path;
       try {
         const body = await this.app.vault.cachedRead(file);
-        return body.replace(/^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/, '').trim() ? null : path;
+        return stripFrontmatter(body).trim() ? null : path;
       } catch {
         return path;
       }
@@ -355,7 +364,7 @@ export class LearningSetupModal extends Modal {
       return false;
     }
     if (!result.hasSourceNotes && !result.studyGoal) {
-      new Notice('학습 근거로 쓸 수업 자료 노트가 없습니다. 내용이 있는 수업 자료 노트를 선택하세요(Brief·학습 기록 제외).');
+      new Notice('학습 근거로 쓸 자료 노트가 없습니다. 내용이 있는 자료 노트를 선택하세요(Brief·학습 기록 제외).');
       return false;
     }
     return true;
@@ -683,12 +692,17 @@ export class LearningSetupModal extends Modal {
     ])).sort();
   }
 
+  /** Documents the tutor writes for a goal: never evidence, never a goal document. */
+  private isTutorRecordPath(path: string): boolean {
+    const basename = path.split('/').pop()?.toUpperCase();
+    return basename === 'QUIZ_HISTORY.MD' || basename === 'STUDY_CONTEXT.MD'
+      || path === this.studyContextPath || this.existingGoals.some((goal) => goal.contextPath === path);
+  }
+
   /** Brief and tutor-written documents are never course evidence, in any mode or scope. */
   private getQuestionEvidencePaths(paths: string[]): string[] {
     return paths.filter((path) => {
-      const basename = path.split('/').pop()?.toUpperCase();
-      if (basename === 'QUIZ_HISTORY.MD' || basename === 'STUDY_CONTEXT.MD') return false;
-      if (path === this.studyContextPath || this.existingGoals.some((goal) => goal.contextPath === path)) return false;
+      if (this.isTutorRecordPath(path)) return false;
       if (this.emptyNotePaths.has(path)) return false;
       return path !== this.briefPath && !this.isStudyBriefPath(path);
     });

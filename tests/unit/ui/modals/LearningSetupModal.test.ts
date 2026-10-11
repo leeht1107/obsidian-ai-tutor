@@ -561,3 +561,65 @@ describe('LearningSetupModal', () => {
     expect((modal as any).renderContent).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('LearningSetupModal goal documents and Start checks', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('offers any note as the goal document, not only tagged Briefs', () => {
+    const notes = ['Hackathon/Overview.md', 'Hackathon/Idea.md', 'Hackathon/Prep/STUDY_CONTEXT.md'].map(path => Object.assign(new TFile(), { path }));
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => notes, getAbstractFileByPath: (path: string) => notes.find(note => note.path === path) },
+      metadataCache: { getFileCache: () => null },
+    } as unknown as App, 'Hackathon/Idea.md', 'quiz');
+    const dropdowns: string[][] = [];
+    const makeElement = (): any => ({
+      empty: jest.fn(), addClass: jest.fn(), setAttribute: jest.fn(), addEventListener: jest.fn(),
+      createDiv: jest.fn(() => makeElement()), createSpan: jest.fn(() => makeElement()), createEl: jest.fn(() => makeElement()),
+    });
+    (modal as any).contentEl = makeElement();
+    jest.spyOn(Setting.prototype, 'addDropdown').mockImplementation(function (callback: any) {
+      const options: string[] = [];
+      const dropdown = { addOption(value: string) { options.push(value); return dropdown; }, setValue: () => dropdown, onChange: () => dropdown };
+      callback(dropdown);
+      dropdowns.push(options);
+      return this;
+    });
+
+    (modal as any).renderContent();
+
+    const goalOptions = dropdowns.find(options => options[0] === '' && options.includes('Hackathon/Overview.md'));
+    expect(goalOptions).toBeDefined();
+    expect(goalOptions).not.toContain('Hackathon/Prep/STUDY_CONTEXT.md');
+  });
+
+  it('does not start from a note selected while the empty-note check was still reading', async () => {
+    const files = ['Course/A.md', 'Course/B.md'].map(path => Object.assign(new TFile(), { path }));
+    let releaseA!: () => void;
+    const modal = new LearningSetupModal({
+      vault: {
+        getMarkdownFiles: () => files,
+        getAbstractFileByPath: (path: string) => files.find(file => file.path === path),
+        cachedRead: (file: TFile) => file.path === 'Course/A.md'
+          ? new Promise<string>(resolve => { releaseA = () => resolve('확률의 정의'); })
+          : Promise.resolve(''),
+      },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'note';
+    (modal as any).selectedNotePaths = new Set(['Course/A.md']);
+    const finish = jest.spyOn(modal as any, 'finish').mockImplementation(() => undefined);
+
+    const starting = (modal as any).start();
+    (modal as any).selectedNotePaths.delete('Course/A.md');
+    (modal as any).selectedNotePaths.add('Course/B.md');
+    releaseA();
+    await starting;
+    expect(finish).not.toHaveBeenCalled();
+    expect((modal as any).starting).toBe(false);
+
+    (modal as any).selectedNotePaths = new Set(['Course/A.md']);
+    const retry = (modal as any).start();
+    releaseA();
+    await retry;
+    expect(finish).toHaveBeenCalledTimes(1);
+  });
+});
