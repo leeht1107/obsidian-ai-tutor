@@ -159,8 +159,8 @@ interface SocraticSessionInit {
   focusText?: string;
   sourceInstruction?: string;
   enableWebSearch?: boolean;
-  /** A Quiz review continues the Quiz's goal instead of starting an unbound session. */
-  keepStudyGoal?: boolean;
+  /** A Quiz review continues the Quiz's own goal and source instead of starting a new session. */
+  quizReview?: boolean;
 }
 
 interface StudyGoalSelection {
@@ -230,7 +230,15 @@ export class InputController {
     // Consume first so a switch or summary-only reply cannot reopen it; restore only on failure.
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
-    const outcome = await this.sendMessage({
+    // A Quiz from another goal must not be reviewed under, or unbind, the goal now in use.
+    const currentGoalId = this.deps.plugin.getActiveConversation?.()?.studyGoalId;
+    if ((finalTurn.quizReviewStudyGoalId ?? null) !== (currentGoalId ?? null)) {
+      new Notice('이 Quiz 이후 다른 학습 목표로 학습해 복습할 수 없습니다. 새 Quiz로 다시 확인해 주세요.');
+      return true;
+    }
+    let outcome: StreamOutcome | undefined;
+    try {
+      outcome = await this.sendMessage({
       content: '이 Quiz에서 헷갈린 개념을 소크라테스식 질문으로 복습해 주세요. 한 번에 질문 하나만 하고, 이해하면 다음 개념으로 넘어가세요.',
       promptPrefix: buildSocraticPrompt({
         scopeInstruction: finalTurn.quizReviewSourceInstruction ?? 'Use the completed Quiz conversation as source context.',
@@ -241,15 +249,17 @@ export class InputController {
         sourceInstruction: finalTurn.quizReviewSourceInstruction,
         // Only a Quiz that required Web keeps it; otherwise the toolbar toggle decides.
         enableWebSearch: finalTurn.quizReviewEnableWebSearch === true ? true : undefined,
-        // Continue the reviewed Quiz's goal only; a later goal in this conversation is not its evidence.
-        keepStudyGoal: Boolean(finalTurn.quizReviewStudyGoalId)
-          && finalTurn.quizReviewStudyGoalId === this.deps.plugin.getActiveConversation?.()?.studyGoalId,
+        quizReview: true,
       },
-    });
-    if (outcome === 'completed') return true;
-    finalTurn.quizReviewAvailable = true;
-    void this.deps.conversationController.save(true);
-    return false;
+      });
+    } finally {
+      // Restore only when the review never got going; a started review stays consumed.
+      if (outcome !== 'completed' && !this.deps.state.socraticSession?.quizReview) {
+        finalTurn.quizReviewAvailable = true;
+        void this.deps.conversationController.save(true);
+      }
+    }
+    return outcome === 'completed';
   }
 
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
@@ -963,7 +973,7 @@ export class InputController {
       }
     }
 
-    if ((quizSessionInit || socraticSessionInit) && !options?.studyGoal && !socraticSessionInit?.keepStudyGoal) {
+    if ((quizSessionInit || socraticSessionInit) && !options?.studyGoal && !socraticSessionInit?.quizReview) {
       const conversation = typeof plugin.getActiveConversation === 'function' ? plugin.getActiveConversation() : null;
       if (conversation?.studyGoalId) {
         try {
@@ -1003,6 +1013,7 @@ export class InputController {
         enableWebSearch: socraticSessionInit.enableWebSearch,
         supportLevel: 1,
         isSummaryPhase: false,
+        ...(socraticSessionInit.quizReview ? { quizReview: true } : {}),
       };
       this.deps.showSocraticBanner?.(
         socraticSessionInit.scopeLabel,
@@ -1065,6 +1076,7 @@ export class InputController {
 
     const currentNotePath = fileContextManager?.getCurrentNotePath() || null;
     const shouldSendCurrentNote = currentNotePath !== activeGoalBriefPath
+      && !state.socraticSession?.quizReview
       && (fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     let slashTemplateCurrentNoteScope = false;
@@ -1164,9 +1176,10 @@ export class InputController {
     }
 
     const editorContextOverride = options?.editorContextOverride;
+    // A Quiz review reads only the Quiz's source, not a selection in an unrelated note.
     const editorContext = editorContextOverride !== undefined
       ? editorContextOverride
-      : selectionController.getContext();
+      : state.socraticSession?.quizReview ? null : selectionController.getContext();
 
     // Wrap query in XML tag
     let promptToSend = `<query>\n${content}\n</query>`;
@@ -1369,6 +1382,15 @@ ${promptToSend}`;
         } else {
           state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
         }
+      }
+
+      // A new learning session that actually started retires earlier review offers.
+      if (streamOutcome === 'completed' && (quizSessionInit || socraticSessionInit) && !socraticSessionInit?.quizReview) {
+        for (const message of state.messages) {
+          if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+        }
+        const reviewButtons = this.deps.getMessagesEl().querySelectorAll?.<HTMLButtonElement>('.ocop-quiz-review-btn');
+        reviewButtons?.forEach((button) => { button.disabled = true; });
       }
 
       if (completionFacts) await this.saveStudyCompletionSummary(completionFacts, goalIdAtSend);

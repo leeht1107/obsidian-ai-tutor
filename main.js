@@ -5014,6 +5014,7 @@ User: ${injectedPrompt}`;
     if (pending) {
       return pending;
     }
+    let cacheable = true;
     const probePromise = new Promise((resolve7) => {
       var _a, _b;
       const probeEntry = resolveProviderEntry(copilotPath, getProviderDescriptor("copilot").npmPackage);
@@ -5026,6 +5027,7 @@ User: ${injectedPrompt}`;
           detached: !isWindows2
         });
       } catch (e) {
+        cacheable = false;
         resolve7(detectCopilotCliCapabilities(""));
         return;
       }
@@ -5038,6 +5040,7 @@ User: ${injectedPrompt}`;
         clearTimeout(timer);
         killTree(child);
         const helpText = stdout.trim().length > 0 ? stdout : stderr;
+        if (errored) cacheable = false;
         resolve7(errored && helpText.length === 0 ? detectCopilotCliCapabilities("") : detectCopilotCliCapabilities(helpText));
       };
       const timer = setTimeout(() => finish(true), CLI_CAPABILITY_PROBE_TIMEOUT_MS);
@@ -5050,7 +5053,7 @@ User: ${injectedPrompt}`;
       child.on("error", () => finish(true));
       child.on("close", (code) => finish(code !== 0));
     }).then((capabilities) => {
-      this.cachedCapabilities.set(copilotPath, capabilities);
+      if (cacheable) this.cachedCapabilities.set(copilotPath, capabilities);
       this.capabilityProbePromises.delete(copilotPath);
       return capabilities;
     });
@@ -5202,6 +5205,12 @@ User: ${injectedPrompt}`;
       queryOptions == null ? void 0 : queryOptions.planMode,
       enableWebSearch
     );
+    if ((queryOptions == null ? void 0 : queryOptions.readOnly) && !capabilities.availableTools) {
+      const message = "Copilot CLI\uC758 \uC77D\uAE30 \uC804\uC6A9 \uB3C4\uAD6C \uC81C\uD55C(--available-tools)\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD574 \uC77D\uAE30 \uC804\uC6A9 \uC694\uCCAD\uC744 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uACE0, \uACC4\uC18D\uB418\uBA74 Copilot CLI\uB97C \uC5C5\uB370\uC774\uD2B8\uD574 \uC8FC\uC138\uC694.";
+      this.logError({ provider: "copilot", stage: "internal", message });
+      yield { type: "error", content: message };
+      return;
+    }
     if (hasExplicitCopilotAllowedTools(queryOptions == null ? void 0 : queryOptions.allowedTools) && finalTools.length === 0) {
       const message = "\uC694\uCCAD\uD55C \uB3C4\uAD6C\uB97C \uD604\uC7AC Web \uC124\uC815\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Web \uAC80\uC0C9\uC744 \uCF1C\uAC70\uB098 \uD5C8\uC6A9 \uB3C4\uAD6C\uB97C \uBC14\uAFD4 \uC8FC\uC138\uC694.";
       this.logError({ provider: "copilot", stage: "internal", message });
@@ -14078,6 +14087,9 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     this.briefSelectionDisabled = false;
     /** True while briefPath comes from the selected notes rather than the Brief dropdown. */
     this.briefInferred = false;
+    /** Notes found empty at Start; they count as no evidence. */
+    this.emptyNotePaths = /* @__PURE__ */ new Set();
+    this.starting = false;
     /** Per-render memo of which note paths are StudyBriefs. */
     this.briefPathMemo = /* @__PURE__ */ new Map();
     this.quizPreferencesTouched = /* @__PURE__ */ new Set();
@@ -14266,9 +14278,37 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     const actionLabel = this.mode === "quiz" ? "\uD034\uC988 \uC2DC\uC791" : "\uB300\uD654 \uC2DC\uC791";
     const startBtn = buttonsEl.createEl("button", { text: actionLabel, cls: "ocop-save-btn mod-cta" });
     startBtn.addEventListener("click", () => {
-      const result = this.buildResult();
-      if (this.canStart(result)) this.finish(result);
+      void this.start();
     });
+  }
+  async start() {
+    if (this.starting) return;
+    this.starting = true;
+    try {
+      this.emptyNotePaths.clear();
+      const { paths } = this.buildScope();
+      for (const path18 of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path18);
+      const result = this.buildResult();
+      if (!this.canStart(result)) return;
+      this.finish(result);
+    } finally {
+      this.starting = false;
+    }
+  }
+  /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
+  async findEmptyNotes(paths) {
+    const checks = await Promise.all(paths.map(async (path18) => {
+      var _a, _b;
+      const file = (_b = (_a = this.app.vault).getAbstractFileByPath) == null ? void 0 : _b.call(_a, path18);
+      if (!(file instanceof import_obsidian14.TFile)) return path18;
+      try {
+        const body = await this.app.vault.cachedRead(file);
+        return body.replace(/^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/, "").trim() ? null : path18;
+      } catch (e) {
+        return path18;
+      }
+    }));
+    return checks.filter((path18) => path18 !== null);
   }
   canStart(result) {
     if (this.briefPath && !this.isValidBriefFile(this.briefPath)) {
@@ -14280,7 +14320,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
       return false;
     }
     if (!result.hasSourceNotes && !result.studyGoal) {
-      new import_obsidian14.Notice("\uD559\uC2B5 \uADFC\uAC70\uB85C \uC4F8 \uC218\uC5C5 \uC790\uB8CC \uB178\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. Brief\xB7\uD559\uC2B5 \uAE30\uB85D\uC774 \uC544\uB2CC \uC218\uC5C5 \uC790\uB8CC \uB178\uD2B8\uB97C \uC120\uD0DD\uD558\uC138\uC694.");
+      new import_obsidian14.Notice("\uD559\uC2B5 \uADFC\uAC70\uB85C \uC4F8 \uC218\uC5C5 \uC790\uB8CC \uB178\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uB0B4\uC6A9\uC774 \uC788\uB294 \uC218\uC5C5 \uC790\uB8CC \uB178\uD2B8\uB97C \uC120\uD0DD\uD558\uC138\uC694(Brief\xB7\uD559\uC2B5 \uAE30\uB85D \uC81C\uC678).");
       return false;
     }
     return true;
@@ -14429,7 +14469,8 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
       return {
         sourceInstruction: this.briefPath && this.studyFolderPath ? PREPARED_EVIDENCE_ONLY : NO_EVIDENCE,
         displayScope,
-        hasSourceNotes: false
+        hasSourceNotes: false,
+        paths
       };
     }
     const refs = paths.map((path18) => `@${path18}`).join(", ");
@@ -14442,7 +14483,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     } else {
       sourceInstruction = isCurrentNote ? `Use only the current note as ground truth source material: ${refs}` : `Use only these selected notes as ground truth source material: ${refs}`;
     }
-    return { sourceInstruction, displayScope, hasSourceNotes: true };
+    return { sourceInstruction, displayScope, hasSourceNotes: true, paths };
   }
   finish(result) {
     const resolve7 = this.resolvePromise;
@@ -14571,6 +14612,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
       const basename2 = (_a = path18.split("/").pop()) == null ? void 0 : _a.toUpperCase();
       if (basename2 === "QUIZ_HISTORY.MD" || basename2 === "STUDY_CONTEXT.MD") return false;
       if (path18 === this.studyContextPath || this.existingGoals.some((goal) => goal.contextPath === path18)) return false;
+      if (this.emptyNotePaths.has(path18)) return false;
       return path18 !== this.briefPath && !this.isStudyBriefPath(path18);
     });
   }
@@ -17737,7 +17779,7 @@ var InputController = class {
   }
   /** Resolves false only when the review may be retried, so the caller re-enables its button. */
   async startQuizReview(messageId) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     const { state } = this.deps;
     if (state.isStreaming || state.quizSession || state.socraticSession) {
       new import_obsidian24.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
@@ -17750,25 +17792,34 @@ var InputController = class {
     }
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
-    const outcome = await this.sendMessage({
-      content: "\uC774 Quiz\uC5D0\uC11C \uD5F7\uAC08\uB9B0 \uAC1C\uB150\uC744 \uC18C\uD06C\uB77C\uD14C\uC2A4\uC2DD \uC9C8\uBB38\uC73C\uB85C \uBCF5\uC2B5\uD574 \uC8FC\uC138\uC694. \uD55C \uBC88\uC5D0 \uC9C8\uBB38 \uD558\uB098\uB9CC \uD558\uACE0, \uC774\uD574\uD558\uBA74 \uB2E4\uC74C \uAC1C\uB150\uC73C\uB85C \uB118\uC5B4\uAC00\uC138\uC694.",
-      promptPrefix: buildSocraticPrompt({
-        scopeInstruction: (_a = finalTurn.quizReviewSourceInstruction) != null ? _a : "Use the completed Quiz conversation as source context.",
-        supportLevel: 1
-      }),
-      socraticSessionInit: {
-        scopeLabel: "Quiz \uBCF5\uC2B5",
-        sourceInstruction: finalTurn.quizReviewSourceInstruction,
-        // Only a Quiz that required Web keeps it; otherwise the toolbar toggle decides.
-        enableWebSearch: finalTurn.quizReviewEnableWebSearch === true ? true : void 0,
-        // Continue the reviewed Quiz's goal only; a later goal in this conversation is not its evidence.
-        keepStudyGoal: Boolean(finalTurn.quizReviewStudyGoalId) && finalTurn.quizReviewStudyGoalId === ((_d = (_c = (_b = this.deps.plugin).getActiveConversation) == null ? void 0 : _c.call(_b)) == null ? void 0 : _d.studyGoalId)
+    const currentGoalId = (_c = (_b = (_a = this.deps.plugin).getActiveConversation) == null ? void 0 : _b.call(_a)) == null ? void 0 : _c.studyGoalId;
+    if (((_d = finalTurn.quizReviewStudyGoalId) != null ? _d : null) !== (currentGoalId != null ? currentGoalId : null)) {
+      new import_obsidian24.Notice("\uC774 Quiz \uC774\uD6C4 \uB2E4\uB978 \uD559\uC2B5 \uBAA9\uD45C\uB85C \uD559\uC2B5\uD574 \uBCF5\uC2B5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8 Quiz\uB85C \uB2E4\uC2DC \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+      return true;
+    }
+    let outcome;
+    try {
+      outcome = await this.sendMessage({
+        content: "\uC774 Quiz\uC5D0\uC11C \uD5F7\uAC08\uB9B0 \uAC1C\uB150\uC744 \uC18C\uD06C\uB77C\uD14C\uC2A4\uC2DD \uC9C8\uBB38\uC73C\uB85C \uBCF5\uC2B5\uD574 \uC8FC\uC138\uC694. \uD55C \uBC88\uC5D0 \uC9C8\uBB38 \uD558\uB098\uB9CC \uD558\uACE0, \uC774\uD574\uD558\uBA74 \uB2E4\uC74C \uAC1C\uB150\uC73C\uB85C \uB118\uC5B4\uAC00\uC138\uC694.",
+        promptPrefix: buildSocraticPrompt({
+          scopeInstruction: (_e = finalTurn.quizReviewSourceInstruction) != null ? _e : "Use the completed Quiz conversation as source context.",
+          supportLevel: 1
+        }),
+        socraticSessionInit: {
+          scopeLabel: "Quiz \uBCF5\uC2B5",
+          sourceInstruction: finalTurn.quizReviewSourceInstruction,
+          // Only a Quiz that required Web keeps it; otherwise the toolbar toggle decides.
+          enableWebSearch: finalTurn.quizReviewEnableWebSearch === true ? true : void 0,
+          quizReview: true
+        }
+      });
+    } finally {
+      if (outcome !== "completed" && !((_f = this.deps.state.socraticSession) == null ? void 0 : _f.quizReview)) {
+        finalTurn.quizReviewAvailable = true;
+        void this.deps.conversationController.save(true);
       }
-    });
-    if (outcome === "completed") return true;
-    finalTurn.quizReviewAvailable = true;
-    void this.deps.conversationController.save(true);
-    return false;
+    }
+    return outcome === "completed";
   }
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
   sendSocraticShortcut(content) {
@@ -18312,7 +18363,7 @@ ${latest.slice(end)}`;
   // ============================================
   /** Sends a message with optional editor context override. */
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O, _P, _Q, _R, _S;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const activeConversationAtSend = (_a = plugin.getActiveConversation) == null ? void 0 : _a.call(plugin);
@@ -18436,7 +18487,7 @@ ${latest.slice(end)}`;
         return;
       }
     }
-    if ((quizSessionInit || socraticSessionInit) && !(options == null ? void 0 : options.studyGoal) && !(socraticSessionInit == null ? void 0 : socraticSessionInit.keepStudyGoal)) {
+    if ((quizSessionInit || socraticSessionInit) && !(options == null ? void 0 : options.studyGoal) && !(socraticSessionInit == null ? void 0 : socraticSessionInit.quizReview)) {
       const conversation = typeof plugin.getActiveConversation === "function" ? plugin.getActiveConversation() : null;
       if (conversation == null ? void 0 : conversation.studyGoalId) {
         try {
@@ -18473,7 +18524,8 @@ ${latest.slice(end)}`;
         sourceInstruction: socraticSessionInit.sourceInstruction,
         enableWebSearch: socraticSessionInit.enableWebSearch,
         supportLevel: 1,
-        isSummaryPhase: false
+        isSummaryPhase: false,
+        ...socraticSessionInit.quizReview ? { quizReview: true } : {}
       };
       (_v = (_u = this.deps).showSocraticBanner) == null ? void 0 : _v.call(
         _u,
@@ -18525,7 +18577,7 @@ ${latest.slice(end)}`;
     state.currentTextContent = "";
     streamController.showThinkingIndicator(contentEl);
     const currentNotePath = (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null;
-    const shouldSendCurrentNote = currentNotePath !== activeGoalBriefPath && ((_y = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _y : false);
+    const shouldSendCurrentNote = currentNotePath !== activeGoalBriefPath && !((_y = state.socraticSession) == null ? void 0 : _y.quizReview) && ((_z = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _z : false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     let slashTemplateCurrentNoteScope = false;
     const displayContent = content;
@@ -18599,7 +18651,7 @@ ${latest.slice(end)}`;
       imageContextManager == null ? void 0 : imageContextManager.clearImages();
     }
     const editorContextOverride = options == null ? void 0 : options.editorContextOverride;
-    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : selectionController.getContext();
+    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : ((_A = state.socraticSession) == null ? void 0 : _A.quizReview) ? null : selectionController.getContext();
     let promptToSend = `<query>
 ${content}
 </query>`;
@@ -18630,7 +18682,7 @@ ${content}
       }
       currentNoteForMessage = currentNotePath;
     }
-    userMsg.displayContent = (_z = options == null ? void 0 : options.displayContentOverride) != null ? _z : displayContent !== content ? displayContent : void 0;
+    userMsg.displayContent = (_B = options == null ? void 0 : options.displayContentOverride) != null ? _B : displayContent !== content ? displayContent : void 0;
     userMsg.currentNote = currentNoteForMessage;
     if (options == null ? void 0 : options.promptPrefix) {
       promptToSend = `${options.promptPrefix}
@@ -18689,8 +18741,8 @@ ${promptToSend}`;
         externalContextPaths
       };
     }
-    const webSearchEnabled = (_B = (_A = this.deps.getWebSearchToggle()) == null ? void 0 : _A.isEnabled()) != null ? _B : false;
-    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_D = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _D : (_C = state.socraticSession) == null ? void 0 : _C.enableWebSearch;
+    const webSearchEnabled = (_D = (_C = this.deps.getWebSearchToggle()) == null ? void 0 : _C.isEnabled()) != null ? _D : false;
+    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_F = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _F : (_E = state.socraticSession) == null ? void 0 : _E.enableWebSearch;
     const requestWebSearchEnabled = sessionWebSearchEnabled != null ? sessionWebSearchEnabled : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
@@ -18725,11 +18777,11 @@ ${promptToSend}`;
         });
       }
       state.activeSubagents.clear();
-      const completedGoalLearning = streamOutcome === "completed" && (Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions) || Boolean(state.socraticSession && !socraticSessionInit && ((_E = assistantMsg.socraticTurn) == null ? void 0 : _E.isSummary)));
+      const completedGoalLearning = streamOutcome === "completed" && (Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions) || Boolean(state.socraticSession && !socraticSessionInit && ((_G = assistantMsg.socraticTurn) == null ? void 0 : _G.isSummary)));
       const completionFacts = completedGoalLearning ? {
         mode: state.quizSession ? "Quiz" : "Socratic",
-        topic: ((_I = (_H = (_F = state.quizSession) == null ? void 0 : _F.focusText) != null ? _H : (_G = state.socraticSession) == null ? void 0 : _G.focusText) != null ? _I : "\uC120\uD0DD\uD55C \uD559\uC2B5 \uBC94\uC704").replace(/[\r\n]+/g, " ").slice(0, 160),
-        questionCount: (_J = state.quizSession) == null ? void 0 : _J.totalQuestions
+        topic: ((_K = (_J = (_H = state.quizSession) == null ? void 0 : _H.focusText) != null ? _J : (_I = state.socraticSession) == null ? void 0 : _I.focusText) != null ? _K : "\uC120\uD0DD\uD55C \uD559\uC2B5 \uBC94\uC704").replace(/[\r\n]+/g, " ").slice(0, 160),
+        questionCount: (_L = state.quizSession) == null ? void 0 : _L.totalQuestions
       } : void 0;
       const finishedQuiz = streamOutcome === "completed" && Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
       if (finishedQuiz && state.quizSession) {
@@ -18744,7 +18796,7 @@ ${promptToSend}`;
       }
       if (streamOutcome !== "completed" && socraticSessionInit) {
         state.socraticSession = null;
-        (_L = (_K = this.deps).hideSocraticBanner) == null ? void 0 : _L.call(_K);
+        (_N = (_M = this.deps).hideSocraticBanner) == null ? void 0 : _N.call(_M);
       }
       if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
         if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
@@ -18759,9 +18811,9 @@ ${promptToSend}`;
       if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
         const s = state.socraticSession;
         const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-        if ((_M = assistantMsg.socraticTurn) == null ? void 0 : _M.isSummary) {
+        if ((_O = assistantMsg.socraticTurn) == null ? void 0 : _O.isSummary) {
           state.socraticSession = null;
-          (_O = (_N = this.deps).hideSocraticBanner) == null ? void 0 : _O.call(_N);
+          (_Q = (_P = this.deps).hideSocraticBanner) == null ? void 0 : _Q.call(_P);
         } else if (updatedSession.isSummaryPhase) {
           state.socraticSession = updatedSession;
         } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
@@ -18769,6 +18821,15 @@ ${promptToSend}`;
         } else {
           state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
         }
+      }
+      if (streamOutcome === "completed" && (quizSessionInit || socraticSessionInit) && !(socraticSessionInit == null ? void 0 : socraticSessionInit.quizReview)) {
+        for (const message of state.messages) {
+          if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+        }
+        const reviewButtons = (_S = (_R = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _S.call(_R, ".ocop-quiz-review-btn");
+        reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
+          button.disabled = true;
+        });
       }
       if (completionFacts) await this.saveStudyCompletionSummary(completionFacts, goalIdAtSend);
       await conversationController.save(true);

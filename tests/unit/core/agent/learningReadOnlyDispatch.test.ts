@@ -14,7 +14,11 @@ describe('learning request permission boundary', () => {
   beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-readonly-')); });
   afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-  function fixture(provider: string, captured: string): string {
+  function fixture(
+    provider: string,
+    captured: string,
+    copilotHelp = '--allow-all-tools --available-tools --deny-tool --output-format json --no-ask-user',
+  ): string {
     const script = path.join(dir, `${provider}.js`);
     const cli = process.platform === 'win32' ? path.join(dir, `${provider}.cmd`) : script;
     const code = [
@@ -22,7 +26,7 @@ describe('learning request permission boundary', () => {
       `const provider = ${JSON.stringify(provider)};`,
       `const captured = ${JSON.stringify(captured)};`,
       'const args = process.argv.slice(2);',
-      'if (provider === "copilot" && args[0] === "--help") { console.log("--allow-all-tools --available-tools --deny-tool --output-format json --no-ask-user"); process.exit(0); }',
+      `if (provider === "copilot" && args[0] === "--help") { console.log(${JSON.stringify(copilotHelp)}); process.exit(0); }`,
       'fs.writeFileSync(captured, args.join("\\n"));',
       'if (provider === "copilot") { console.log(JSON.stringify({ type: "assistant.message_delta", data: { deltaContent: "ok" } })); console.log(JSON.stringify({ type: "result", exitCode: 0 })); }',
       'else if (provider === "agy") console.log(JSON.stringify({ status: "SUCCESS", response: "ok", denied_actions: [] }));',
@@ -46,10 +50,11 @@ describe('learning request permission boundary', () => {
     readOnly = true,
     repeat = 1,
     allowedTools?: string[],
+    copilotHelp?: string,
   ): Promise<{ args: string[]; notices: string[]; spawned: boolean; chunks: Array<{ type: string }> }> {
     const captured = path.join(dir, `args-${provider}-${pathSetting}.txt`);
     if (fs.existsSync(captured)) fs.unlinkSync(captured);
-    const cli = fixture(provider, captured);
+    const cli = fixture(provider, captured, copilotHelp);
     const notices: string[] = [];
     const service = new CopilotBridgeService({
       settings: {
@@ -110,6 +115,14 @@ describe('learning request permission boundary', () => {
     const { args, spawned, chunks } = await run('copilot', 'modern', true, false, true, 1, ['WebSearch']);
     expect(spawned).toBe(false);
     expect(args).toEqual([]);
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(true);
+  });
+
+  it('refuses a read-only Copilot request when the CLI cannot enforce its tool list', async () => {
+    const { spawned, chunks } = await run(
+      'copilot', 'modern', true, true, true, 1, undefined, '--allow-all-tools --deny-tool --output-format json --no-ask-user',
+    );
+    expect(spawned).toBe(false);
     expect(chunks.some((chunk) => chunk.type === 'error')).toBe(true);
   });
 

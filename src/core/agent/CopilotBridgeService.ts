@@ -663,6 +663,8 @@ export class CopilotBridgeService {
       return pending;
     }
 
+    // A probe that failed or timed out says nothing reliable about the CLI; retry it next time.
+    let cacheable = true;
     const probePromise = new Promise<CopilotCliCapabilities>((resolve) => {
       const probeEntry = resolveProviderEntry(copilotPath, getProviderDescriptor('copilot').npmPackage);
       // No entry means no shell either. The probe simply fails, and
@@ -681,6 +683,7 @@ export class CopilotBridgeService {
           detached: !isWindows,
         });
       } catch {
+        cacheable = false;
         resolve(detectCopilotCliCapabilities(''));
         return;
       }
@@ -693,6 +696,7 @@ export class CopilotBridgeService {
         clearTimeout(timer);
         killTree(child);
         const helpText = stdout.trim().length > 0 ? stdout : stderr;
+        if (errored) cacheable = false;
         resolve(errored && helpText.length === 0 ? detectCopilotCliCapabilities('') : detectCopilotCliCapabilities(helpText));
       };
       const timer = setTimeout(() => finish(true), CLI_CAPABILITY_PROBE_TIMEOUT_MS);
@@ -701,7 +705,7 @@ export class CopilotBridgeService {
       child.on('error', () => finish(true));
       child.on('close', (code) => finish(code !== 0));
     }).then((capabilities) => {
-      this.cachedCapabilities.set(copilotPath, capabilities);
+      if (cacheable) this.cachedCapabilities.set(copilotPath, capabilities);
       this.capabilityProbePromises.delete(copilotPath);
       return capabilities;
     });
@@ -882,6 +886,13 @@ export class CopilotBridgeService {
       queryOptions?.planMode,
       enableWebSearch,
     );
+    // A read-only request (learning, inline edit, titles) depends on the CLI enforcing the tool list.
+    if (queryOptions?.readOnly && !capabilities.availableTools) {
+      const message = 'Copilot CLI의 읽기 전용 도구 제한(--available-tools)을 확인하지 못해 읽기 전용 요청을 실행하지 않았습니다. 다시 시도하고, 계속되면 Copilot CLI를 업데이트해 주세요.';
+      this.logError({ provider: 'copilot', stage: 'internal', message });
+      yield { type: 'error', content: message };
+      return;
+    }
     if (hasExplicitCopilotAllowedTools(queryOptions?.allowedTools) && finalTools.length === 0) {
       const message = '요청한 도구를 현재 Web 설정에서 사용할 수 없습니다. Web 검색을 켜거나 허용 도구를 바꿔 주세요.';
       this.logError({ provider: 'copilot', stage: 'internal', message });

@@ -2182,21 +2182,93 @@ describe('InputController study goal preparation', () => {
     expect(finalTurn.quizReviewAvailable).toBe(false);
   });
 
-  it('does not let a Quiz review borrow a later goal bound to the conversation', async () => {
+  it('refuses to review a Quiz from another goal without unbinding the current goal', async () => {
     const deps = createMockDeps();
     const plugin = deps.plugin as any;
     plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'goal-b' });
-    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }) };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    const quizA = {
+      id: 'quiz-a', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A', quizReviewStudyGoalId: 'goal-a',
+    };
+    deps.state.addMessage(quizA);
+    (Notice as any).messages.length = 0;
+
+    await expect(controller.startQuizReview('quiz-a')).resolves.toBe(true);
+
+    expect(plugin.agentService.query).not.toHaveBeenCalled();
+    expect(plugin.updateConversation).not.toHaveBeenCalledWith('conv-1', { studyGoalId: undefined });
+    expect(quizA.quizReviewAvailable).toBe(false);
+    expect((Notice as any).messages.at(-1)).toMatch(/다른 학습 목표/);
+  });
+
+  it('retires earlier Quiz review offers when a new learning session starts', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '1/3번 문제' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    const quizA = {
+      id: 'quiz-a', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A',
+    };
+    deps.state.addMessage(quizA);
+
+    await controller.sendMessage({ content: 'quiz B', quizSessionInit: { totalQuestions: 3, scopeLabel: 'B' } });
+
+    expect(quizA.quizReviewAvailable).toBe(false);
+  });
+
+  it('keeps earlier Quiz review offers when the new learning session fails to start', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; });
+    const controller = new InputController(deps);
+    const quizA = {
+      id: 'quiz-a', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A',
+    };
+    deps.state.addMessage(quizA);
+
+    await controller.sendMessage({ content: 'quiz B', quizSessionInit: { totalQuestions: 3, scopeLabel: 'B' } });
+
+    expect(quizA.quizReviewAvailable).toBe(true);
+  });
+
+  it('does not attach the note open in the editor to a Quiz review turn', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
     plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '복습 질문' }; yield { type: 'done' }; });
+    deps.getFileContextManager = () => ({
+      startSession: jest.fn(), getCurrentNotePath: jest.fn().mockReturnValue('Other/Unrelated.md'),
+      shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+      transformContextMentions: jest.fn((text: string) => text),
+      getResolvedMentionPaths: jest.fn().mockReturnValue([]),
+    }) as any;
     const controller = new InputController(deps);
     deps.state.addMessage({
-      id: 'quiz-a', role: 'assistant', content: '완료', timestamp: Date.now(),
-      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A', quizReviewStudyGoalId: 'goal-a',
+      id: 'quiz-final', role: 'assistant', content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source @Course.md',
     });
 
-    await controller.startQuizReview('quiz-a');
+    await controller.startQuizReview('quiz-final');
 
-    expect(plugin.updateConversation).toHaveBeenCalledWith('conv-1', { studyGoalId: undefined });
+    expect((plugin.agentService.query as jest.Mock).mock.calls[0][0]).not.toContain('Other/Unrelated.md');
+  });
+
+  it('restores a Quiz review when starting it throws', async () => {
+    const deps = createMockDeps();
+    const controller = new InputController(deps);
+    jest.spyOn(controller, 'sendMessage').mockRejectedValue(new Error('save failed'));
+    const finalTurn = {
+      id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source',
+    };
+    deps.state.addMessage(finalTurn);
+
+    await expect(controller.startQuizReview(finalTurn.id)).rejects.toThrow('save failed');
+
+    expect(finalTurn.quizReviewAvailable).toBe(true);
   });
 
   it('refuses to queue a learning session start while a reply is streaming', async () => {

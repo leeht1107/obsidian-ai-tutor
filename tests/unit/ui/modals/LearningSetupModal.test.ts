@@ -373,6 +373,72 @@ describe('LearningSetupModal', () => {
     expect(result.sourceInstruction).not.toContain('notes-context.md');
   });
 
+  it('does not start from course notes that are empty or frontmatter only', async () => {
+    const files = ['Course/Empty.md', 'Course/Template.md'].map(path => Object.assign(new TFile(), { path }));
+    const bodies: Record<string, string> = { 'Course/Empty.md': '---\n---\n', 'Course/Template.md': '---\ntags: [lecture]\n---\n' };
+    const modal = new LearningSetupModal({
+      vault: {
+        getMarkdownFiles: () => files,
+        getAbstractFileByPath: (path: string) => files.find(file => file.path === path),
+        cachedRead: async (file: TFile) => bodies[file.path],
+      },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+    const finish = jest.spyOn(modal as any, 'finish').mockImplementation(() => undefined);
+
+    await (modal as any).start();
+    expect(finish).not.toHaveBeenCalled();
+
+    bodies['Course/Template.md'] = '---\ntags: [lecture]\n---\n조건부확률 정의';
+    await (modal as any).start();
+    expect(finish).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops empty notes from a mixed selection instead of citing them as ground truth', async () => {
+    const files = ['Course/Blank.md', 'Course/Lecture.md'].map(path => Object.assign(new TFile(), { path }));
+    const modal = new LearningSetupModal({
+      vault: {
+        getMarkdownFiles: () => files,
+        getAbstractFileByPath: (path: string) => files.find(file => file.path === path),
+        cachedRead: async (file: TFile) => file.path === 'Course/Lecture.md' ? '확률의 정의' : '',
+      },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+    let finished: any;
+    jest.spyOn(modal as any, 'finish').mockImplementation((result: unknown) => { finished = result; });
+
+    await (modal as any).start();
+
+    expect(finished.sourceInstruction).toContain('@Course/Lecture.md');
+    expect(finished.sourceInstruction).not.toContain('Blank.md');
+  });
+
+  it('lets a prepared Brief goal start on its concepts when the selected notes are empty', async () => {
+    const empty = Object.assign(new TFile(), { path: 'Course/Week1.md' });
+    const modal = new LearningSetupModal({
+      vault: {
+        getMarkdownFiles: () => [empty],
+        getAbstractFileByPath: (path: string) => path === empty.path ? empty : Object.assign(new TFile(), { path }),
+        cachedRead: async () => '',
+      },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+    (modal as any).briefPath = 'Briefs/Goal.md';
+    (modal as any).studyFolderPath = 'Study/Goal';
+    let finished: any;
+    jest.spyOn(modal as any, 'finish').mockImplementation((result: unknown) => { finished = result; });
+
+    await (modal as any).start();
+
+    expect(finished).toMatchObject({
+      hasSourceNotes: false,
+      sourceInstruction: 'No selected course notes. Use prepared concept evidence only.',
+    });
+  });
+
   it('lists only Briefs inside the current subject scope plus saved goals', () => {
     const files = ['Math/Week1.md', 'Math/Brief.md', 'Physics/Brief.md'].map(path => Object.assign(new TFile(), { path }));
     const modal = new LearningSetupModal({

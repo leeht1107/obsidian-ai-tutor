@@ -64,6 +64,8 @@ export interface SocraticSessionState {
   enableWebSearch?: boolean;
   supportLevel?: 0 | 1 | 2 | 3;
   isSummaryPhase: boolean;
+  /** A Quiz review reads only that Quiz's source, never the note open in the editor. */
+  quizReview?: boolean;
 }
 
 export interface SocraticTurnMeta {

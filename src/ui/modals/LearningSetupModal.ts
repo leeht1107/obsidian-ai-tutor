@@ -70,6 +70,9 @@ export class LearningSetupModal extends Modal {
   private briefSelectionDisabled = false;
   /** True while briefPath comes from the selected notes rather than the Brief dropdown. */
   private briefInferred = false;
+  /** Notes found empty at Start; they count as no evidence. */
+  private emptyNotePaths = new Set<string>();
+  private starting = false;
   /** Per-render memo of which note paths are StudyBriefs. */
   private briefPathMemo = new Map<string, boolean>();
   private quizPreferencesTouched = new Set<'questionCount' | 'difficulty' | 'questionStyle'>();
@@ -307,10 +310,39 @@ export class LearningSetupModal extends Modal {
     cancelBtn.addEventListener('click', () => this.finish(null));
     const actionLabel = this.mode === 'quiz' ? '퀴즈 시작' : '대화 시작';
     const startBtn = buttonsEl.createEl('button', { text: actionLabel, cls: 'ocop-save-btn mod-cta' });
-    startBtn.addEventListener('click', () => {
+    startBtn.addEventListener('click', () => { void this.start(); });
+  }
+
+  private async start(): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    try {
+      this.emptyNotePaths.clear();
+      const { paths } = this.buildScope();
+      // Empty notes are no evidence: drop them, so a prepared Brief goal may still start and
+      // a selection with no content left is refused by canStart.
+      for (const path of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path);
       const result = this.buildResult();
-      if (this.canStart(result)) this.finish(result);
-    });
+      if (!this.canStart(result)) return;
+      this.finish(result);
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
+  private async findEmptyNotes(paths: string[]): Promise<string[]> {
+    const checks = await Promise.all(paths.map(async (path) => {
+      const file = this.app.vault.getAbstractFileByPath?.(path);
+      if (!(file instanceof TFile)) return path;
+      try {
+        const body = await this.app.vault.cachedRead(file);
+        return body.replace(/^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/, '').trim() ? null : path;
+      } catch {
+        return path;
+      }
+    }));
+    return checks.filter((path): path is string => path !== null);
   }
 
   private canStart(result: LearningSetupResult): boolean {
@@ -323,7 +355,7 @@ export class LearningSetupModal extends Modal {
       return false;
     }
     if (!result.hasSourceNotes && !result.studyGoal) {
-      new Notice('학습 근거로 쓸 수업 자료 노트가 없습니다. Brief·학습 기록이 아닌 수업 자료 노트를 선택하세요.');
+      new Notice('학습 근거로 쓸 수업 자료 노트가 없습니다. 내용이 있는 수업 자료 노트를 선택하세요(Brief·학습 기록 제외).');
       return false;
     }
     return true;
@@ -470,7 +502,7 @@ export class LearningSetupModal extends Modal {
     };
   }
 
-  private buildScope(): { sourceInstruction: string; displayScope: string; hasSourceNotes: boolean } {
+  private buildScope(): { sourceInstruction: string; displayScope: string; hasSourceNotes: boolean; paths: string[] } {
     let candidates: string[];
     let displayScope: string;
     const isCurrentNote = this.learningScope === 'current-note' && this.activeFilePath !== null;
@@ -497,6 +529,7 @@ export class LearningSetupModal extends Modal {
         sourceInstruction: this.briefPath && this.studyFolderPath ? PREPARED_EVIDENCE_ONLY : NO_EVIDENCE,
         displayScope,
         hasSourceNotes: false,
+        paths,
       };
     }
 
@@ -514,7 +547,7 @@ export class LearningSetupModal extends Modal {
         ? `Use only the current note as ground truth source material: ${refs}`
         : `Use only these selected notes as ground truth source material: ${refs}`;
     }
-    return { sourceInstruction, displayScope, hasSourceNotes: true };
+    return { sourceInstruction, displayScope, hasSourceNotes: true, paths };
   }
 
   private finish(result: LearningSetupResult | null) {
@@ -656,6 +689,7 @@ export class LearningSetupModal extends Modal {
       const basename = path.split('/').pop()?.toUpperCase();
       if (basename === 'QUIZ_HISTORY.MD' || basename === 'STUDY_CONTEXT.MD') return false;
       if (path === this.studyContextPath || this.existingGoals.some((goal) => goal.contextPath === path)) return false;
+      if (this.emptyNotePaths.has(path)) return false;
       return path !== this.briefPath && !this.isStudyBriefPath(path);
     });
   }
