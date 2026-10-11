@@ -534,6 +534,24 @@ export class PermissionToggle {
     return this.isPlanModeLocked() || this.isPlanModeRequested();
   }
 
+  /** Request Agent through the same transition used by a student click. */
+  async requestAgentMode(provider: ProviderId, authorityEpoch: number): Promise<boolean> {
+    const currentEpoch = this.callbacks.getPermissionAuthorityEpoch?.() ?? 0;
+    if (this.callbacks.getSettings().selectedProvider !== provider || currentEpoch !== authorityEpoch) return false;
+    if (resolveEffectivePermissionMode(
+      this.callbacks.getSettings().permissionMode,
+      provider,
+      this.callbacks.getSettings().blanketWriteAcknowledged,
+    ) !== 'agent') await this.toggle();
+    return this.callbacks.getSettings().selectedProvider === provider
+      && (this.callbacks.getPermissionAuthorityEpoch?.() ?? authorityEpoch) === authorityEpoch
+      && resolveEffectivePermissionMode(
+        this.callbacks.getSettings().permissionMode,
+        provider,
+        this.callbacks.getSettings().blanketWriteAcknowledged,
+      ) === 'agent';
+  }
+
   private isPlanModeLocked(): boolean {
     return this.callbacks.getSettings().permissionMode === 'plan';
   }

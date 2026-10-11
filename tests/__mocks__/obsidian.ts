@@ -151,7 +151,8 @@ export const MarkdownRenderer = {
 export const setIcon = jest.fn();
 
 export class Notice {
-  constructor(_message: string) {}
+  static messages: string[] = [];
+  constructor(message: string) { Notice.messages.push(message); }
 }
 
 // TFile class for instanceof checks

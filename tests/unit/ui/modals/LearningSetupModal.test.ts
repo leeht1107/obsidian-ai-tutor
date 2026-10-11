@@ -76,4 +76,60 @@ describe('LearningSetupModal', () => {
     expect(result.prompt).toContain('ask the student which part of the material they want to explore');
     expect(result.prompt).toContain('Continue while dialogue helps the student reach a clear insight');
   });
+
+  it('keeps an explicitly selected Brief separate from selected course evidence and reuses its confirmed goal', () => {
+    const goal = {
+      id: 'goal-stable', briefPath: 'Briefs/Exam.md', folderPath: 'Study/Exam',
+      contextPath: 'Study/Exam/STUDY_CONTEXT.md',
+    };
+    const modal = new LearningSetupModal(
+      ({ vault: { getMarkdownFiles: () => [{ path: 'Statistics/Week1.md' }] } } as unknown) as App,
+      'Statistics/Week1.md', 'quiz', '', [goal],
+    );
+    (modal as any).briefPath = goal.briefPath;
+    (modal as any).studyFolderPath = goal.folderPath;
+
+    const result = (modal as any).buildResult();
+
+    expect(result.studyGoal).toEqual({
+      briefPath: goal.briefPath, folderPath: goal.folderPath, contextPath: goal.contextPath, existingId: goal.id,
+    });
+    expect(result.sourceInstruction).toContain('@Statistics/Week1.md');
+    expect(result.sourceInstruction).not.toContain('@Briefs/Exam.md');
+  });
+
+  it('builds the real empty-folder scope as prepared-concepts-only evidence', () => {
+    const modal = new LearningSetupModal(
+      ({ vault: { getMarkdownFiles: () => [{ path: 'Study/Brief.md' }] } } as unknown) as App,
+      'Study/Brief.md', 'quiz', '',
+    );
+    (modal as any).briefPath = 'Study/Brief.md';
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Study/Empty']);
+
+    const scope = (modal as any).buildScope();
+
+    expect(scope.sourceInstruction).toBe('No markdown files found in selected folders: Study/Empty. Please inform the user.');
+  });
+
+  it('clears Brief A folder and context when switching the selected Brief to B', () => {
+    const modal = new LearningSetupModal(
+      ({ vault: { getMarkdownFiles: () => [{ path: 'Briefs/A.md' }, { path: 'Briefs/B.md' }] } } as unknown) as App,
+      'Briefs/A.md', 'quiz', '', [
+        { id: 'goal-a', briefPath: 'Briefs/A.md', folderPath: 'Study/A', contextPath: 'Study/A/context.md' },
+        { id: 'goal-b', briefPath: 'Briefs/B.md', folderPath: 'Study/B', contextPath: 'Study/B/context.md' },
+      ],
+    );
+    (modal as any).briefPath = 'Briefs/A.md';
+    (modal as any).studyFolderPath = 'Study/A';
+    (modal as any).studyContextPath = 'Study/A/context.md';
+    (modal as any).renderContent = jest.fn();
+
+    (modal as any).handleBriefSelection('Briefs/B.md');
+
+    expect((modal as any).studyFolderPath).toBe('');
+    expect((modal as any).studyContextPath).toBe('');
+    expect((modal as any).briefPath).toBe('Briefs/B.md');
+    expect((modal as any).renderContent).toHaveBeenCalledTimes(1);
+  });
 });

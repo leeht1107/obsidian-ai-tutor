@@ -20,7 +20,6 @@ import {
   ImageContextManager,
   type InstructionModeManager,
   InstructionModeManager as InstructionModeManagerClass,
-  LearningSetupModal,
   type LearningSetupMode,
   type ModelSelector,
   type PermissionToggle,
@@ -49,6 +48,23 @@ import { AsyncSubagentManager } from './services/AsyncSubagentManager';
 import { InstructionRefineService } from './services/InstructionRefineService';
 import { TitleGenerationService } from './services/TitleGenerationService';
 import { ChatState } from './state';
+
+/** Keep the toolbar launcher on the same slash setup path used by typed commands. */
+export async function dispatchLearningSetup(
+  inputController: Pick<InputController, 'sendMessage'> | null,
+  mode: LearningSetupMode,
+): Promise<void> {
+  await inputController?.sendMessage({ content: `/${mode}` });
+}
+
+/** Preserve the view's existing PermissionToggle consent and authority transition. */
+export async function requestStudyAgentMode(
+  permissionToggle: Pick<PermissionToggle, 'requestAgentMode'> | null,
+  provider: ProviderId,
+  authorityEpoch: number,
+): Promise<boolean> {
+  return permissionToggle ? permissionToggle.requestAgentMode(provider, authorityEpoch) : false;
+}
 
 export class ObsidianCopilotView extends ItemView {
   private plugin: ObsidianCopilotPlugin;
@@ -282,39 +298,7 @@ export class ObsidianCopilotView extends ItemView {
     );
 
     const launchLearningSetup = async (initialMode: LearningSetupMode) => {
-      const modal = new LearningSetupModal(
-        this.plugin.app,
-        this.fileContextManager?.getCurrentNotePath() || null,
-        initialMode,
-      );
-      const result = await modal.openAndWait();
-      if (!result) return;
-
-      if (result.mode === 'quiz') {
-        await this.inputController?.sendMessage({
-          content: result.prompt,
-          displayContentOverride: result.displayContent,
-          quizSessionInit: {
-            totalQuestions: result.totalQuestions,
-            scopeLabel: result.displayContent,
-            focusText: result.focusText,
-            difficulty: result.difficulty,
-            questionStyle: result.questionStyle,
-            sourceInstruction: result.sourceInstruction,
-          },
-        });
-        return;
-      }
-
-      await this.inputController?.sendMessage({
-        content: result.prompt,
-        displayContentOverride: result.displayContent,
-        socraticSessionInit: {
-          scopeLabel: result.displayContent,
-          focusText: result.focusText,
-          sourceInstruction: result.sourceInstruction,
-        },
-      });
+      await dispatchLearningSetup(this.inputController, initialMode);
     };
 
     const inputToolbar = this.inputWrapper.createDiv({ cls: 'ocop-input-toolbar' });
@@ -538,6 +522,8 @@ export class ObsidianCopilotView extends ItemView {
         this.updatePlanModeUiState();
       },
       setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
+      requestStudyAgentMode: (provider, authorityEpoch) =>
+        requestStudyAgentMode(this.permissionToggle, provider as ProviderId, authorityEpoch),
       getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);

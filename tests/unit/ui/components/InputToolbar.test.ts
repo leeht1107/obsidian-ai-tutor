@@ -235,6 +235,23 @@ describe('PermissionToggle - check-then-act race across the confirmBlanketWrite 
 });
 
 describe('PermissionToggle - runtime Agent grants', () => {
+  it('lets an explicit Brief setup request Agent through the same provider consent path', async () => {
+    const { settings, callbacks, toggle } = build({
+      permissionMode: 'ask', selectedProvider: 'claude', blanketWriteAcknowledged: [],
+    });
+    callbacks.getPermissionAuthorityEpoch = () => 7;
+    callbacks.confirmBlanketWrite = jest.fn().mockImplementation(async (provider: string) => {
+      settings.blanketWriteAcknowledged.push(provider);
+      return true;
+    });
+
+    await expect(toggle.requestAgentMode('claude', 7)).resolves.toBe(true);
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledWith('claude', 7);
+    expect(callbacks.onPermissionModeChange).toHaveBeenCalledWith('agent');
+    expect(settings.permissionMode).toBe('agent');
+  });
+
   it.each(['copilot', 'claude', 'codex', 'agy'] as const)('asks before enabling Agent for %s', async (provider) => {
     const { settings, callbacks, container } = build({
       permissionMode: 'ask',

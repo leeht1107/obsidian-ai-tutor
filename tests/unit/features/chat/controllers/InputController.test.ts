@@ -2,10 +2,15 @@
  * Tests for InputController - Message Queue and Input Handling
  */
 
+import { Notice, TFile } from 'obsidian';
+
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { InputController, type InputControllerDeps } from '@/features/chat/controllers/InputController';
+import { dispatchLearningSetup, requestStudyAgentMode } from '@/features/chat/ObsidianCopilotView';
 import { ChatState } from '@/features/chat/state/ChatState';
 import ObsidianCopilotPlugin from '@/main';
+import { PermissionToggle } from '@/ui/components/InputToolbar';
+import { LearningSetupModal } from '@/ui/modals/LearningSetupModal';
 
 // Helper to create mock DOM element
 function createMockElement() {
@@ -98,6 +103,8 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
         query: jest.fn(),
         cancel: jest.fn(),
         resetSession: jest.fn(),
+        getSessionId: jest.fn().mockReturnValue(null),
+        setSessionId: jest.fn(),
         setApprovedPlanContent: jest.fn(),
         setCurrentPlanFilePath: jest.fn(),
       },
@@ -162,6 +169,80 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
     resetContextMeter: jest.fn(),
     ...overrides,
   };
+}
+
+/** DOM primitives for exercising the production AskUserQuestionPanel under Jest's node environment. */
+class StudyPanelElement {
+  className = '';
+  classList = { add: jest.fn(), remove: jest.fn(), toggle: jest.fn(), contains: jest.fn().mockReturnValue(false) };
+  style: Record<string, string> = {};
+  children: StudyPanelElement[] = [];
+  listeners: Record<string, Array<(event: any) => void>> = {};
+  attributes: Record<string, string> = {};
+  value = '';
+  textContent = '';
+  parent: StudyPanelElement | null = null;
+  constructor(public tagName: string) {}
+  set innerHTML(_value: string) { this.children = []; }
+  appendChild(child: StudyPanelElement) { child.parent = this; this.children.push(child); return child; }
+  remove() { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); }
+  setAttribute(key: string, value: string) { this.attributes[key] = value; }
+  getAttribute(key: string) { return this.attributes[key] ?? null; }
+  addEventListener(key: string, listener: (event: any) => void) { (this.listeners[key] ??= []).push(listener); }
+  removeEventListener(key: string, listener: (event: any) => void) { this.listeners[key] = (this.listeners[key] ?? []).filter(item => item !== listener); }
+  dispatchEvent(event: any) { for (const listener of this.listeners[event.type] ?? []) listener(event); if (event.bubbles) this.parent?.dispatchEvent(event); }
+  focus() { (global as any).document.activeElement = this; }
+  click(event: any = {}) { this.dispatchEvent({ type: 'click', target: this, ...event }); }
+  querySelectorAll(selector: string): StudyPanelElement[] {
+    const className = selector.match(/\.([\w-]+)/)?.[1];
+    const attr = selector.match(/\[data-([\w-]+)="([^"]+)"\]/);
+    const key = attr?.[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    const found: StudyPanelElement[] = [];
+    const visit = (node: StudyPanelElement) => {
+      if ((!className || node.className.split(/\s+/).includes(className)) && (!key || node.attributes[`data-${attr![1]}`] === attr![2])) found.push(node);
+      node.children.forEach(visit);
+    };
+    this.children.forEach(visit);
+    return found;
+  }
+  querySelector(selector: string) { return this.querySelectorAll(selector)[0] ?? null; }
+}
+
+function makeStudyPanelDocument() {
+  const listeners: Record<string, Array<(event: any) => void>> = {};
+  const body = new StudyPanelElement('body');
+  return {
+    body,
+    activeElement: null as StudyPanelElement | null,
+    createElement: (tag: string) => new StudyPanelElement(tag),
+    createTextNode: (text: string) => Object.assign(new StudyPanelElement('#text'), { textContent: text }),
+    addEventListener: (type: string, listener: (event: any) => void) => { (listeners[type] ??= []).push(listener); },
+    removeEventListener: (type: string, listener: (event: any) => void) => { listeners[type] = (listeners[type] ?? []).filter(item => item !== listener); },
+    dispatchEvent: (event: any) => (listeners[event.type] ?? []).forEach(listener => listener(event)),
+  };
+}
+
+function answerStudyQuestion(container: StudyPanelElement, value: string, optionIndex = 0) {
+  const panel = container.querySelector('.ocop-ask-panel');
+  const option = panel?.querySelector(`.ocop-ask-panel-option[data-option-index="${optionIndex}"]`);
+  if (option) {
+    if (value !== option.textContent) option.textContent = value;
+    option.click();
+    panel?.querySelector('.ocop-ask-panel-submit-tab')?.click();
+    panel?.querySelector('.ocop-ask-panel-submit-option')?.click();
+  }
+}
+
+function createStudyQuestionContainer() {
+  const container = new StudyPanelElement('div');
+  const inputContainer = new StudyPanelElement('div');
+  inputContainer.className = 'ocop-input-container';
+  const inputWrapper = new StudyPanelElement('div');
+  inputWrapper.className = 'ocop-input-wrapper';
+  inputContainer.appendChild(inputWrapper);
+  container.appendChild(inputContainer);
+  (global as any).document.body.appendChild(container);
+  return container;
 }
 
 describe('InputController - Message Queue', () => {
@@ -1872,5 +1953,934 @@ describe('InputController - Message Queue', () => {
       // Should still set fallback title
       expect(deps.plugin.renameConversation).toHaveBeenCalledWith('conv-1', 'Test Title');
     });
+  });
+});
+
+describe('InputController study goal preparation', () => {
+  const makeFile = (path: string) => Object.assign(new TFile(), { path });
+
+  it('clears an old Brief binding when a Brief-free Quiz starts in the same conversation', async () => {
+    const context = makeFile('Study/Old/STUDY_CONTEXT.md');
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'old-goal' });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{
+      id: 'old-goal', briefPath: 'Old.md', folderPath: 'Study/Old', contextPath: context.path,
+    }] }) };
+    plugin.app = { vault: {
+      adapter: { basePath: '/vault' }, getAbstractFileByPath: (p: string) => p === context.path ? context : null,
+      read: jest.fn(async () => '## 학습 개념 근거\n<!-- tutor-concepts:start -->\nOLD BRIEF CONCEPT\n<!-- tutor-concepts:end -->'),
+    } };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '다음 문제' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+
+    await controller.sendMessage({ content: '기본 학습 시작', quizSessionInit: {
+      totalQuestions: 1, scopeLabel: '기본 학습', difficulty: '중', sourceInstruction: 'ordinary source',
+    } as any });
+
+    expect(plugin.updateConversation).toHaveBeenCalledWith('conv-1', { studyGoalId: undefined });
+    expect((plugin.agentService.query as jest.Mock).mock.calls[0][0]).not.toContain('OLD BRIEF CONCEPT');
+  });
+
+  it.each(['quiz', 'socratic'] as const)('refreshes changed goal concepts in a real %s continuation request', async (mode) => {
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'goal-1' });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{
+      id: 'goal-1', briefPath: 'Brief.md', folderPath: 'Study/Goal', contextPath: context.path,
+    }] }) };
+    plugin.app = { vault: {
+      adapter: { basePath: '/vault' }, getAbstractFileByPath: (p: string) => p === context.path ? context : null,
+      read: jest.fn(async () => '## 학습 개념 근거\n<!-- tutor-concepts:start -->\nREFRESHED CONCEPT FROM DISK\n<!-- tutor-concepts:end -->'),
+    } };
+    deps.state.messages.push({ id: 'q1', role: 'assistant', content: '기존 질문', timestamp: Date.now() } as any);
+    if (mode === 'quiz') deps.state.quizSession = {
+      totalQuestions: 2, currentQuestion: 1, scopeLabel: 'quiz', difficulty: '중',
+      sourceInstruction: 'selected @Course.md\n\n[Goal concepts]\nOLD CONCEPT',
+    } as any;
+    else deps.state.socraticSession = {
+      maxDepth: 20, currentDepth: 1, scopeLabel: 'socratic', focusText: '확률', supportLevel: 1,
+      isSummaryPhase: false, sourceInstruction: 'selected @Course.md\n\n[Goal concepts]\nOLD CONCEPT',
+    } as any;
+    const query = jest.fn(async function* (_prompt: string) { yield { type: 'text', content: '이어지는 학습 응답' }; });
+    plugin.agentService.query = query;
+
+    await new InputController(deps).sendMessage({ content: '다음으로' });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][0]).toContain('REFRESHED CONCEPT FROM DISK');
+    expect(query.mock.calls[0][0]).not.toContain('OLD CONCEPT');
+  });
+
+  it('includes the requested focus in both sufficiency and proposal judgments', async () => {
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const contents = new Map([[brief.path, '목표: 관련 개념'], [context.path,
+      '## 학습 개념 근거\n<!-- tutor-concepts:start -->\nY 주제 개념만 있음\n<!-- tutor-concepts:end -->']]);
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (p: string) => p === brief.path ? brief : p === context.path ? context : null,
+      read: jest.fn(async (file: TFile) => contents.get(file.path) ?? ''),
+      process: jest.fn(async (file: TFile, transform: (value: string) => string) => { contents.set(file.path, transform(contents.get(file.path) ?? '')); }),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    const prompts: string[] = [];
+    const query = jest.fn(async function* (prompt: string) {
+      prompts.push(prompt);
+      if (prompt.includes('BRIEF_JSON')) {
+        yield { type: 'text', content: JSON.stringify(prompt.includes('"X 주제"')
+          ? { sufficient: false, summary: 'X 주제가 없어 보충합니다.' }
+          : { sufficient: true, summary: '다른 주제 개념은 충분합니다.' }) };
+      } else {
+        yield { type: 'text', content: JSON.stringify({ concepts: 'X 주제 개념' }) };
+      }
+    });
+    (deps.plugin as any).agentService.query = query;
+    await (new InputController(deps) as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
+    }, { mode: 'quiz', focusText: 'X 주제', sourceInstruction: '@Course.md', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material' });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain('X 주제');
+    expect(prompts[1]).toContain('X 주제');
+  });
+
+  it('uses the modal built empty-folder scope with prepared concepts as the only evidence', async () => {
+    const brief = makeFile('Briefs/Goal.md');
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    let content = '# 학습 맥락\n학생 메모';
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getMarkdownFiles: () => [brief],
+      getAbstractFileByPath: (p: string) => p === brief.path ? brief : p === context.path ? context : p === 'Study/Goal' ? { path: p } : null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? '목표: 확률' : content),
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { content = transform(content); }),
+    };
+    const modal = new LearningSetupModal({ vault } as any, brief.path, 'quiz');
+    (modal as any).briefPath = brief.path;
+    (modal as any).studyFolderPath = 'Study/Goal';
+    (modal as any).studyContextPath = context.path;
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Study/Goal']);
+    const result = (modal as any).buildResult();
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    const answers = [
+      { sufficient: false, summary: '기초 개념을 보충합니다.' },
+      { concepts: '확률은 불확실성을 나타낸다.' },
+    ];
+    (deps.plugin as any).agentService.query = jest.fn(async function* () {
+      yield { type: 'text', content: JSON.stringify(answers.shift() ?? {}) };
+    });
+
+    const prepared = await (new InputController(deps) as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path,
+    }, result);
+
+    expect(result.sourceInstruction).toContain('No markdown files found in selected folders: Study/Goal');
+    expect(prepared.sourceInstruction).toContain('No selected course notes. Use prepared concept evidence only.');
+    expect(prepared.sourceInstruction).not.toContain('Please inform the user');
+    expect(prepared.sourceInstruction).toContain('확률은 불확실성을 나타낸다.');
+  });
+
+  it('reads back a 2500 character base plus a 1000 character supplement without truncation', async () => {
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const base = '기'.repeat(2500);
+    const supplement = '보'.repeat(1000);
+    let content = `## 학습 개념 근거\n<!-- tutor-concepts:start -->\n${base}\n<!-- tutor-concepts:end -->`;
+    const vault = {
+      getAbstractFileByPath: (p: string) => p === context.path ? context : { path: p },
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { content = transform(content); }),
+      read: jest.fn(async () => content),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    await (new InputController(deps) as any).appendStudyContext(context.path, 'Study', supplement, '', base);
+    expect((new InputController(deps) as any).extractPreparedConcepts(content)).toContain(supplement);
+    expect((new InputController(deps) as any).extractPreparedConcepts(content)).toHaveLength(3501);
+  });
+
+  it('keeps full saved concepts for verification and bounds only the learning instruction', async () => {
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const concepts = '개념'.repeat(1750);
+    const document = `## 점검 체크리스트\n- [ ] checklist student text\n\n## 문제 기록\nproblem scratchpad student text\n\n## 학습 개념 근거\n<!-- tutor-concepts:start -->\n${concepts}\n<!-- tutor-concepts:end -->`;
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (p: string) => p === brief.path ? brief : p === context.path ? context : null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? 'goal' : document),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    (deps.plugin as any).agentService.query = jest.fn(async function* () {
+      yield { type: 'text', content: JSON.stringify({ sufficient: true, summary: '재사용합니다.' }) };
+    });
+    const prepared = await (new InputController(deps) as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
+    }, { mode: 'quiz', sourceInstruction: 'No markdown files found in selected folders: Study.',
+      totalQuestions: 1, difficulty: '중', questionStyle: 'material' });
+
+    expect(prepared.sourceInstruction).toContain(JSON.stringify(concepts.slice(-3000)));
+    expect(prepared.sourceInstruction).not.toContain(JSON.stringify(concepts));
+    expect(prepared.sourceInstruction).not.toContain('checklist student text');
+    expect(prepared.sourceInstruction).not.toContain('problem scratchpad student text');
+    expect((new InputController(deps) as any).extractPreparedConcepts(document)).toHaveLength(3500);
+  });
+
+  it('keeps the full new supplement in the learning instruction when old concepts fill the bound', async () => {
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const base = '기'.repeat(2500);
+    const supplement = '보'.repeat(1000);
+    const contents = new Map([[brief.path, 'goal'], [context.path,
+      `## 학습 개념 근거\n<!-- tutor-concepts:start -->\n${base}\n<!-- tutor-concepts:end -->`]]);
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (p: string) => p === brief.path ? brief : p === context.path ? context : null,
+      read: jest.fn(async (file: TFile) => contents.get(file.path) ?? ''),
+      process: jest.fn(async (file: TFile, transform: (value: string) => string) => {
+        contents.set(file.path, transform(contents.get(file.path) ?? ''));
+      }),
+    };
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.app = { vault };
+    deps.state.currentConversationId = 'conv-1';
+    const responses = [
+      { sufficient: false, summary: '요청한 주제를 보충합니다.' },
+      { concepts: supplement },
+    ];
+    const dispatchedPrompts: string[] = [];
+    plugin.agentService.query = jest.fn(async function* (prompt: string) {
+      dispatchedPrompts.push(prompt);
+      const response = dispatchedPrompts.length <= 2
+        ? JSON.stringify(responses.shift())
+        : '학습 질문';
+      yield { type: 'text', content: response };
+      if (dispatchedPrompts.length > 2) yield { type: 'done' };
+    });
+    const controller = new InputController(deps);
+    const prepared = await (controller as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
+    }, { mode: 'quiz', sourceInstruction: 'No markdown files found in selected folders: Study.',
+      totalQuestions: 1, difficulty: '중', questionStyle: 'material' });
+    await controller.sendMessage({
+      content: prepared.prompt,
+      quizSessionInit: { totalQuestions: 1, scopeLabel: 'Brief Quiz', difficulty: '중',
+        sourceInstruction: prepared.sourceInstruction } as any,
+    });
+
+    expect(dispatchedPrompts).toHaveLength(3);
+    expect(dispatchedPrompts[2]).toContain(supplement);
+    expect(dispatchedPrompts[2]).toContain(base.slice(-1999));
+    expect(dispatchedPrompts[2]).not.toContain(base);
+  });
+
+  it('notifies when a Brief setup result arrives during streaming', async () => {
+    (Notice as any).messages.length = 0;
+    const deps = createMockDeps();
+    deps.state.isStreaming = true;
+    const controller = new InputController(deps);
+    const result = {
+      mode: 'quiz', prompt: 'unused', displayContent: 'Quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: '', enableWebSearch: false,
+      studyGoal: { briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    } as any;
+
+    await (controller as any).sendLearningSetupResult(result, {});
+
+    expect((Notice as any).messages.at(-1)).toMatch(/이미.*진행|진행 중/);
+    expect(deps.plugin.agentService.query).not.toHaveBeenCalled();
+  });
+
+  it.each(['toolbar', 'slash'] as const)('routes %s learning setup through the same InputController setup dispatcher', async (entry) => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'copilot';
+    plugin.settings.permissionMode = 'agent';
+    plugin.settings.blanketWriteAcknowledged = ['copilot'];
+    const goal = { id: 'goal-1', briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' };
+    const brief = makeFile(goal.briefPath);
+    const context = makeFile(goal.contextPath);
+    plugin.app = { vault: {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => path === brief.path ? brief : path === context.path ? context : null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? 'goal' : '## 학습 개념 근거\n<!-- tutor-concepts:start -->\n확률의 기초\n<!-- tutor-concepts:end -->'),
+      process: jest.fn(),
+    } };
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [goal] }), updateState: jest.fn().mockResolvedValue(undefined) };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1' });
+    plugin.updateConversation = jest.fn().mockResolvedValue(undefined);
+    const query = jest.fn(async function* (prompt: string, _model?: unknown, _images?: unknown, _options?: unknown) {
+      yield { type: 'text', content: prompt.includes('BRIEF_JSON') ? JSON.stringify({ sufficient: true, summary: '재사용' }) : 'started' };
+    });
+    plugin.agentService.query = query;
+    const modalResult = {
+      mode: 'quiz', prompt: 'existing Brief-free flow', displayContent: 'Quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'selected notes', enableWebSearch: false,
+      studyGoal: { briefPath: goal.briefPath, folderPath: goal.folderPath, contextPath: goal.contextPath, existingId: goal.id },
+    };
+    const modal = jest.spyOn(LearningSetupModal.prototype, 'openAndWait').mockResolvedValue(modalResult as any);
+    const controller = new InputController(deps);
+
+    if (entry === 'toolbar') await dispatchLearningSetup(controller, 'quiz');
+    else await controller.sendMessage({ content: '/quiz' });
+
+    expect(modal).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1][0]).toContain('확률의 기초');
+    expect(deps.state.quizSession?.currentQuestion).toBe(1);
+    modal.mockRestore();
+  });
+
+  it.each(['quiz', 'socratic'] as const)('wires the real question panel, Agent permission transition, scoped write, and %s learning query', async (mode) => {
+    const noticeMessages = (Notice as unknown as { messages: string[] }).messages;
+    noticeMessages.length = 0;
+    const previousDocument = (global as any).document;
+    const document = makeStudyPanelDocument();
+    (global as any).document = document;
+    const container = createStudyQuestionContainer();
+    const messagesEl = Object.assign(new StudyPanelElement('div'), { parentElement: container });
+    const brief = makeFile('Briefs/Goal.md');
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    const files = new Map([[brief.path, brief]]);
+    let content = '';
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => path === 'Study/Goal' ? { path } : files.get(path) ?? null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? '목표: 확률 기초' : content),
+      createFolder: jest.fn(),
+      create: jest.fn(async (path: string, initial: string) => { const file = makeFile(path); files.set(path, file); content = initial; return file; }),
+      process: jest.fn(async (_file: TFile, update: (latest: string) => string) => { content = update(content); }),
+    };
+    const deps = createMockDeps({ getMessagesEl: () => messagesEl as any });
+    const plugin = deps.plugin as any;
+    plugin.app = { vault };
+    plugin.settings.selectedProvider = 'claude';
+    plugin.settings.permissionMode = 'ask';
+    plugin.settings.blanketWriteAcknowledged = [];
+    plugin.getPermissionAuthorityEpoch = () => 7;
+    plugin.storage = {
+      loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }),
+      updateState: jest.fn().mockResolvedValue(undefined),
+    };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1' });
+    plugin.updateConversation = jest.fn().mockResolvedValue(undefined);
+    const query = jest.fn(async function* (prompt: string, _model?: unknown, _images?: unknown, _options?: unknown) {
+      if (prompt.includes('ASSESSMENT_JSON')) yield { type: 'text', content: JSON.stringify({ concepts: '확률은 불확실성을 수로 나타낸다.', unresolved: ['시험 규칙'] }) };
+      else if (prompt.includes('BRIEF_JSON')) yield { type: 'text', content: JSON.stringify({ sufficient: false, summary: '보충이 필요합니다.' }) };
+      else yield { type: 'text', content: '학습 답변' };
+    });
+    plugin.agentService.query = query;
+
+    const permissionHost: any = {
+      createDiv: () => ({
+        children: [] as any[],
+        createSpan: () => ({ empty: jest.fn(), setText: jest.fn(), addClass: jest.fn(), removeClass: jest.fn() }),
+        createDiv: () => ({ addClass: jest.fn(), removeClass: jest.fn(), setText: jest.fn() }),
+        empty: jest.fn(), addClass: jest.fn(), removeClass: jest.fn(), setAttribute: jest.fn(), removeAttribute: jest.fn(),
+        addEventListener: jest.fn(),
+      }),
+    };
+    const settings = plugin.settings;
+    const permissionToggle = new PermissionToggle(permissionHost, {
+      getSettings: () => settings,
+      getPermissionAuthorityEpoch: () => 7,
+      isBashExpansionInFlight: () => false,
+      confirmBlanketWrite: async (provider: string) => { settings.blanketWriteAcknowledged.push(provider); return true; },
+      onPermissionModeChange: async (mode: string) => { settings.permissionMode = mode; },
+    } as any);
+    deps.requestStudyAgentMode = (provider, epoch) => requestStudyAgentMode(permissionToggle, provider as any, epoch);
+
+    const controller = new InputController(deps);
+    const pending = (controller as any).sendLearningSetupResult({
+      mode, prompt: 'stale', displayContent: mode === 'quiz' ? 'Quiz' : 'Socratic', totalQuestions: 2, difficulty: '중',
+      questionStyle: 'material', sourceInstruction: 'selected note @Course.md', enableWebSearch: false,
+      studyGoal: { briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path },
+    }, {});
+    expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('Agent 모드');
+    expect(query).not.toHaveBeenCalled();
+    expect(vault.process).not.toHaveBeenCalled();
+    expect(plugin.storage.updateState).not.toHaveBeenCalled();
+    answerStudyQuestion(container, 'Agent로 전환');
+    for (let attempt = 0; attempt < 20 && !container.querySelector('.ocop-ask-panel'); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('어디에 저장');
+    expect(query).not.toHaveBeenCalled();
+    expect(vault.process).not.toHaveBeenCalled();
+    answerStudyQuestion(container, context.path);
+    await pending;
+
+    expect(settings.permissionMode).toBe('agent');
+    expect(settings.blanketWriteAcknowledged).toContain('claude');
+    expect(vault.process).toHaveBeenCalledTimes(1);
+    expect(vault.create).toHaveBeenCalledWith(context.path, '# 학습 맥락\n');
+    expect(content).toContain('확률은 불확실성을 수로 나타낸다.');
+    expect(noticeMessages.some(message => message.includes('개념을 보충했습니다.')
+      && message.includes('출처 미확인') && message.includes('시험 규칙'))).toBe(true);
+    expect(plugin.storage.updateState).toHaveBeenCalled();
+    expect(plugin.updateConversation).toHaveBeenCalledWith('conv-1', { studyGoalId: expect.any(String) });
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[0][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+    expect(query.mock.calls[1][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+    expect(query.mock.calls[2][0]).toContain('확률은 불확실성을 수로 나타낸다.');
+    expect(query.mock.calls[2][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+    expect(plugin.agentService.resetSession).toHaveBeenCalledTimes(4);
+    expect(plugin.agentService.setSessionId).toHaveBeenCalledTimes(2);
+
+    if (mode === 'quiz') await controller.sendMessage({ content: '답을 제출합니다' });
+    const continuationPrompt = query.mock.calls[3]?.[0] ?? '';
+    expect(continuationPrompt.includes('확률은 불확실성을 수로 나타낸다.')).toBe(mode === 'quiz');
+    expect(Boolean((query.mock.calls[3]?.[3] as any)?.readOnly)).toBe(mode === 'quiz');
+    (global as any).document = previousDocument;
+  });
+
+  it('uses the real question panel Escape path to cancel a new destination without writing, binding, or dispatch', async () => {
+    const previousDocument = (global as any).document;
+    const document = makeStudyPanelDocument();
+    (global as any).document = document;
+    const container = createStudyQuestionContainer();
+    const messagesEl = Object.assign(new StudyPanelElement('div'), { parentElement: container });
+    const deps = createMockDeps({ getMessagesEl: () => messagesEl as any });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'codex';
+    plugin.settings.permissionMode = 'agent';
+    plugin.settings.blanketWriteAcknowledged = ['codex'];
+    plugin.getPermissionAuthorityEpoch = () => 1;
+    plugin.app = { vault: { adapter: { basePath: '/vault' }, getAbstractFileByPath: (p: string) => p === 'Brief.md' ? makeFile(p) : null, read: jest.fn(), process: jest.fn() } };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '{}' }; });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState: jest.fn() };
+    const pending = (new InputController(deps) as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1, difficulty: '중',
+      questionStyle: 'material', sourceInstruction: '', enableWebSearch: false,
+      studyGoal: { briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    }, {});
+    const panel = container.querySelector('.ocop-ask-panel');
+    expect(panel).toBeTruthy();
+    panel!.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault: jest.fn(), stopPropagation: jest.fn() });
+    await pending;
+
+    expect(plugin.app.vault.process).not.toHaveBeenCalled();
+    expect(plugin.storage.updateState).not.toHaveBeenCalled();
+    expect(plugin.agentService.query).not.toHaveBeenCalled();
+    expect(deps.state.messages).toHaveLength(0);
+    (global as any).document = previousDocument;
+  });
+
+  it('keeps Ask when the student declines through the real question panel', async () => {
+    const previousDocument = (global as any).document;
+    const document = makeStudyPanelDocument();
+    (global as any).document = document;
+    const container = createStudyQuestionContainer();
+    const deps = createMockDeps({ getMessagesEl: () => Object.assign(new StudyPanelElement('div'), { parentElement: container }) as any });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'claude';
+    plugin.settings.permissionMode = 'ask';
+    plugin.settings.blanketWriteAcknowledged = [];
+    plugin.getPermissionAuthorityEpoch = () => 1;
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState: jest.fn() };
+    plugin.app = { vault: { adapter: { basePath: '/vault' }, getAbstractFileByPath: jest.fn(), read: jest.fn(), process: jest.fn() } };
+    plugin.agentService.query = jest.fn();
+    const pending = (new InputController(deps) as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1, difficulty: '중',
+      questionStyle: 'material', sourceInstruction: '', enableWebSearch: false,
+      studyGoal: { briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    }, {});
+    expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('Agent 모드');
+    answerStudyQuestion(container, '취소', 1);
+    await pending;
+
+    expect(plugin.settings.permissionMode).toBe('ask');
+    expect(plugin.agentService.query).not.toHaveBeenCalled();
+    expect(plugin.app.vault.process).not.toHaveBeenCalled();
+    expect(plugin.storage.updateState).not.toHaveBeenCalled();
+    expect(deps.state.messages).toHaveLength(0);
+    (global as any).document = previousDocument;
+  });
+
+  it('invalidates a real panel approval when provider authority changes while it is open', async () => {
+    const previousDocument = (global as any).document;
+    const document = makeStudyPanelDocument();
+    (global as any).document = document;
+    const container = createStudyQuestionContainer();
+    const deps = createMockDeps({ getMessagesEl: () => Object.assign(new StudyPanelElement('div'), { parentElement: container }) as any });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'claude';
+    plugin.settings.permissionMode = 'ask';
+    plugin.settings.blanketWriteAcknowledged = [];
+    let epoch = 3;
+    plugin.getPermissionAuthorityEpoch = () => epoch;
+    const query = jest.fn();
+    plugin.agentService.query = query;
+    const pending = (new InputController(deps) as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1, difficulty: '중',
+      questionStyle: 'material', sourceInstruction: '', enableWebSearch: false,
+      studyGoal: { briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    }, {});
+    epoch += 1;
+    answerStudyQuestion(container, 'Agent로 전환');
+    await pending;
+
+    expect(plugin.settings.permissionMode).toBe('ask');
+    expect(query).not.toHaveBeenCalled();
+    expect(deps.state.messages).toHaveLength(0);
+    (global as any).document = previousDocument;
+  });
+
+  it('reuses an existing local goal in effective Agent without opening a question panel', async () => {
+    const previousDocument = (global as any).document;
+    const document = makeStudyPanelDocument();
+    (global as any).document = document;
+    const container = createStudyQuestionContainer();
+    const messagesEl = Object.assign(new StudyPanelElement('div'), { parentElement: container });
+    const deps = createMockDeps({ getMessagesEl: () => messagesEl as any });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'codex';
+    plugin.settings.permissionMode = 'agent';
+    plugin.settings.blanketWriteAcknowledged = ['codex'];
+    plugin.getPermissionAuthorityEpoch = () => 3;
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const contextText = '## 학습 개념 근거\n<!-- tutor-concepts:start -->\n확률은 불확실성을 나타낸다.\n<!-- tutor-concepts:end -->';
+    plugin.app = { vault: {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => path === 'Brief.md' ? brief : path === context.path ? context : null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? 'goal' : contextText), process: jest.fn(),
+    } };
+    plugin.storage = {
+      loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{ id: 'goal-1', briefPath: brief.path, folderPath: 'Study', contextPath: context.path }] }),
+      updateState: jest.fn().mockResolvedValue(undefined),
+    };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1' });
+    plugin.updateConversation = jest.fn().mockResolvedValue(undefined);
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: JSON.stringify({ sufficient: true, summary: '재사용합니다.' }) }; });
+
+    await (new InputController(deps) as any).sendLearningSetupResult({
+      mode: 'socratic', prompt: 'stale', displayContent: 'socratic', sourceInstruction: 'selected notes',
+      studyGoal: { briefPath: brief.path, folderPath: 'Study', contextPath: context.path, existingId: 'goal-1' },
+    }, {});
+
+    expect(container.querySelector('.ocop-ask-panel')).toBeNull();
+    expect(plugin.app.vault.process).not.toHaveBeenCalled();
+    expect(plugin.storage.updateState).toHaveBeenCalled();
+    expect((plugin.agentService.query as jest.Mock).mock.calls.at(-1)[0]).toContain('확률은 불확실성을 나타낸다.');
+    expect((plugin.agentService.query as jest.Mock).mock.calls.at(-1)[3]).toMatchObject({ readOnly: true });
+    (global as any).document = previousDocument;
+  });
+
+  it.each(['unsupported', 'write failure', 'readback failure'] as const)('keeps selected note evidence available on %s', async (caseName) => {
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    let content = 'student note';
+    let reads = 0;
+    const proposed = caseName === 'unsupported' ? '' : '기초 확률 개념';
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => path === brief.path || path === context.path ? path === brief.path ? brief : context : { path },
+      read: jest.fn(async (file: TFile) => {
+        if (file.path === brief.path) return '목표: 확률';
+        reads += 1;
+        if (caseName === 'readback failure' && reads > 1) return 'student note';
+        return content;
+      }),
+      process: jest.fn(async (_file: TFile, update: (text: string) => string) => {
+        if (caseName === 'write failure') throw new Error('disk full');
+        content = update(content);
+      }),
+    };
+    const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: () => false }) });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'codex';
+    plugin.settings.permissionMode = 'agent';
+    plugin.settings.blanketWriteAcknowledged = ['codex'];
+    plugin.storage = {
+      loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{ id: 'goal-1', briefPath: brief.path, folderPath: 'Study', contextPath: context.path }] }),
+      updateState: jest.fn().mockResolvedValue(undefined),
+    };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1' });
+    plugin.updateConversation = jest.fn().mockResolvedValue(undefined);
+    plugin.app = { vault };
+    const responses = [
+      { sufficient: false, summary: '기초 확인이 필요합니다.' },
+      { concepts: proposed, unresolved: ['행사 일정'] },
+    ];
+    const query = jest.fn(async function* (prompt: string, _model?: unknown, _images?: unknown, _options?: unknown) {
+      yield { type: 'text', content: responses.length ? JSON.stringify(responses.shift()) : 'learning started' };
+    });
+    plugin.agentService.query = query;
+    const controller = new InputController(deps);
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'Use explicitly selected @Course.md', displayContent: 'Quiz', totalQuestions: 2,
+      difficulty: '중', questionStyle: 'material', focusText: '확률',
+      sourceInstruction: 'Use explicitly selected @Course.md', enableWebSearch: false,
+      studyGoal: { briefPath: brief.path, folderPath: 'Study', contextPath: context.path, existingId: 'goal-1' },
+    }, {});
+
+    expect(query).toHaveBeenNthCalledWith(1, expect.any(String), undefined, [], { readOnly: true, enableWebSearch: false });
+    expect(query).toHaveBeenNthCalledWith(2, expect.any(String), undefined, [], { readOnly: true, enableWebSearch: false });
+    expect(vault.process).toHaveBeenCalledTimes(caseName === 'unsupported' ? 0 : 1);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[2][0]).toContain('@Course.md');
+    expect(proposed.length > 0 && query.mock.calls[2][0].includes(proposed)).toBe(false);
+    expect(query.mock.calls[2][3]).toMatchObject({ readOnly: true, enableWebSearch: false });
+    expect(query.mock.calls[2][0].includes('저장되지 않은 개념은 문항 근거에 포함하지 않습니다.')).toBe(caseName !== 'unsupported');
+  });
+
+  it.each(['success', 'failure'] as const)('writes completion summary through the scoped Vault process on %s', async (outcome) => {
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    let content = '# Study\n\n## 학습 개념 근거\n<!-- tutor-concepts:start -->\n개념\n<!-- tutor-concepts:end -->';
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: jest.fn((path: string) => path === context.path ? context : null),
+      process: jest.fn(async (_file: TFile, update: (text: string) => string) => {
+        if (outcome === 'failure') throw new Error('disk full');
+        content = update(content);
+      }),
+      read: jest.fn(async () => content),
+    };
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.app = { vault };
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [{
+      id: 'goal-1', briefPath: 'Brief.md', folderPath: 'Study/Goal', contextPath: context.path,
+    }] }) };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ studyGoalId: 'goal-1' });
+    const controller = new InputController(deps);
+
+    await (controller as any).saveStudyCompletionSummary({ mode: 'quiz', topic: '확률', questionCount: 2 });
+
+    expect(vault.process).toHaveBeenCalledTimes(1);
+    expect(content.includes('## 학습 완료')).toBe(outcome === 'success');
+  });
+
+  it('asks for Agent authority and a new Brief destination before preparing', async () => {
+    const deps = createMockDeps();
+    (deps.plugin as any).settings.selectedProvider = 'claude';
+    (deps.plugin as any).settings.permissionMode = 'ask';
+    (deps.plugin as any).getPermissionAuthorityEpoch = jest.fn().mockReturnValue(4);
+    const question = jest.fn(async (input: { questions: Array<{ question: string }> }) => {
+      const text = input.questions[0].question;
+      return { [text]: text.includes('Agent 모드') ? 'Agent로 전환' : 'Study/Custom/CONTEXT.md' };
+    });
+    const switchMode = jest.fn(async (provider: string, epoch: number) => {
+      expect(provider).toBe('claude');
+      expect(epoch).toBe(4);
+      (deps.plugin as any).settings.permissionMode = 'agent';
+      (deps.plugin as any).settings.blanketWriteAcknowledged = ['claude'];
+      return true;
+    });
+    deps.requestStudyAgentMode = switchMode;
+    const controller = new InputController(deps);
+    jest.spyOn(controller, 'handleAskUserQuestion').mockImplementation(question as any);
+    const prepare = jest.spyOn(controller as any, 'prepareStudyGoal').mockResolvedValue(null);
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'selected notes', enableWebSearch: false,
+      studyGoal: { briefPath: 'Briefs/Goal.md', folderPath: 'Study/Old', contextPath: 'Study/Old/STUDY_CONTEXT.md' },
+    }, {});
+
+    expect(question).toHaveBeenCalledTimes(2);
+    expect(switchMode).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({
+      folderPath: 'Study/Custom', contextPath: 'Study/Custom/CONTEXT.md',
+    }), expect.anything());
+  });
+
+  it('does not prepare a Brief when the Agent transition is declined', async () => {
+    const deps = createMockDeps();
+    (deps.plugin as any).settings.selectedProvider = 'claude';
+    (deps.plugin as any).settings.permissionMode = 'ask';
+    deps.requestStudyAgentMode = jest.fn();
+    const controller = new InputController(deps);
+    jest.spyOn(controller, 'handleAskUserQuestion').mockResolvedValue({
+      '이 Brief의 학습 맥락을 저장하려면 Agent 모드가 필요합니다. 기존 제공자 동의를 거쳐 Agent 모드로 전환할까요?': '취소',
+    });
+    const prepare = jest.spyOn(controller as any, 'prepareStudyGoal');
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'selected notes', enableWebSearch: false,
+      studyGoal: { briefPath: 'Briefs/Goal.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    }, {});
+
+    expect(deps.requestStudyAgentMode).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(deps.state.messages).toHaveLength(0);
+  });
+
+  it('drops an approval when provider authority changes while the question is open', async () => {
+    const deps = createMockDeps();
+    (deps.plugin as any).settings.selectedProvider = 'claude';
+    (deps.plugin as any).settings.permissionMode = 'ask';
+    let epoch = 4;
+    (deps.plugin as any).getPermissionAuthorityEpoch = () => epoch;
+    deps.requestStudyAgentMode = jest.fn();
+    const controller = new InputController(deps);
+    jest.spyOn(controller, 'handleAskUserQuestion').mockImplementation(async (input) => {
+      epoch += 1;
+      return { [input.questions[0].question]: 'Agent로 전환' };
+    });
+    const prepare = jest.spyOn(controller as any, 'prepareStudyGoal');
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'selected notes', enableWebSearch: false,
+      studyGoal: { briefPath: 'Briefs/Goal.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    }, {});
+
+    expect(deps.requestStudyAgentMode).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('reuses a locally confirmed goal without asking for its destination again', async () => {
+    const deps = createMockDeps();
+    (deps.plugin as any).settings.selectedProvider = 'copilot';
+    (deps.plugin as any).settings.permissionMode = 'agent';
+    (deps.plugin as any).settings.blanketWriteAcknowledged = ['copilot'];
+    const controller = new InputController(deps);
+    const ask = jest.spyOn(controller, 'handleAskUserQuestion');
+    const prepare = jest.spyOn(controller as any, 'prepareStudyGoal').mockResolvedValue(null);
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'socratic', prompt: 'initial', displayContent: 'socratic', sourceInstruction: 'selected notes',
+      studyGoal: { briefPath: 'Briefs/Goal.md', folderPath: 'Study/Goal', contextPath: 'Study/Goal/STUDY_CONTEXT.md', existingId: 'goal-1' },
+    }, {});
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ existingId: 'goal-1' }), expect.anything());
+  });
+
+  it('does not activate learning or dispatch when goal binding persistence fails', async () => {
+    const deps = createMockDeps();
+    const updateState = jest.fn().mockRejectedValue(new Error('disk full'));
+    (deps.plugin as any).storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }), updateState };
+    (deps.plugin as any).getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1' });
+    (deps.plugin as any).updateConversation = jest.fn().mockResolvedValue(undefined);
+    const controller = new InputController(deps);
+
+    await controller.sendMessage({
+      content: 'start quiz',
+      quizSessionInit: { totalQuestions: 2, scopeLabel: 'quiz', sourceInstruction: 'concepts' },
+      studyGoal: { briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Study/STUDY_CONTEXT.md' },
+    });
+
+    expect(deps.state.quizSession).toBeNull();
+    expect(deps.state.socraticSession).toBeNull();
+    expect(deps.state.messages).toHaveLength(0);
+    expect((deps.plugin.agentService.query as jest.Mock)).not.toHaveBeenCalled();
+  });
+
+  it('cancels preparation through the controller and always restores busy state', async () => {
+    const brief = makeFile('Briefs/Goal.md');
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    const files = new Map([[brief.path, brief], [context.path, context]]);
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const query = jest.fn(async function* () {
+      await wait;
+      yield { type: 'text', content: JSON.stringify({ sufficient: true, summary: 'reuse' }) };
+    });
+    const process = jest.fn();
+    const deps = createMockDeps();
+    (deps.plugin as any).settings.selectedProvider = 'claude';
+    (deps.plugin as any).settings.permissionMode = 'agent';
+    (deps.plugin as any).settings.blanketWriteAcknowledged = ['claude'];
+    (deps.plugin as any).app = { vault: {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => files.get(path) ?? null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? 'goal' : '## 학습 개념 근거\n<!-- tutor-concepts:start -->\n확률 개념\n<!-- tutor-concepts:end -->'),
+      process, create: jest.fn(), createFolder: jest.fn(),
+    } };
+    (deps.plugin as any).agentService.query = query;
+    const setBusy = deps.setBashExpansionActive as jest.Mock;
+    const controller = new InputController(deps);
+    const pending = (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 1,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'selected notes', enableWebSearch: false,
+      studyGoal: { briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path, existingId: 'goal-1' },
+    }, {});
+
+    for (let attempt = 0; attempt < 20 && !query.mock.calls.length; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deps.state.isStreaming).toBe(true);
+    controller.cancelStreaming();
+    release();
+    await pending;
+
+    expect(process).not.toHaveBeenCalled();
+    expect(deps.state.messages).toHaveLength(0);
+    expect(deps.state.isStreaming).toBe(false);
+    expect(setBusy).toHaveBeenNthCalledWith(1, true);
+    expect(setBusy).toHaveBeenLastCalledWith(false);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['quiz', 'socratic'] as const)('reuses sufficient context without writing and rebuilds %s evidence scope', async (mode) => {
+    const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
+    const brief = makeFile('Briefs/Goal.md');
+    const files = new Map([[brief.path, brief], [context.path, context]]);
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => files.get(path) ?? null,
+      read: jest.fn(async (file: TFile) => file.path === brief.path ? 'goal' : '## 학습 개념 근거\n\n<!-- tutor-concepts:start -->\n조건부확률은 조건이 주어진 사건의 확률이다.\n<!-- tutor-concepts:end -->'),
+      process: jest.fn(), createFolder: jest.fn(), create: jest.fn(),
+    };
+    const deps = createMockDeps();
+    const query = jest.fn(async function* () {
+      yield { type: 'text', content: JSON.stringify({ sufficient: true, summary: '기초 개념을 재사용합니다.' }) };
+    });
+    (deps.plugin as any).app = { vault };
+    (deps.plugin as any).agentService.query = query;
+    const controller = new InputController(deps);
+    const original = {
+      mode, prompt: 'stale prompt', displayContent: mode, totalQuestions: 3,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Use selected notes: @Course.md', enableWebSearch: false,
+    } as any;
+
+    const prepared = await (controller as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path,
+    }, original);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('BRIEF_JSON'), undefined, [], {
+      readOnly: true, enableWebSearch: false,
+    });
+    expect(vault.process).not.toHaveBeenCalled();
+    expect(prepared.prompt).not.toBe('stale prompt');
+    expect(prepared.prompt).toContain('Use selected notes: @Course.md');
+    expect(prepared.sourceInstruction).toContain('조건부확률은 조건이 주어진 사건의 확률이다.');
+    expect(prepared.sourceInstruction).not.toContain('@Briefs/Goal.md');
+  });
+
+  it('rejects an out-of-folder context path before provider access', async () => {
+    const deps = createMockDeps();
+    const query = jest.fn();
+    (deps.plugin as any).app = { vault: { adapter: { basePath: '/vault' }, getAbstractFileByPath: jest.fn(() => makeFile('Brief.md')) } };
+    (deps.plugin as any).agentService.query = query;
+    const controller = new InputController(deps);
+    const result = await (controller as any).prepareStudyGoal({
+      briefPath: 'Brief.md', folderPath: 'Study', contextPath: 'Outside/STUDY_CONTEXT.md',
+    }, { mode: 'socratic' });
+
+    expect(result).toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses to overwrite a concept section changed during preparation', async () => {
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const latest = `Student note\n\n## 학습 개념 근거\n\n<!-- tutor-concepts:start -->\n학생이 수정한 내용\n<!-- tutor-concepts:end -->`;
+    const process = jest.fn(async (_file: TFile, transform: (value: string) => string) => transform(latest));
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault: {
+      getAbstractFileByPath: jest.fn((path: string) => path === 'Study' ? { path } : path === context.path ? context : null),
+      process,
+      read: jest.fn(),
+    } };
+    const controller = new InputController(deps);
+
+    await expect((controller as any).appendStudyContext(context.path, 'Study', 'stale tutor proposal')).rejects.toThrow('개념 영역이 바뀌었습니다');
+    expect(process).toHaveBeenCalledTimes(1);
+    expect((deps.plugin as any).app.vault.read).not.toHaveBeenCalled();
+  });
+
+  it('supplements the unchanged concept section and preserves its earlier concepts', async () => {
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    let content = `Student note\n\n## 학습 개념 근거\n\n<!-- tutor-concepts:start -->\n기존 개념\n<!-- tutor-concepts:end -->`;
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) => path === 'Study' ? { path } : path === context.path ? context : null),
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { content = transform(content); }),
+      read: jest.fn(async () => content),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    const controller = new InputController(deps);
+
+    await (controller as any).appendStudyContext(context.path, 'Study', '보충 개념', '', '기존 개념');
+
+    expect(content).toContain('기존 개념');
+    expect(content).toContain('보충 개념');
+  });
+
+  it('adds the student checklist and problem scratchpad only when creating a new context document', async () => {
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    let content = '';
+    let exists = false;
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) => path === 'Study' ? ({ path }) : exists && path === context.path ? context : null),
+      create: jest.fn(async () => { exists = true; content = '# 학습 맥락\n'; return context; }),
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { content = transform(content); }),
+      read: jest.fn(async () => content),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    const controller = new InputController(deps);
+
+    await (controller as any).appendStudyContext(context.path, 'Study', '확률 개념');
+    expect(content.match(/## 점검 체크리스트/g) ?? []).toHaveLength(1);
+    expect(content.match(/## 문제 기록/g) ?? []).toHaveLength(1);
+    expect(content).toContain('- [ ] Brief 적용 후 Agent 전환 질문이 떴다');
+    expect(content).toContain('날짜, 무엇을 했는지, 무슨 일이 생겼는지, 사용한 AI 제공자/모드');
+    expect(content).toContain('설정 → 문제 기록 → "최근 오류 복사"');
+
+    await (controller as any).appendStudyContext(context.path, 'Study', '추가 개념', '', '확률 개념');
+    expect(content.match(/## 점검 체크리스트/g) ?? []).toHaveLength(1);
+    expect(content.match(/## 문제 기록/g) ?? []).toHaveLength(1);
+    expect((controller as any).extractPreparedConcepts(content)).not.toContain('## 문제 기록');
+
+    const existing = makeFile('Study/Existing.md');
+    let existingContent = '# 학생 문서\n\n학생 내용';
+    const existingVault = {
+      getAbstractFileByPath: (path: string) => path === 'Study' ? ({ path }) : path === existing.path ? existing : null,
+      process: jest.fn(async (_file: TFile, transform: (value: string) => string) => { existingContent = transform(existingContent); }),
+      read: jest.fn(async () => existingContent),
+    };
+    (deps.plugin as any).app.vault = existingVault;
+    await (controller as any).appendStudyContext(existing.path, 'Study', '학생 문서 개념');
+    expect(existingContent).not.toContain('## 점검 체크리스트');
+    expect(existingContent).not.toContain('## 문제 기록');
+    expect(existingContent).toContain('학생 내용');
+  });
+
+  it('appends a bounded proposal to the latest context and uses Web toggle even at medium Quiz difficulty', async () => {
+    const brief = makeFile('Brief.md');
+    const context = makeFile('Study/STUDY_CONTEXT.md');
+    const files = new Map([[brief.path, brief], [context.path, context]]);
+    const contents = new Map([[brief.path, 'untrusted brief'], [context.path, '학생이 작성한 메모']]);
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (path: string) => path === 'Study' ? ({ path }) : files.get(path) ?? null,
+      read: jest.fn(async (file: TFile) => contents.get(file.path) ?? ''),
+      process: jest.fn(async (file: TFile, fn: (data: string) => string) => { contents.set(file.path, fn(contents.get(file.path) ?? '')); }),
+      createFolder: jest.fn(), create: jest.fn(),
+    };
+    const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: () => true }) });
+    const answers = [
+      { sufficient: false, summary: '기초 개념을 보충합니다.' },
+      { concepts: '표본공간은 가능한 결과의 집합이다.' },
+    ];
+    const query = jest.fn(async function* () {
+      yield { type: 'text', content: JSON.stringify(answers.shift()) };
+    });
+    (deps.plugin as any).app = { vault };
+    (deps.plugin as any).agentService.query = query;
+    const controller = new InputController(deps);
+    const result = await (controller as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
+    }, {
+      mode: 'quiz', prompt: 'stale', displayContent: 'quiz', totalQuestions: 2,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Selected course evidence', enableWebSearch: false,
+    });
+
+    expect(query).toHaveBeenNthCalledWith(1, expect.any(String), undefined, [], { readOnly: true, enableWebSearch: false });
+    expect(query).toHaveBeenNthCalledWith(2, expect.any(String), undefined, [], { readOnly: true, enableWebSearch: true });
+    expect(vault.process).toHaveBeenCalledTimes(1);
+    expect(contents.get(context.path)).toContain('학생이 작성한 메모');
+    expect(contents.get(context.path)).toContain('표본공간은 가능한 결과의 집합이다.');
+    expect(result.sourceInstruction).toContain('Selected course evidence');
+    expect(result.prompt).toContain('개념을 보충했습니다.');
   });
 });
