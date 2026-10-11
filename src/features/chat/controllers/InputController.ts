@@ -17,8 +17,8 @@ import {
   buildSocraticContinuationPrompt,
   buildSocraticPrompt,
   inferSocraticSupportLevel,
-  isStudyBriefFrontmatter,
   parseQuizDisplayContent,
+  PREPARED_EVIDENCE_ONLY,
   type QuizQuestionContext,
   type QuizQuestionStyle,
   shouldEnableQuizWebSearch,
@@ -54,7 +54,7 @@ import {
   resolveSlashAllowedTools,
   slashAllowsInlineBash,
 } from '../../../utils/slashCommand';
-import type { MessageRenderer } from '../rendering/MessageRenderer';
+import { type MessageRenderer, renderQuizReviewButton } from '../rendering/MessageRenderer';
 import type { InstructionRefineService } from '../services/InstructionRefineService';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
 import type { ChatState } from '../state/ChatState';
@@ -78,28 +78,15 @@ const CURRENT_NOTE_ONLY_PATTERNS = [
 function parseMentionedLearningCommand(
   content: string,
   fileContextManager: FileContextManager | null,
-  app: ObsidianCopilotPlugin['app'],
-  allowImplicitBriefQuiz = true,
 ): { mode: 'quiz' | 'socratic'; notePath: string } | null {
   const mentions = fileContextManager && typeof fileContextManager.getResolvedMentionPaths === 'function'
     ? fileContextManager.getResolvedMentionPaths(content)
     : [];
   if (mentions.length !== 1) return null;
-  let withoutMention = content;
   const mention = mentions[0];
-  withoutMention = withoutMention.slice(0, mention.start) + withoutMention.slice(mention.end);
-  const command = withoutMention.trim();
+  const command = (content.slice(0, mention.start) + content.slice(mention.end)).trim();
   if (command === '/quiz') return { mode: 'quiz', notePath: mention.path };
   if (command === '/socratic') return { mode: 'socratic', notePath: mention.path };
-  if (!command && allowImplicitBriefQuiz) {
-    const file = app.vault.getAbstractFileByPath(mention.path);
-    if (file instanceof TFile) {
-      const frontmatter = app.metadataCache?.getFileCache(file)?.frontmatter;
-      if (isStudyBriefFrontmatter(frontmatter)) {
-        return { mode: 'quiz', notePath: mention.path };
-      }
-    }
-  }
   return null;
 }
 
@@ -172,6 +159,8 @@ interface SocraticSessionInit {
   focusText?: string;
   sourceInstruction?: string;
   enableWebSearch?: boolean;
+  /** A Quiz review continues the Quiz's goal instead of starting an unbound session. */
+  keepStudyGoal?: boolean;
 }
 
 interface StudyGoalSelection {
@@ -226,6 +215,7 @@ export class InputController {
     void this.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
   }
 
+  /** Resolves false only when the review may be retried, so the caller re-enables its button. */
   async startQuizReview(messageId: string): Promise<boolean> {
     const { state } = this.deps;
     if (state.isStreaming || state.quizSession || state.socraticSession) {
@@ -233,10 +223,14 @@ export class InputController {
       return false;
     }
     const finalTurn = state.messages.find((message) => message.id === messageId && message.quizReviewAvailable);
-    if (!finalTurn) return false;
+    if (!finalTurn) {
+      new Notice('이 Quiz의 복습은 이미 시작했거나 더 이상 사용할 수 없습니다.');
+      return true;
+    }
+    // Consume first so a switch or summary-only reply cannot reopen it; restore only on failure.
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
-    await this.sendMessage({
+    const outcome = await this.sendMessage({
       content: '이 Quiz에서 헷갈린 개념을 소크라테스식 질문으로 복습해 주세요. 한 번에 질문 하나만 하고, 이해하면 다음 개념으로 넘어가세요.',
       promptPrefix: buildSocraticPrompt({
         scopeInstruction: finalTurn.quizReviewSourceInstruction ?? 'Use the completed Quiz conversation as source context.',
@@ -245,10 +239,17 @@ export class InputController {
       socraticSessionInit: {
         scopeLabel: 'Quiz 복습',
         sourceInstruction: finalTurn.quizReviewSourceInstruction,
-        enableWebSearch: finalTurn.quizReviewEnableWebSearch,
+        // Only a Quiz that required Web keeps it; otherwise the toolbar toggle decides.
+        enableWebSearch: finalTurn.quizReviewEnableWebSearch === true ? true : undefined,
+        // Continue the reviewed Quiz's goal only; a later goal in this conversation is not its evidence.
+        keepStudyGoal: Boolean(finalTurn.quizReviewStudyGoalId)
+          && finalTurn.quizReviewStudyGoalId === this.deps.plugin.getActiveConversation?.()?.studyGoalId,
       },
     });
-    return true;
+    if (outcome === 'completed') return true;
+    finalTurn.quizReviewAvailable = true;
+    void this.deps.conversationController.save(true);
+    return false;
   }
 
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
@@ -594,7 +595,7 @@ export class InputController {
       const preparedText = finalFile instanceof TFile ? await plugin.app.vault.read(finalFile) : current;
       if (!preparedText.trim() && !briefConceptFallback) throw new Error('학습 맥락 문서가 비어 있습니다.');
       if (!evidenceText) {
-        if (/@[^\s,]+/.test(result.sourceInstruction)) {
+        if (result.hasSourceNotes) {
           new Notice('기본 개념 근거가 없어 선택한 학습 자료만으로 진행합니다.');
           return result;
         }
@@ -604,9 +605,7 @@ export class InputController {
 
       new Notice(`학습 맥락을 준비했습니다. ${concepts ? '개념을 보충했습니다.' : '기존 개념을 재사용합니다.'} 출처: ${observedUrls.length ? observedUrls.join(', ') : '출처 미확인'}${unresolved.length ? ` · 미해결: ${unresolved.join(', ')}` : ''}`);
 
-      const evidenceScope = /^(?:No markdown files found in selected folders:|No selected course notes\.)/.test(result.sourceInstruction)
-        ? 'No selected course notes. Use prepared concept evidence only.'
-        : result.sourceInstruction;
+      const evidenceScope = result.hasSourceNotes ? result.sourceInstruction : PREPARED_EVIDENCE_ONLY;
       const learningScope = [
         evidenceScope,
         ...(briefStyleFallback ? [`[Brief practice format — not a factual answer key]\n${JSON.stringify(briefStyleFallback)}`] : []),
@@ -627,9 +626,10 @@ export class InputController {
       console.error('[ObsidianCopilot] Study context preparation failed:', error);
       new Notice(`학습 맥락을 준비하지 못했습니다. ${error instanceof Error ? error.message : ''}`);
       if (briefConceptFallback) {
+        const fallbackScope = result.hasSourceNotes ? result.sourceInstruction : PREPARED_EVIDENCE_ONLY;
         const scope = briefStyleFallback
-          ? `${result.sourceInstruction}\n\n[Brief practice format — not a factual answer key]\n${JSON.stringify(briefStyleFallback)}`
-          : result.sourceInstruction;
+          ? `${fallbackScope}\n\n[Brief practice format — not a factual answer key]\n${JSON.stringify(briefStyleFallback)}`
+          : fallbackScope;
         const source = buildGoalConceptInstruction(scope, briefConceptFallback);
         const fallbackSummary = '\n\n[학습 맥락 저장·조사에 문제가 있어 Brief의 기초 개념만으로 학습을 계속합니다.]';
         if (result.mode === 'quiz') {
@@ -642,7 +642,7 @@ export class InputController {
         const prompt = buildSocraticPrompt({ scopeInstruction: source, focusText: result.focusText, supportLevel: 1 });
         return { ...result, sourceInstruction: source, prompt: `${prompt}${fallbackSummary}` };
       }
-      if (/@[^\s,]+/.test(result.sourceInstruction)) {
+      if (result.hasSourceNotes) {
         new Notice('저장되지 않은 보충 개념은 사용하지 않고, 기존에 선택한 학습 자료만으로 진행합니다.');
         const fallbackSummary = '\n\n[학습 맥락 준비 실패: 기존 선택 자료만 사용합니다. 저장되지 않은 개념은 문항 근거에 포함하지 않습니다.]';
         if (result.mode === 'quiz') {
@@ -715,11 +715,8 @@ export class InputController {
       const file = plugin.app.vault.getAbstractFileByPath(binding.contextPath);
       if (!(file instanceof TFile)) return binding.briefPath;
       const concepts = this.extractPreparedConcepts(await plugin.app.vault.read(file));
-      const evidenceScope = /No markdown files found in selected folders:/.test(baseInstruction)
-        ? 'No selected course notes. Use prepared concept evidence only.'
-        : baseInstruction;
       session.sourceInstruction = concepts
-        ? buildGoalConceptInstruction(evidenceScope, concepts)
+        ? buildGoalConceptInstruction(baseInstruction, concepts)
         : baseInstruction;
       return binding.briefPath;
     } catch (error) {
@@ -814,7 +811,7 @@ export class InputController {
     studyGoal?: StudyGoalSelection;
     /** Prevent a deferred ordinary message from opening a learning setup after queueing. */
     skipLearningCommand?: boolean;
-  }): Promise<void> {
+  }): Promise<StreamOutcome | undefined> {
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const activeConversationAtSend = plugin.getActiveConversation?.();
@@ -847,9 +844,17 @@ export class InputController {
     const mentionedLearningCommand = options?.skipLearningCommand ? null : parseMentionedLearningCommand(
       content,
       fileContextManager,
-      plugin.app,
-      !state.isStreaming && !state.quizSession && !state.socraticSession,
     );
+    const isLearningCommand = !options?.skipLearningCommand && (
+      mentionedLearningCommand !== null
+      || content === '/quiz' || content.startsWith('/quiz ')
+      || content === '/socratic' || content.startsWith('/socratic ')
+    );
+    // A queued learning start would lose its session setup, so it waits for the user instead.
+    if (state.isStreaming && (isLearningCommand || options?.quizSessionInit || options?.socraticSessionInit)) {
+      new Notice('현재 응답이 끝난 뒤 학습을 시작해 주세요.');
+      return;
+    }
 
     if (!options?.skipLearningCommand
       && (mentionedLearningCommand?.mode === 'quiz' || content === '/quiz' || content.startsWith('/quiz '))) {
@@ -958,7 +963,7 @@ export class InputController {
       }
     }
 
-    if ((quizSessionInit || socraticSessionInit) && !options?.studyGoal) {
+    if ((quizSessionInit || socraticSessionInit) && !options?.studyGoal && !socraticSessionInit?.keepStudyGoal) {
       const conversation = typeof plugin.getActiveConversation === 'function' ? plugin.getActiveConversation() : null;
       if (conversation?.studyGoalId) {
         try {
@@ -1327,11 +1332,8 @@ ${promptToSend}`;
         assistantMsg.quizReviewAvailable = true;
         assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
         assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
-        const reviewButton = contentEl?.createEl('button', { cls: 'ocop-quiz-review-btn', text: '오답을 소크라테스식으로 복습하기' });
-        if (reviewButton) {
-          reviewButton.type = 'button';
-          reviewButton.dataset.messageId = assistantMsg.id;
-        }
+        assistantMsg.quizReviewStudyGoalId = goalIdAtSend;
+        if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
       }
 
       if (streamOutcome !== 'completed' && quizSessionInit) {
@@ -1408,6 +1410,7 @@ ${promptToSend}`;
         this.processQueuedMessage();
       }
     }
+    return streamOutcome;
   }
 
   /** Append a source-faithful Q/A trace to the confirmed goal folder, not a second score ledger. */

@@ -32,6 +32,13 @@ const WELCOME_SUGGESTIONS = [
   'Compare attached files and call out the important differences.',
 ] as const;
 
+/** The Quiz review button for live and stored messages; the view delegates its click. */
+export function renderQuizReviewButton(contentEl: HTMLElement, messageId: string): void {
+  const review = contentEl.createEl('button', { cls: 'ocop-quiz-review-btn', text: '오답을 소크라테스식으로 복습하기' });
+  review.type = 'button';
+  review.dataset.messageId = messageId;
+}
+
 /**
  * MessageRenderer handles all message DOM rendering.
  *
@@ -322,9 +329,7 @@ export class MessageRenderer {
       this.renderQuizAnswerActions(contentEl, quizQuestion);
     }
     if (msg.quizReviewAvailable) {
-      const review = contentEl.createEl('button', { cls: 'ocop-quiz-review-btn', text: '오답을 소크라테스식으로 복습하기' });
-      review.type = 'button';
-      review.dataset.messageId = msg.id;
+      renderQuizReviewButton(contentEl, msg.id);
     }
   }
 

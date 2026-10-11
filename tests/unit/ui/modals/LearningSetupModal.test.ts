@@ -278,12 +278,124 @@ describe('LearningSetupModal', () => {
       'Study/Brief.md', 'quiz', '',
     );
     (modal as any).briefPath = 'Study/Brief.md';
+    (modal as any).studyFolderPath = 'Study/Goal';
     (modal as any).learningScope = 'folder';
     (modal as any).selectedFolderPaths = new Set(['Study/Empty']);
 
     const scope = (modal as any).buildScope();
 
-    expect(scope.sourceInstruction).toBe('No markdown files found in selected folders: Study/Empty. Please inform the user.');
+    expect(scope).toMatchObject({
+      sourceInstruction: 'No selected course notes. Use prepared concept evidence only.',
+      hasSourceNotes: false,
+    });
+  });
+
+  it('never uses a Brief note as course evidence, even after the learner turns the Brief off', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], study_folder: 'Study/Goal' } }) },
+    } as unknown as App, brief.path, 'quiz');
+    jest.spyOn(modal as any, 'renderContent').mockImplementation(() => undefined);
+
+    (modal as any).handleBriefSelection('');
+    const result = (modal as any).buildResult();
+
+    expect(result.sourceInstruction).not.toContain('@Briefs/Goal.md');
+    expect(result.hasSourceNotes).toBe(false);
+    expect((modal as any).canStart(result)).toBe(false);
+  });
+
+  it('releases an inferred Brief and its defaults when its note is unticked', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const lecture = Object.assign(new TFile(), { path: 'Study/Lecture.md' });
+    const files = [brief, lecture];
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+      metadataCache: { getFileCache: (file: TFile) => file === brief
+        ? { frontmatter: { tags: ['StudyBrief'], study_folder: 'Study/Goal', quiz_difficulty: '상', quiz_count: 10 } }
+        : null },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'note';
+    (modal as any).selectedNotePaths = new Set([brief.path]);
+    (modal as any).inferBriefFromSelectedSource();
+    expect((modal as any).briefPath).toBe(brief.path);
+
+    (modal as any).selectedNotePaths = new Set([lecture.path]);
+    const result = (modal as any).buildResult();
+
+    expect(result.studyGoal).toBeUndefined();
+    expect(result).toMatchObject({ difficulty: '중', totalQuestions: 5, hasSourceNotes: true });
+    expect(result.sourceInstruction).toContain('@Study/Lecture.md');
+  });
+
+  it('blocks a Socratic dialogue with no course evidence and never uses learner history as its source', () => {
+    const history = Object.assign(new TFile(), { path: 'Study/QUIZ_HISTORY.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [history], getAbstractFileByPath: () => history },
+    } as unknown as App, history.path, 'socratic');
+
+    const result = (modal as any).buildResult();
+
+    expect(result.sourceInstruction).not.toContain('QUIZ_HISTORY.md');
+    expect(result.hasSourceNotes).toBe(false);
+    expect((modal as any).canStart(result)).toBe(false);
+  });
+
+  it('releases an inferred Brief when the learner switches to folder scope', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/Goal.md' });
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => [brief], getAbstractFileByPath: () => brief },
+      metadataCache: { getFileCache: () => ({ frontmatter: { tags: ['StudyBrief'], study_folder: 'Study/Goal' } }) },
+    } as unknown as App, brief.path, 'quiz');
+    (modal as any).inferBriefFromSelectedSource();
+    expect((modal as any).briefPath).toBe(brief.path);
+
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+
+    expect((modal as any).buildResult().studyGoal).toBeUndefined();
+  });
+
+  it('excludes a goal context document saved under a custom name from course evidence', () => {
+    const files = ['Course/notes-context.md', 'Course/Lecture.md'].map(path => Object.assign(new TFile(), { path }));
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+    } as unknown as App, null, 'quiz', '', [{
+      id: 'goal-1', briefPath: 'Briefs/Goal.md', folderPath: 'Course', contextPath: 'Course/notes-context.md',
+    }]);
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+
+    const result = (modal as any).buildResult();
+
+    expect(result.sourceInstruction).toContain('@Course/Lecture.md');
+    expect(result.sourceInstruction).not.toContain('notes-context.md');
+  });
+
+  it('lists only Briefs inside the current subject scope plus saved goals', () => {
+    const files = ['Math/Week1.md', 'Math/Brief.md', 'Physics/Brief.md'].map(path => Object.assign(new TFile(), { path }));
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+      metadataCache: { getFileCache: (file: TFile) => file.path.endsWith('Brief.md') ? { frontmatter: { tags: ['StudyBrief'] } } : null },
+    } as unknown as App, 'Math/Week1.md', 'quiz');
+
+    expect((modal as any).getBriefPaths(['Math/Week1.md', 'Math/Brief.md'])).toEqual(['Math/Brief.md']);
+  });
+
+  it('looks up Brief metadata once per note for a render, not once per candidate check', () => {
+    const files = Array.from({ length: 50 }, (_, i) => Object.assign(new TFile(), { path: `Course/Week${i}.md` }));
+    const getFileCache = jest.fn(() => null);
+    const modal = new LearningSetupModal({
+      vault: { getMarkdownFiles: () => files, getAbstractFileByPath: (path: string) => files.find(file => file.path === path) },
+      metadataCache: { getFileCache },
+    } as unknown as App, null, 'quiz');
+    (modal as any).learningScope = 'folder';
+    (modal as any).selectedFolderPaths = new Set(['Course']);
+
+    (modal as any).buildResult();
+
+    expect(getFileCache.mock.calls.length).toBeLessThanOrEqual(files.length);
   });
 
   it('uses opt-in Brief frontmatter for the goal folder, advanced application quiz and Web', () => {

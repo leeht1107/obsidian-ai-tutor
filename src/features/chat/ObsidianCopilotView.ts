@@ -616,11 +616,14 @@ export class ObsidianCopilotView extends ItemView {
         if (storedQuizControl.kind === 'hint') {
           this.inputController.requestQuizHint();
         } else if (storedQuizControl.kind === 'review') {
+          const button = target?.closest('.ocop-quiz-review-btn') as HTMLButtonElement | null;
+          if (button) button.disabled = true;
           void this.inputController.startQuizReview(storedQuizControl.messageId).then((started) => {
-            if (started) {
-              const button = target?.closest('.ocop-quiz-review-btn') as HTMLButtonElement | null;
-              if (button) button.disabled = true;
-            }
+            // `started` is false only for a retryable refusal or failure.
+            if (button) button.disabled = started;
+          }, (error: unknown) => {
+            console.error('[ObsidianCopilot] Quiz review failed:', error);
+            if (button) button.disabled = false;
           });
         } else {
           void this.inputController.sendMessage({ content: storedQuizControl.content });

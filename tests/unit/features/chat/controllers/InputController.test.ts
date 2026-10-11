@@ -2163,6 +2163,124 @@ describe('InputController study goal preparation', () => {
     expect((plugin.agentService.query as jest.Mock).mock.calls[0][0]).not.toContain('OLD BRIEF CONCEPT');
   });
 
+  it('keeps the Quiz goal binding when its Socratic review starts', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'goal-1' });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }) };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '복습 질문' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    const finalTurn = {
+      id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source @Course.md', quizReviewStudyGoalId: 'goal-1',
+    };
+    deps.state.addMessage(finalTurn);
+
+    await expect(controller.startQuizReview(finalTurn.id)).resolves.toBe(true);
+
+    expect(plugin.updateConversation).not.toHaveBeenCalledWith('conv-1', { studyGoalId: undefined });
+    expect(finalTurn.quizReviewAvailable).toBe(false);
+  });
+
+  it('does not let a Quiz review borrow a later goal bound to the conversation', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conv-1', studyGoalId: 'goal-b' });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({ studyGoalBindings: [] }) };
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '복습 질문' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    deps.state.addMessage({
+      id: 'quiz-a', role: 'assistant', content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source A', quizReviewStudyGoalId: 'goal-a',
+    });
+
+    await controller.startQuizReview('quiz-a');
+
+    expect(plugin.updateConversation).toHaveBeenCalledWith('conv-1', { studyGoalId: undefined });
+  });
+
+  it('refuses to queue a learning session start while a reply is streaming', async () => {
+    const deps = createMockDeps();
+    const controller = new InputController(deps);
+    deps.state.isStreaming = true;
+
+    await controller.sendMessage({ content: 'quiz prompt', quizSessionInit: { totalQuestions: 3, scopeLabel: 'quiz' } });
+
+    expect(deps.state.queuedMessage).toBeNull();
+    expect(deps.state.quizSession).toBeNull();
+  });
+
+  it('keeps a Quiz review retryable when its first turn fails', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; });
+    const controller = new InputController(deps);
+    const finalTurn = {
+      id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source @Course.md',
+    };
+    deps.state.addMessage(finalTurn);
+
+    await expect(controller.startQuizReview(finalTurn.id)).resolves.toBe(false);
+
+    expect(finalTurn.quizReviewAvailable).toBe(true);
+  });
+
+  it('lets the toolbar decide Web for a review of a Quiz that did not require Web', async () => {
+    const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(true) }) });
+    const plugin = deps.plugin as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '복습 질문' }; yield { type: 'done' }; });
+    const controller = new InputController(deps);
+    deps.state.addMessage({
+      id: 'quiz-final', role: 'assistant', content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source', quizReviewEnableWebSearch: false,
+    });
+
+    await controller.startQuizReview('quiz-final');
+
+    expect((plugin.agentService.query as jest.Mock).mock.calls[0][3]).toMatchObject({ enableWebSearch: true });
+  });
+
+  it.each(['/quiz', '/socratic'])('does not open %s setup while a reply is streaming', async (command) => {
+    const deps = createMockDeps();
+    const controller = new InputController(deps);
+    const openModal = jest.spyOn(LearningSetupModal.prototype, 'openAndWait').mockResolvedValue(null);
+    deps.state.isStreaming = true;
+    (Notice as any).messages.length = 0;
+
+    await controller.sendMessage({ content: command });
+
+    expect(openModal).not.toHaveBeenCalled();
+    expect(deps.state.queuedMessage).toBeNull();
+    expect((Notice as any).messages.at(-1)).toMatch(/응답이 끝난 뒤/);
+    openModal.mockRestore();
+  });
+
+  it('sends a bare Brief mention as ordinary chat instead of opening a Quiz', async () => {
+    const brief = makeFile('Briefs/Goal.md');
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.app = {
+      vault: { getAbstractFileByPath: jest.fn(() => brief) },
+      metadataCache: { getFileCache: jest.fn(() => ({ frontmatter: { tags: ['StudyBrief'] } })) },
+    };
+    deps.getFileContextManager = () => ({
+      startSession: jest.fn(), getCurrentNotePath: jest.fn().mockReturnValue(null),
+      shouldSendCurrentNote: jest.fn().mockReturnValue(false),
+      transformContextMentions: jest.fn((text: string) => text),
+      getResolvedMentionPaths: jest.fn().mockReturnValue([{ start: 0, end: 15, path: brief.path }]),
+    }) as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; });
+    const openModal = jest.spyOn(LearningSetupModal.prototype, 'openAndWait').mockResolvedValue(null);
+    const controller = new InputController(deps);
+
+    await controller.sendMessage({ content: '@Briefs/Goal.md' });
+
+    expect(openModal).not.toHaveBeenCalled();
+    expect(plugin.agentService.query).toHaveBeenCalled();
+    openModal.mockRestore();
+  });
+
   it.each(['quiz', 'socratic'] as const)('refreshes changed goal concepts in a real %s continuation request', async (mode) => {
     const context = makeFile('Study/Goal/STUDY_CONTEXT.md');
     const deps = createMockDeps();
@@ -2221,7 +2339,7 @@ describe('InputController study goal preparation', () => {
     (deps.plugin as any).agentService.query = query;
     await (new InputController(deps) as any).prepareStudyGoal({
       briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
-    }, { mode: 'quiz', focusText: 'X 주제', sourceInstruction: '@Course.md', totalQuestions: 1,
+    }, { mode: 'quiz', focusText: 'X 주제', sourceInstruction: '@Course.md', hasSourceNotes: true, totalQuestions: 1,
       difficulty: '중', questionStyle: 'material' });
 
     expect(prompts).toHaveLength(2);
@@ -2261,7 +2379,7 @@ describe('InputController study goal preparation', () => {
       briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path,
     }, result);
 
-    expect(result.sourceInstruction).toContain('No markdown files found in selected folders: Study/Goal');
+    expect(result.hasSourceNotes).toBe(false);
     expect(prepared.sourceInstruction).toContain('No selected course notes. Use prepared concept evidence only.');
     expect(prepared.sourceInstruction).not.toContain('Please inform the user');
     expect(prepared.sourceInstruction).toContain('확률은 불확실성을 나타낸다.');
@@ -2497,7 +2615,7 @@ describe('InputController study goal preparation', () => {
     const controller = new InputController(deps);
     const pending = (controller as any).sendLearningSetupResult({
       mode, prompt: 'stale', displayContent: mode === 'quiz' ? 'Quiz' : 'Socratic', totalQuestions: 2, difficulty: '중',
-      questionStyle: 'material', sourceInstruction: 'selected note @Course.md', enableWebSearch: false,
+      questionStyle: 'material', sourceInstruction: 'selected note @Course.md', hasSourceNotes: true, enableWebSearch: false,
       studyGoal: { briefPath: brief.path, folderPath: 'Study/Goal', contextPath: context.path },
     }, {});
     expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('Agent 모드');
@@ -2716,7 +2834,7 @@ describe('InputController study goal preparation', () => {
     await (controller as any).sendLearningSetupResult({
       mode: 'quiz', prompt: 'Use explicitly selected @Course.md', displayContent: 'Quiz', totalQuestions: 2,
       difficulty: '중', questionStyle: 'material', focusText: '확률',
-      sourceInstruction: 'Use explicitly selected @Course.md', enableWebSearch: false,
+      sourceInstruction: 'Use explicitly selected @Course.md', hasSourceNotes: true, enableWebSearch: false,
       studyGoal: { briefPath: brief.path, folderPath: 'Study', contextPath: context.path, existingId: 'goal-1' },
     }, {});
 
@@ -2938,7 +3056,7 @@ describe('InputController study goal preparation', () => {
     const controller = new InputController(deps);
     const original = {
       mode, prompt: 'stale prompt', displayContent: mode, totalQuestions: 3,
-      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Use selected notes: @Course.md', enableWebSearch: false,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Use selected notes: @Course.md', hasSourceNotes: true, enableWebSearch: false,
     } as any;
 
     const prepared = await (controller as any).prepareStudyGoal({
@@ -3204,7 +3322,7 @@ describe('InputController study goal preparation', () => {
       contentBlocks: [{ type: 'text', content: '## 1/1번 문제\n\n#### A의 질문인가요?\n\nA. 예\nB. 아니요' }],
       quizQuestion: { current: 1, total: 1, multiSelect: false, freeText: false, options: [{ label: 'A', text: '예' }] },
     });
-    deps.renderer.addMessage = jest.fn(() => ({ querySelector: () => ({ createEl: jest.fn() }) } as any));
+    deps.renderer.addMessage = jest.fn(() => ({ querySelector: () => ({ createEl: jest.fn(() => ({ dataset: {} })) }) } as any));
     deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
       activeConversation = conversationB;
       deps.state.currentConversationId = 'conv-b';
@@ -3302,7 +3420,7 @@ describe('InputController study goal preparation', () => {
       briefPath: brief.path, folderPath: 'Study', contextPath: context.path,
     }, {
       mode: 'quiz', prompt: 'stale', displayContent: 'quiz', totalQuestions: 2,
-      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Selected course evidence', enableWebSearch: false,
+      difficulty: '중', questionStyle: 'material', sourceInstruction: 'Selected course evidence', hasSourceNotes: true, enableWebSearch: false,
     });
 
     expect(query).toHaveBeenNthCalledWith(1, expect.any(String), undefined, [], { readOnly: true, enableWebSearch: false });
