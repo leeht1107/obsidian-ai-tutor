@@ -4,12 +4,12 @@ import { buildNativeProviderCommand } from '@/core/providers/providerRegistry';
 describe('native provider Web dispatch', () => {
   it('disables WebSearch/WebFetch for Claude when toolbar Web is off', () => {
     const args = buildNativeProviderCommand('claude', 'prompt', '', '', 'ask', false, false).args;
-    expect(args).toContain('Write,Edit,Bash,WebSearch,WebFetch');
+    expect(args).toContain('Write,Edit,Bash,NotebookEdit,WebSearch,WebFetch');
   });
 
   it('preserves WebSearch for Claude when toolbar Web is on', () => {
     const args = buildNativeProviderCommand('claude', 'prompt', '', '', 'ask', false, true).args;
-    expect(args).toContain('Write,Edit,Bash');
+    expect(args).toContain('Write,Edit,Bash,NotebookEdit');
     expect(args.join(' ')).not.toMatch(/WebSearch|WebFetch/);
   });
 

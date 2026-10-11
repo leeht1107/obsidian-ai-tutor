@@ -85,7 +85,7 @@ describe('learning request permission boundary', () => {
     expect(args).not.toContain('workspace-write');
     expect(args).not.toContain('--allow-all-tools');
     expect(args.includes('--disallowedTools')).toBe(provider === 'claude');
-    expect(args.includes('Write,Edit,Bash')).toBe(provider === 'claude');
+    expect(args.includes('Write,Edit,Bash,NotebookEdit')).toBe(provider === 'claude');
     expect(args.includes('read-only')).toBe(provider === 'codex');
     expect(args.includes('approval_policy="never"')).toBe(provider === 'codex');
   });
@@ -154,10 +154,10 @@ describe('learning request permission boundary', () => {
 
   it('passes the toolbar Web state into native Claude and Codex argv', async () => {
     const claudeOff = await run('claude', 'modern', true, false);
-    expect(claudeOff.args).toContain('Write,Edit,Bash,WebSearch,WebFetch');
+    expect(claudeOff.args).toContain('Write,Edit,Bash,NotebookEdit,WebSearch,WebFetch');
     const claudeOn = await run('claude', 'modern', true, true);
     const claudeDisallowedToolsIndex = claudeOn.args.indexOf('--disallowedTools');
-    expect(claudeOn.args[claudeDisallowedToolsIndex + 1]).toBe('Write,Edit,Bash');
+    expect(claudeOn.args[claudeDisallowedToolsIndex + 1]).toBe('Write,Edit,Bash,NotebookEdit');
     expect(claudeOn.args).toContain('--tools');
     expect(claudeOn.args[claudeOn.args.indexOf('--tools') + 1]).toBe('default');
     expect(claudeOff.args).not.toContain('--tools');

@@ -31,7 +31,7 @@ describe('ask mode', () => {
     // "Input must be provided ... as a prompt argument", so ask mode failed every
     // request, quiz or not. The prompt goes last, out of the variadic flag's reach.
     expect(buildNativeProviderCommand('claude', 'hi', '', '', 'ask').args)
-      .toEqual(['-p', '--disallowedTools', 'Write,Edit,Bash',
+      .toEqual(['-p', '--disallowedTools', 'Write,Edit,Bash,NotebookEdit',
         '--tools', 'default', '--output-format', 'stream-json', '--verbose', 'hi']);
   });
 
@@ -53,7 +53,7 @@ describe('ask mode', () => {
   it('disables native Web tools for Claude and Codex when Web is off', () => {
     const claude = buildNativeProviderCommand('claude', 'hi', '', '', 'ask', false, false).args;
     expect(claude).toContain('--disallowedTools');
-    expect(claude).toContain('Write,Edit,Bash,WebSearch,WebFetch');
+    expect(claude).toContain('Write,Edit,Bash,NotebookEdit,WebSearch,WebFetch');
     expect(claude).not.toContain('--tools');
     const codex = buildNativeProviderCommand('codex', 'hi', '', '', 'ask', false, false).args;
     expect(codex).toContain('web_search="disabled"');

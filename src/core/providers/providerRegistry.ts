@@ -359,7 +359,7 @@ export function buildNativeProviderCommand(
     // `--permission-mode` takes a single value, but it sits in the same slot so the
     // invariant holds whichever branch is taken. `bypassPermissions` is claude's only
     // open-ended lever — an accepted residual risk of the locked decision, not an oversight.
-    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', enableWebSearch ? 'Write,Edit,Bash' : 'Write,Edit,Bash,WebSearch,WebFetch'] : ['--permission-mode', 'bypassPermissions', ...(!enableWebSearch ? ['--disallowedTools', 'WebSearch,WebFetch'] : [])]), ...(enableWebSearch ? ['--tools', 'default'] : []), '--output-format', 'stream-json', '--verbose', prompt] };
+    case 'claude': return { command: 'claude', args: ['-p', ...modelArgs, ...(selectedEffort ? ['--effort', selectedEffort] : []), ...(readOnly ? ['--disallowedTools', enableWebSearch ? 'Write,Edit,Bash,NotebookEdit' : 'Write,Edit,Bash,NotebookEdit,WebSearch,WebFetch'] : ['--permission-mode', 'bypassPermissions', ...(!enableWebSearch ? ['--disallowedTools', 'WebSearch,WebFetch'] : [])]), ...(enableWebSearch ? ['--tools', 'default'] : []), '--output-format', 'stream-json', '--verbose', prompt] };
     // codex exec has no effort flag; the reasoning level is a config override instead.
     // `--skip-git-repo-check` is unconditional: codex refuses to start outside a Git
     // repository, and a student's vault usually is not one.
