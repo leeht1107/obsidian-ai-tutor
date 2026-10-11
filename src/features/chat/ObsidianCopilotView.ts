@@ -615,6 +615,8 @@ export class ObsidianCopilotView extends ItemView {
       if (storedQuizControl && this.inputController) {
         if (storedQuizControl.kind === 'hint') {
           this.inputController.requestQuizHint();
+        } else if (storedQuizControl.kind === 'review') {
+          void this.inputController.startQuizReview();
         } else {
           void this.inputController.sendMessage({ content: storedQuizControl.content });
         }
@@ -765,6 +767,7 @@ async function openProviderSetupWizard(plugin: ProviderSelectorPlugin, target?: 
 /** What a stored quiz message's 힌트 / 모르겠어요 button fires. */
 export type StoredQuizControlAction =
   | { kind: 'hint' }
+  | { kind: 'review' }
   | { kind: 'answer'; content: string };
 
 /**
@@ -776,6 +779,7 @@ export type StoredQuizControlAction =
  * Exported to be tested without a DOM.
  */
 export function resolveStoredQuizControl(target: Element | null): StoredQuizControlAction | null {
+  if (target?.closest('.ocop-quiz-review-btn')) return { kind: 'review' };
   if (target?.closest('.ocop-quiz-hint-btn')) return { kind: 'hint' };
   if (target?.closest('.ocop-quiz-stuck-btn')) return { kind: 'answer', content: QUIZ_STUCK_ANSWER };
   return null;

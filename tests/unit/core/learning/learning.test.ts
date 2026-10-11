@@ -83,6 +83,14 @@ describe('learning helpers', () => {
       expect(buildQuizContinuationPrompt({ currentQuestion: 3, totalQuestions: 3 })).toContain('All output must be in Korean');
     });
 
+    it('ends the final answer without inventing an aggregate score or mandatory review', () => {
+      const prompt = buildQuizContinuationPrompt({ currentQuestion: 3, totalQuestions: 3 });
+      expect(prompt).toContain('Do not create another question');
+      expect(prompt).toContain('or claim a definitive aggregate score');
+      expect(prompt).toContain('optional Socratic review button');
+      expect(prompt).not.toContain('Count ALL correct answers');
+    });
+
     it('keeps quiz continuations constrained to the original source scope', () => {
       const prompt = buildQuizContinuationPrompt({
         currentQuestion: 1,

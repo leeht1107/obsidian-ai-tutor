@@ -280,33 +280,27 @@ export class FileContextManager {
     return this.transformVaultMentions(this.state.transformContextMentions(text));
   }
 
-  private transformVaultMentions(text: string): string {
+  /** Returns only mentions that resolve uniquely through the existing Vault resolver. */
+  getResolvedMentionPaths(text: string): Array<{ start: number; end: number; path: string }> {
     const pattern = /(^|[^\w])@(?:"([^"]+)"|'([^']+)'|([^\s]+\.\w+))/g;
-    const matches: Array<{ full: string; prefix: string; rawPath: string; index: number }> = [];
-    let match: RegExpExecArray | null = pattern.exec(text);
-    while (match !== null) {
-      matches.push({
-        full: match[0],
-        prefix: match[1] ?? '',
-        rawPath: match[2] || match[3] || match[4],
-        index: match.index,
-      });
-      match = pattern.exec(text);
+    const mentions: Array<{ start: number; end: number; path: string }> = [];
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const full = match[0];
+      const prefix = match[1] ?? '';
+      const rawPath = match[2] || match[3] || match[4];
+      const path = this.resolveVaultMentionPath(rawPath);
+      if (path) mentions.push({ start: match.index + prefix.length, end: match.index + full.length, path });
     }
+    return mentions;
+  }
 
+  private transformVaultMentions(text: string): string {
     let result = text;
-    for (let i = matches.length - 1; i >= 0; i--) {
-      const entry = matches[i];
-      const resolved = this.resolveVaultMentionPath(entry.rawPath);
-      if (!resolved) {
-        continue;
-      }
-
-      result =
-        result.slice(0, entry.index) +
-        entry.prefix +
-        resolved +
-        result.slice(entry.index + entry.full.length);
+    const mentions = this.getResolvedMentionPaths(text);
+    for (let i = mentions.length - 1; i >= 0; i--) {
+      const mention = mentions[i];
+      result = result.slice(0, mention.start) + mention.path + result.slice(mention.end);
     }
 
     return result;

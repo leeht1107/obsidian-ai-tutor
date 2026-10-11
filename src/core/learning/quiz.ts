@@ -38,6 +38,8 @@ export interface QuizQuestionContext {
   questionNumber: number;
   totalQuestions: number;
   questionText: string;
+  /** Stable assistant-message ID for idempotent study-history archiving. */
+  messageId?: string;
 }
 
 export interface QuizHintPromptInput {
@@ -187,32 +189,15 @@ export function buildQuizContinuationPrompt(input: QuizContinuationPromptInput):
   }
 
   return `[SYSTEM INSTRUCTION — MANDATORY]
-This is the FINAL question (${questionToGrade}/${quizTotal}). You MUST complete ALL three steps below in order. Do NOT stop after step 1.
+This is the FINAL question (${questionToGrade}/${quizTotal}). Grade the student's first answer and end the Quiz. Do not create another question or claim a definitive aggregate score.
+All output must be in Korean.
 
 Source and scope constraints for this quiz:
 ${groundingInstructions}
 
 Step 1: Evaluate the student's answer in Korean (### 정답 확인 format, same as before).
 
-Step 2: Show overall score:
-### 퀴즈 결과: N/${quizTotal} 정답 (N%)
-Count ALL correct answers from questions 1-${quizTotal} in this conversation.
-
-Step 3: Provide wrong-answer review as 조교 (teaching assistant):
-### 오답 복습 정리
-For EACH wrong answer, write:
-**N번 문제 — (topic keyword)**
-- **학생 답:** (student's choice)
-- **정답:** (correct answer)
-- **왜 틀렸나:** 1-2 sentence misconception explanation
-- **오개념 진단:** name the misconception or missing distinction
-- **핵심 정리:** correct concept summary with code snippet if relevant
-- **다음 회복 질문:** one short source-grounded question that helps repair the misconception
-
-End with: 💡 조교 한마디: encouragement + study tip based on error patterns.
-If ALL correct: congratulate and highlight the most important concept.
-
-All output must be in Korean. Do NOT ask another question. Do NOT skip steps 2 and 3.`;
+End with a concise Korean Quiz completion message. The application provides an optional Socratic review button; do not conduct the review unless the student selects it.`;
 }
 
 /** Builds a non-advancing hint prompt for the QuizAnswerPanel's 힌트 shortcut. */

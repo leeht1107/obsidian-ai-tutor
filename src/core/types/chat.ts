@@ -92,6 +92,9 @@ export interface ChatMessage {
   };
   /** `null` suppresses question recovery for partial output from a failed Quiz request. */
   quizQuestion?: QuizQuestionMeta | null;
+  /** Final Quiz turn offers an optional Socratic review action. */
+  quizReviewAvailable?: boolean;
+  quizReviewSourceInstruction?: string;
   socraticTurn?: SocraticTurnMeta;
   /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
   requestOutcome?: 'completed' | 'failed' | 'interrupted';

@@ -518,6 +518,9 @@ describe('FileContextManager', () => {
 
     const transformed = manager.transformContextMentions('Please inspect @teachers.md now');
     expect(transformed).toBe('Please inspect folder/teachers.md now');
+    expect(manager.getResolvedMentionPaths('@teachers.md /quiz')).toEqual([
+      { start: 0, end: 12, path: 'folder/teachers.md' },
+    ]);
 
     manager.destroy();
   });

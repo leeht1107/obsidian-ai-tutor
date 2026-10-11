@@ -1245,6 +1245,26 @@ describe('InputController - Message Queue', () => {
     });
 
     describe('Mode switching cleanup', () => {
+      it('starts the optional quiz review with the Socratic initial prompt and original source', async () => {
+        deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+        const finalTurn = {
+          id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+          quizReviewAvailable: true,
+          quizReviewSourceInstruction: 'Use only this selected source as ground truth: @db.md',
+        };
+        deps.state.addMessage(finalTurn);
+
+        await controller.startQuizReview();
+
+        const query = deps.plugin.agentService.query as jest.Mock;
+        const prompt = query.mock.calls[0][0] as string;
+        expect(prompt).toContain("Mark's digital teaching twin");
+        expect(prompt).toContain('SOURCE MATERIAL: Use only this selected source as ground truth: @db.md');
+        expect(prompt).toContain('이 Quiz에서 헷갈린 개념을 소크라테스식 질문으로 복습해 주세요.');
+        expect(query.mock.calls[0][3]).toMatchObject({ readOnly: true });
+        expect(finalTurn.quizReviewAvailable).toBe(false);
+      });
+
       it('clears active quiz state and answer panel before starting socratic mode', async () => {
         const { inputWrapper, messagesEl, container, attachQuizPanel } = createMockChatContainer();
         const showSocraticBanner = jest.fn();
@@ -2309,7 +2329,7 @@ describe('InputController study goal preparation', () => {
     for (let attempt = 0; attempt < 20 && !container.querySelector('.ocop-ask-panel'); attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
-    expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('어디에 저장');
+      expect(container.querySelector('.ocop-ask-panel-question')?.textContent).toContain('저장하고 진행하겠습니다');
     expect(query).not.toHaveBeenCalled();
     expect(vault.process).not.toHaveBeenCalled();
     answerStudyQuestion(container, context.path);
@@ -2843,6 +2863,115 @@ describe('InputController study goal preparation', () => {
     expect(existingContent).not.toContain('## 점검 체크리스트');
     expect(existingContent).not.toContain('## 문제 기록');
     expect(existingContent).toContain('학생 내용');
+  });
+
+
+  it('enables Web for a user-approved Brief without changing ordinary learning defaults', async () => {
+    let enabled = false;
+    const setEnabled = jest.fn((value: boolean) => { enabled = value; });
+    const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: () => enabled, setEnabled }) });
+    const plugin = deps.plugin as any;
+    plugin.settings.selectedProvider = 'copilot';
+    plugin.settings.permissionMode = 'agent';
+    plugin.settings.blanketWriteAcknowledged = ['copilot'];
+    const controller = new InputController(deps);
+    const preparation = jest.spyOn(controller as any, 'prepareStudyGoal').mockResolvedValue(null);
+
+    await (controller as any).sendLearningSetupResult({
+      mode: 'quiz', prompt: 'initial', displayContent: 'quiz', totalQuestions: 5,
+      difficulty: '상', questionStyle: 'application', sourceInstruction: 'prepared', enableWebSearch: true,
+      studyGoal: {
+        briefPath: 'Briefs/Goal.md', folderPath: 'skhynix',
+        contextPath: 'skhynix/STUDY_CONTEXT.md', existingId: 'goal-1', webSearch: true,
+      },
+    }, {});
+
+    expect(setEnabled).toHaveBeenCalledWith(true);
+    expect(preparation).toHaveBeenCalledWith(expect.objectContaining({ webSearch: true }), expect.anything());
+  });
+
+  it('can start from Brief concept evidence alone and stores it in skhynix before the first quiz', async () => {
+    const brief = makeFile('Brief.md');
+    const documents = new Map<string, string>([[brief.path,
+      '---\nstudy_folder: skhynix\n---\n## 학습 개념 근거\nAI는 넓은 분야이며 ML은 데이터에서 패턴을 학습합니다.']]);
+    const fileRefs = new Map<string, TFile>([[brief.path, brief]]);
+    let hasFolder = false;
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: (p: string) => p === 'skhynix' && hasFolder ? { path: p } : fileRefs.get(p) ?? null,
+      createFolder: jest.fn(async () => { hasFolder = true; }),
+      create: jest.fn(async (p: string, text: string) => {
+        const file = makeFile(p);
+        fileRefs.set(p, file);
+        documents.set(p, text);
+        return file;
+      }),
+      read: jest.fn(async (file: TFile) => documents.get(file.path) ?? ''),
+      process: jest.fn(async (file: TFile, fn: (text: string) => string) => {
+        documents.set(file.path, fn(documents.get(file.path) ?? ''));
+      }),
+    };
+    const deps = createMockDeps();
+    (deps.plugin as any).app = { vault };
+    (deps.plugin as any).agentService.query = jest.fn(async function* () {
+      yield { type: 'text', content: JSON.stringify({ sufficient: true, summary: '기초 개념을 재사용합니다.' }) };
+    });
+
+    const result = await (new InputController(deps) as any).prepareStudyGoal({
+      briefPath: brief.path, folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md',
+    }, {
+      mode: 'quiz', prompt: 'stale', displayContent: 'quiz', totalQuestions: 5,
+      difficulty: '상', questionStyle: 'application', sourceInstruction: 'No markdown files found in selected folders: skhynix.',
+      enableWebSearch: true,
+    });
+
+    expect(vault.createFolder).toHaveBeenCalledWith('skhynix');
+    expect(documents.get('skhynix/STUDY_CONTEXT.md')).toContain('ML은 데이터에서 패턴을 학습합니다');
+    expect(result.sourceInstruction).toContain('ML은 데이터에서 패턴을 학습합니다');
+    expect(result.prompt).toContain('apply concepts from the selected material to fresh scenarios');
+  });
+
+  it('appends each answered question exactly once to the confirmed folder without a new score ledger', async () => {
+    const dest = 'skhynix/QUIZ_HISTORY.md';
+    const quizHistory = makeFile(dest);
+    const files = new Map<string, TFile>();
+    const contents = new Map<string, string>();
+    const vault = {
+      adapter: { basePath: '/vault' },
+      getAbstractFileByPath: jest.fn((p: string) => files.get(p) ?? null),
+      create: jest.fn(async (p: string, body: string) => {
+        files.set(p, quizHistory);
+        contents.set(p, body);
+        return quizHistory;
+      }),
+      process: jest.fn(async (file: TFile, transform: (text: string) => string) => {
+        contents.set(file.path, transform(contents.get(file.path) ?? ''));
+      }),
+      read: jest.fn(async (file: TFile) => contents.get(file.path) ?? ''),
+    };
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.app = { vault };
+    plugin.getActiveConversation = jest.fn().mockReturnValue({ id: 'conversation-1', studyGoalId: 'goal-1' });
+    plugin.storage = { loadState: jest.fn().mockResolvedValue({
+      studyGoalBindings: [{ id: 'goal-1', briefPath: 'Brief.md', folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md' }],
+    }) };
+    const controller = new InputController(deps);
+    const question = {
+      messageId: 'assistant-question-1', questionNumber: 1, totalQuestions: 5,
+      questionText: '## 1/5번 문제\n\n#### 어떤 경우가 분류인가?\n\nA. 정상/불량\nB. 수율 숫자',
+    };
+    const reply = { content: '### 정답 확인\n- 정답: A\n- 해설: 범주를 예측합니다.\n\n## 2/5번 문제\n다음 문제' };
+    await (controller as any).saveStudyQuizAnswer(question, 'A', reply);
+    await (controller as any).saveStudyQuizAnswer(question, 'A', reply);
+
+    const saved = contents.get(dest) ?? '';
+    expect(vault.create).toHaveBeenCalledTimes(1);
+    expect(saved.match(/tutor-quiz:conversation-1:assistant-question-1/g)).toHaveLength(1);
+    expect(saved).toContain('어떤 경우가 분류인가?');
+    expect(saved).toContain('**첫 제출 답변:** A');
+    expect(saved).toContain('범주를 예측합니다');
+    expect(saved).not.toContain('## 2/5번 문제');
   });
 
   it('appends a bounded proposal to the latest context and uses Web toggle even at medium Quiz difficulty', async () => {

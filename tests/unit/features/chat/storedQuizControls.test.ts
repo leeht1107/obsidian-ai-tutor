@@ -14,6 +14,10 @@ describe('stored quiz controls reach the same actions as the live panel', () => 
     expect(resolveStoredQuizControl(clickOn('ocop-quiz-hint-btn'))).toEqual({ kind: 'hint' });
   });
 
+  it('routes the optional end-of-quiz review button', () => {
+    expect(resolveStoredQuizControl(clickOn('ocop-quiz-review-btn'))).toEqual({ kind: 'review' });
+  });
+
   it('sends 모르겠어요 as the exact text the live panel submits', () => {
     // Same string, not a lookalike: the two paths must grade identically.
     expect(resolveStoredQuizControl(clickOn('ocop-quiz-stuck-btn')))

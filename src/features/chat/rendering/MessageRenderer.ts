@@ -321,6 +321,10 @@ export class MessageRenderer {
     if (quizQuestion) {
       this.renderQuizAnswerActions(contentEl, quizQuestion);
     }
+    if (msg.quizReviewAvailable) {
+      const review = contentEl.createEl('button', { cls: 'ocop-quiz-review-btn', text: '오답을 소크라테스식으로 복습하기' });
+      review.type = 'button';
+    }
   }
 
   private renderQuizAnswerActions(contentEl: HTMLElement, quizQuestion: NonNullable<ChatMessage['quizQuestion']>): void {

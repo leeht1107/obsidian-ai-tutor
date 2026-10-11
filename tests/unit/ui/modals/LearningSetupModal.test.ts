@@ -1,4 +1,5 @@
 import type { App } from 'obsidian';
+import { TFile } from 'obsidian';
 
 import { LearningSetupModal } from '@/ui/modals/LearningSetupModal';
 
@@ -110,6 +111,43 @@ describe('LearningSetupModal', () => {
     const scope = (modal as any).buildScope();
 
     expect(scope.sourceInstruction).toBe('No markdown files found in selected folders: Study/Empty. Please inform the user.');
+  });
+
+  it('uses opt-in Brief frontmatter for the goal folder, advanced application quiz and Web', () => {
+    const brief = Object.assign(new TFile(), { path: 'Briefs/skhynix.md' });
+    const app = {
+      vault: {
+        getMarkdownFiles: () => [{ path: brief.path }],
+        getAbstractFileByPath: () => brief,
+      },
+      metadataCache: { getFileCache: () => ({
+        frontmatter: {
+          study_folder: 'skhynix',
+          quiz_difficulty: '상',
+          quiz_style: 'application',
+          quiz_count: 5,
+          study_web_search: true,
+        },
+      }) },
+    } as unknown as App;
+    const modal = new LearningSetupModal(app, brief.path, 'quiz');
+    (modal as any).renderContent = jest.fn();
+
+    const result = (modal as any).buildResult();
+    expect(result).toMatchObject({
+      totalQuestions: 5, difficulty: '상', questionStyle: 'application', enableWebSearch: true,
+      studyGoal: {
+        folderPath: 'skhynix', contextPath: 'skhynix/STUDY_CONTEXT.md', webSearch: true,
+      },
+    });
+    expect(result.sourceInstruction).toContain('@Briefs/skhynix.md');
+    expect(result.sourceInstruction).toContain('course concepts as ground truth');
+  });
+
+  it('does not turn ordinary quiz settings into Brief-driven defaults', () => {
+    const result = (createModal('quiz') as any).buildResult();
+    expect(result).toMatchObject({ difficulty: '중', questionStyle: 'material', enableWebSearch: false });
+    expect(result.studyGoal).toBeUndefined();
   });
 
   it('clears Brief A folder and context when switching the selected Brief to B', () => {
