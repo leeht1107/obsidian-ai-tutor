@@ -57,15 +57,6 @@ export async function dispatchLearningSetup(
   await inputController?.sendMessage({ content: `/${mode}` });
 }
 
-/** Preserve the view's existing PermissionToggle consent and authority transition. */
-export async function requestStudyAgentMode(
-  permissionToggle: Pick<PermissionToggle, 'requestAgentMode'> | null,
-  provider: ProviderId,
-  authorityEpoch: number,
-): Promise<boolean> {
-  return permissionToggle ? permissionToggle.requestAgentMode(provider, authorityEpoch) : false;
-}
-
 export class ObsidianCopilotView extends ItemView {
   private plugin: ObsidianCopilotPlugin;
   public readonly state: ChatState;
@@ -522,8 +513,6 @@ export class ObsidianCopilotView extends ItemView {
         this.updatePlanModeUiState();
       },
       setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
-      requestStudyAgentMode: (provider, authorityEpoch) =>
-        requestStudyAgentMode(this.permissionToggle, provider as ProviderId, authorityEpoch),
       getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);

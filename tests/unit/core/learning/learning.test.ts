@@ -7,7 +7,6 @@ import {
   DIFFICULTY_INSTRUCTIONS,
   getSocraticModeInstruction,
   inferSocraticSupportLevel,
-  isStudyBriefFrontmatter,
   normalizeQuizMarkdown,
   parseQuizDisplayContent,
   parseQuizQuestionMeta,
@@ -16,18 +15,6 @@ import {
 } from '@/core/learning';
 
 describe('learning helpers', () => {
-  describe('StudyBrief detection', () => {
-    it.each([
-      [{ tags: ['StudyBrief'] }, true],
-      [{ tags: ['#StudyBrief'] }, true],
-      [{ study_folder: 'Study/Goal' }, true],
-      [{ tags: ['course-material'] }, false],
-      [undefined, false],
-    ] as const)('classifies frontmatter consistently', (frontmatter, expected) => {
-      expect(isStudyBriefFrontmatter(frontmatter)).toBe(expected);
-    });
-  });
-
   describe('quiz display parsing', () => {
     it('parses generated quiz labels for toolbar session inference', () => {
       expect(parseQuizDisplayContent('/quiz · 현재 노트 · db.md · 7문제 · 상 · 정규화')).toEqual({

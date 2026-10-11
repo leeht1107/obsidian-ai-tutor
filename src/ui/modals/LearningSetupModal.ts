@@ -9,17 +9,15 @@ import {
   getBasename,
   getFolderNotePaths,
   getSubjectRoot,
-  isStudyBriefFrontmatter,
   type LearningScope,
-  PREPARED_EVIDENCE_ONLY,
   type QuizDifficulty,
   type QuizQuestionStyle,
   shouldEnableQuizWebSearch,
   stripFrontmatter,
   summarizeFolder,
   summarizeSelectedNotes,
+  withPreparationGuidance,
 } from '../../core/learning';
-import type { StudyGoalBinding } from '../../core/storage/StorageService';
 
 export type LearningSetupMode = 'quiz' | 'socratic';
 
@@ -34,9 +32,8 @@ export interface QuizSetupResult {
   focusText?: string;
   /** Web search policy for this quiz difficulty. */
   enableWebSearch: boolean;
-  /** False when no course note survived filtering; only prepared Brief concepts may be used. */
+  /** False when no selected note has content to learn from. */
   hasSourceNotes: boolean;
-  studyGoal?: { briefPath: string; folderPath: string; contextPath: string; existingId?: string; webSearch?: boolean };
 }
 
 export interface SocraticSetupResult {
@@ -46,7 +43,6 @@ export interface SocraticSetupResult {
   sourceInstruction: string;
   focusText?: string;
   hasSourceNotes: boolean;
-  studyGoal?: { briefPath: string; folderPath: string; contextPath: string; existingId?: string; webSearch?: boolean };
 }
 
 export type LearningSetupResult = QuizSetupResult | SocraticSetupResult;
@@ -64,26 +60,15 @@ export class LearningSetupModal extends Modal {
   private questionStyle: QuizQuestionStyle = 'material';
   private focusText: string;
   private useFullVault = false;
-  private briefPath = '';
-  private studyFolderPath = '';
-  private studyContextPath = '';
-  private studyWebSearch = false;
-  private briefSelectionDisabled = false;
-  /** True while briefPath comes from the selected notes rather than the Brief dropdown. */
-  private briefInferred = false;
   /** Notes found empty at Start; they count as no evidence. */
   private emptyNotePaths = new Set<string>();
   private starting = false;
-  /** Per-render memo of which note paths are StudyBriefs. */
-  private briefPathMemo = new Map<string, boolean>();
-  private quizPreferencesTouched = new Set<'questionCount' | 'difficulty' | 'questionStyle'>();
 
   constructor(
     app: App,
     private readonly activeFilePath: string | null,
     initialMode: LearningSetupMode,
     initialFocusText = '',
-    private readonly existingGoals: StudyGoalBinding[] = [],
   ) {
     super(app);
     this.mode = initialMode;
@@ -102,7 +87,6 @@ export class LearningSetupModal extends Modal {
 
   private renderContent() {
     this.contentEl.empty();
-    this.briefPathMemo.clear();
 
     const tabsEl = this.contentEl.createDiv({
       cls: 'ocop-learning-setup-tabs',
@@ -136,7 +120,6 @@ export class LearningSetupModal extends Modal {
     if (this.selectedFolderPaths.size === 0 && allFolders.length > 0) {
       this.selectedFolderPaths.add(allFolders[0]);
     }
-    this.inferBriefFromSelectedSource();
 
     const detailsEl = this.contentEl.createDiv();
     const renderDetails = () => {
@@ -170,13 +153,7 @@ export class LearningSetupModal extends Modal {
             } else {
               checkbox.checked = true;
             }
-            const briefBefore = this.briefPath;
-            this.inferBriefFromSelectedSource();
-            if (this.briefPath !== briefBefore) {
-              this.renderContent();
-            } else {
-              noteCountEl.setText(`현재 선택: ${this.selectedNotePaths.size}개 노트`);
-            }
+            noteCountEl.setText(`현재 선택: ${this.selectedNotePaths.size}개 노트`);
           });
           noteItem.createSpan({ text: notePath });
         }
@@ -217,7 +194,7 @@ export class LearningSetupModal extends Modal {
 
     new Setting(this.contentEl)
       .setName('학습 자료')
-      .setDesc('학습에 사용할 노트 범위를 정합니다.')
+      .setDesc('학습에 사용할 노트를 고릅니다. 준비 방법을 적은 노트(Brief·개요 등)를 함께 고르면 그 지시에 맞춰 진행합니다.')
       .addDropdown((dropdown) => {
         if (this.activeFilePath) {
           dropdown.addOption('current-note', '현재 노트');
@@ -226,65 +203,11 @@ export class LearningSetupModal extends Modal {
         dropdown.addOption('folder', '폴더 선택');
         dropdown.setValue(this.learningScope).onChange((value: LearningScope) => {
           this.learningScope = value;
-          const briefBefore = this.briefPath;
-          this.inferBriefFromSelectedSource();
-          if (this.briefPath !== briefBefore) this.renderContent();
-          else renderDetails();
+          renderDetails();
         });
       });
 
-    // Detected Briefs come first, but any note that says what to prepare and how can be the goal.
-    const briefPaths = this.getBriefPaths(candidateNotes);
-    const otherGoalPaths = candidateNotes.filter((path) => !briefPaths.includes(path) && !this.isTutorRecordPath(path));
-    if (briefPaths.length + otherGoalPaths.length > 0) {
-      new Setting(this.contentEl)
-        .setName('학습 목표 Brief (선택)')
-        .setDesc('무엇을 어떻게 준비할지 적은 문서(Brief·개요·요강 등)를 고르면 그 내용에 맞춰 학습합니다. 태그나 정해진 형식은 필요 없습니다.')
-        .addDropdown((dropdown) => {
-          dropdown.addOption('', 'Brief 없이 기존 방식으로 학습');
-          for (const path of [...briefPaths, ...otherGoalPaths]) dropdown.addOption(path, path);
-          dropdown.setValue(this.briefPath).onChange((value) => this.handleBriefSelection(value));
-        });
-    }
-
     renderDetails();
-
-    if (this.briefPath) {
-      const match = this.existingGoals.find((goal) => goal.briefPath === this.briefPath);
-      const folders = Array.from(new Set(allFolders)).sort();
-      if (!this.studyFolderPath) this.studyFolderPath = match?.folderPath ?? '';
-      if (!this.studyContextPath) this.studyContextPath = match?.contextPath ?? `${this.studyFolderPath}/STUDY_CONTEXT.md`;
-      new Setting(this.contentEl)
-        .setName('목표 맥락 저장 폴더 확인')
-        .setDesc(match ? `확인된 목표 폴더 재사용: ${match.folderPath}` : '새 목표입니다. 폴더를 직접 선택하거나 경로를 입력해 확인하세요.')
-        .addDropdown((dropdown) => {
-          dropdown.addOption('', '폴더 선택');
-          for (const path of folders) dropdown.addOption(path, path);
-          dropdown.setValue(folders.includes(this.studyFolderPath) ? this.studyFolderPath : '').onChange((value) => {
-            this.studyFolderPath = value;
-            const goal = this.existingGoals.find((item) => item.briefPath === this.briefPath && item.folderPath === value);
-            this.studyContextPath = goal?.contextPath ?? `${value}/STUDY_CONTEXT.md`;
-            this.renderContent();
-          });
-        })
-        .addText((text) => text.setPlaceholder('새 폴더 경로').setValue(this.studyFolderPath).onChange((value) => {
-          this.studyFolderPath = value.trim().replace(/^\/+|\/+$/g, '');
-          this.studyContextPath = `${this.studyFolderPath}/STUDY_CONTEXT.md`;
-        }));
-      if (this.studyFolderPath) {
-        const existingContextPaths = allNotes.filter((path) => path.startsWith(`${this.studyFolderPath}/`));
-        new Setting(this.contentEl)
-          .setName('학습 맥락 문서')
-          .setDesc('폴더 안의 기존 맥락 문서를 선택하거나 기본 문서를 사용합니다.')
-          .addDropdown((dropdown) => {
-            const defaultPath = `${this.studyFolderPath}/STUDY_CONTEXT.md`;
-            dropdown.addOption(defaultPath, `새 기본 문서 · ${defaultPath}`);
-            for (const path of existingContextPaths) dropdown.addOption(path, path);
-            dropdown.setValue(existingContextPaths.includes(this.studyContextPath) ? this.studyContextPath : defaultPath)
-              .onChange((value) => { this.studyContextPath = value; });
-          });
-      }
-    }
 
     if (this.mode === 'quiz') {
       this.renderQuizSettings();
@@ -322,8 +245,7 @@ export class LearningSetupModal extends Modal {
     try {
       this.emptyNotePaths.clear();
       const { paths } = this.buildScope();
-      // Empty notes are no evidence: drop them, so a prepared Brief goal may still start and
-      // a selection with no content left is refused by canStart.
+      // Empty notes are no evidence: drop them, and refuse a selection with no content left.
       for (const path of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path);
       // The selection stays editable during the check; never submit notes that were not checked.
       const checked = new Set(paths);
@@ -355,16 +277,8 @@ export class LearningSetupModal extends Modal {
   }
 
   private canStart(result: LearningSetupResult): boolean {
-    if (this.briefPath && !this.isValidBriefFile(this.briefPath)) {
-      new Notice('선택한 Brief가 Vault에 없습니다. 노트를 다시 선택한 뒤 시작해 주세요.');
-      return false;
-    }
-    if (this.briefPath && !this.studyFolderPath) {
-      new Notice('Brief 목표를 적용하려면 학습 맥락을 저장할 폴더를 선택하거나 입력하세요.');
-      return false;
-    }
-    if (!result.hasSourceNotes && !result.studyGoal) {
-      new Notice('학습 근거로 쓸 자료 노트가 없습니다. 내용이 있는 자료 노트를 선택하세요(Brief·학습 기록 제외).');
+    if (!result.hasSourceNotes) {
+      new Notice('학습에 쓸 노트가 없습니다. 내용이 있는 노트를 선택하세요.');
       return false;
     }
     return true;
@@ -399,7 +313,6 @@ export class LearningSetupModal extends Modal {
         }
         dropdown.setValue(this.questionCount).onChange((value) => {
           this.questionCount = value;
-          this.quizPreferencesTouched.add('questionCount');
         });
       });
 
@@ -411,7 +324,6 @@ export class LearningSetupModal extends Modal {
         dropdown.addOption('상', '상 — 심화 (웹 검색 자동 활성화)');
         dropdown.setValue(this.difficulty).onChange((value: QuizDifficulty) => {
           this.difficulty = value;
-          this.quizPreferencesTouched.add('difficulty');
         });
       });
 
@@ -437,7 +349,6 @@ export class LearningSetupModal extends Modal {
     option.createEl('span', { text: description });
     option.addEventListener('click', () => {
       this.questionStyle = style;
-      this.quizPreferencesTouched.add('questionStyle');
       this.renderContent();
     });
   }
@@ -458,19 +369,8 @@ export class LearningSetupModal extends Modal {
   }
 
   private buildResult(): LearningSetupResult {
-    this.briefPathMemo.clear();
-    this.inferBriefFromSelectedSource();
     const { sourceInstruction, displayScope, hasSourceNotes } = this.buildScope();
     const focusText = this.focusText || undefined;
-    const studyGoal = this.briefPath && this.studyFolderPath
-      ? {
-        briefPath: this.briefPath,
-        folderPath: this.studyFolderPath,
-        contextPath: this.studyContextPath || `${this.studyFolderPath}/STUDY_CONTEXT.md`,
-        existingId: this.existingGoals.find((goal) => goal.briefPath === this.briefPath && goal.folderPath === this.studyFolderPath)?.id,
-        ...(this.studyWebSearch ? { webSearch: true } : {}),
-      }
-      : undefined;
 
     if (this.mode === 'quiz') {
       return {
@@ -489,7 +389,6 @@ export class LearningSetupModal extends Modal {
         focusText,
         hasSourceNotes,
         enableWebSearch: shouldEnableQuizWebSearch(this.difficulty),
-        studyGoal,
         prompt: buildQuizPrompt({
           questionCount: this.questionCount,
           difficulty: this.difficulty,
@@ -506,7 +405,6 @@ export class LearningSetupModal extends Modal {
       sourceInstruction,
       focusText,
       hasSourceNotes,
-      studyGoal,
       prompt: buildSocraticPrompt({ scopeInstruction: sourceInstruction, focusText, supportLevel: 1 }),
     };
   }
@@ -529,13 +427,13 @@ export class LearningSetupModal extends Modal {
         : `폴더 ${selectedFolders.length}개`;
     }
 
-    const paths = this.getQuestionEvidencePaths(candidates);
+    const paths = candidates.filter((path) => !this.emptyNotePaths.has(path));
     if (this.learningScope === 'note') {
       displayScope = paths.length > 0 ? summarizeSelectedNotes(paths) : '선택한 노트 0개';
     }
     if (paths.length === 0) {
       return {
-        sourceInstruction: this.briefPath && this.studyFolderPath ? PREPARED_EVIDENCE_ONLY : NO_EVIDENCE,
+        sourceInstruction: NO_EVIDENCE,
         displayScope,
         hasSourceNotes: false,
         paths,
@@ -556,7 +454,7 @@ export class LearningSetupModal extends Modal {
         ? `Use only the current note as ground truth source material: ${refs}`
         : `Use only these selected notes as ground truth source material: ${refs}`;
     }
-    return { sourceInstruction, displayScope, hasSourceNotes: true, paths };
+    return { sourceInstruction: withPreparationGuidance(sourceInstruction), displayScope, hasSourceNotes: true, paths };
   }
 
   private finish(result: LearningSetupResult | null) {
@@ -564,147 +462,5 @@ export class LearningSetupModal extends Modal {
     this.resolvePromise = null;
     this.close();
     resolve?.(result);
-  }
-
-  /** Optional frontmatter preferences, only for an explicitly selected Brief. */
-  private applyBriefPreferences(frontmatter: Record<string, unknown>) {
-    const existingGoal = this.existingGoals.find(goal => goal.briefPath === this.briefPath);
-    if (existingGoal) {
-      this.studyFolderPath = existingGoal.folderPath;
-      this.studyContextPath = existingGoal.contextPath;
-    }
-    const folder = typeof frontmatter.study_folder === 'string'
-      ? frontmatter.study_folder.trim().replace(/^\/+|\/+$/g, '')
-      : '';
-    // A previously confirmed goal always wins over a suggested folder.
-    if (!this.studyFolderPath && !existingGoal
-      && folder && !folder.split('/').some(part => !part || part === '.' || part === '..')) {
-      this.studyFolderPath = folder;
-      this.studyContextPath = `${folder}/STUDY_CONTEXT.md`;
-    }
-    if (!this.quizPreferencesTouched.has('difficulty')
-      && (frontmatter.quiz_difficulty === '상' || frontmatter.quiz_difficulty === '중' || frontmatter.quiz_difficulty === '하')) {
-      this.difficulty = frontmatter.quiz_difficulty;
-    }
-    if (!this.quizPreferencesTouched.has('questionStyle')
-      && (frontmatter.quiz_style === 'application' || frontmatter.quiz_style === 'material')) {
-      this.questionStyle = frontmatter.quiz_style;
-    }
-    const count = String(frontmatter.quiz_count ?? '');
-    if (!this.quizPreferencesTouched.has('questionCount') && ['3', '4', '5', '6', '7', '8', '9', '10'].includes(count)) {
-      this.questionCount = count;
-    }
-    this.studyWebSearch = frontmatter.study_web_search === true || frontmatter.study_web_search === 'true';
-  }
-
-  private handleBriefSelection(value: string) {
-    this.briefSelectionDisabled = !value;
-    this.briefInferred = false;
-    if (value !== this.briefPath) {
-      this.studyFolderPath = '';
-      this.studyContextPath = '';
-      this.resetUnchangedBriefPreferences();
-    }
-    this.briefPath = value;
-    const file = value ? this.app.vault.getAbstractFileByPath?.(value) : null;
-    if (file instanceof TFile) {
-      const cached = this.app.metadataCache?.getFileCache?.(file)?.frontmatter;
-      if (cached) {
-        this.applyBriefPreferences(cached);
-      } else {
-        // A newly copied Brief can be selected before the metadata cache updates.
-        void this.app.vault.cachedRead(file).then(body => {
-          if (this.briefPath !== value) return;
-          const yaml = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)?.[1];
-          if (!yaml) return;
-          const values: Record<string, unknown> = {};
-          for (const line of yaml.split(/\r?\n/)) {
-            const match = /^([a-z_]+):\s*(.*?)\s*$/.exec(line);
-            if (match) values[match[1]] = match[2];
-          }
-          this.applyBriefPreferences(values);
-          this.renderContent();
-        }).catch(() => { /* Keep manual controls available. */ });
-      }
-    }
-    this.renderContent();
-  }
-
-  private resetUnchangedBriefPreferences() {
-    if (!this.quizPreferencesTouched.has('questionCount')) this.questionCount = '5';
-    if (!this.quizPreferencesTouched.has('difficulty')) this.difficulty = '중';
-    if (!this.quizPreferencesTouched.has('questionStyle')) this.questionStyle = 'material';
-    this.studyWebSearch = false;
-  }
-
-  /**
-   * A source note opts into goal preparation through its own frontmatter. An inferred
-   * Brief follows the selection, so unticking that note releases it again.
-   */
-  private inferBriefFromSelectedSource(): void {
-    if (this.briefSelectionDisabled || (this.briefPath && !this.briefInferred)) return;
-    // Folder scope selects no single note, so it releases an inferred Brief; the dropdown can still pick one.
-    const selectedPaths = this.learningScope === 'current-note' && this.activeFilePath
-      ? [this.activeFilePath]
-      : this.learningScope === 'note' ? Array.from(this.selectedNotePaths) : [];
-    const candidates = selectedPaths.flatMap((path) => {
-      const file = this.app.vault.getAbstractFileByPath?.(path);
-      if (!(file instanceof TFile)) return [];
-      const frontmatter = this.app.metadataCache?.getFileCache?.(file)?.frontmatter;
-      return frontmatter && isStudyBriefFrontmatter(frontmatter) ? [{ path, frontmatter }] : [];
-    });
-    const next = candidates.length === 1 ? candidates[0] : null;
-    if ((next?.path ?? '') === this.briefPath) return;
-    this.briefPath = '';
-    this.briefInferred = false;
-    this.studyFolderPath = '';
-    this.studyContextPath = '';
-    this.resetUnchangedBriefPreferences();
-    if (!next) return;
-    this.briefPath = next.path;
-    this.briefInferred = true;
-    this.applyBriefPreferences(next.frontmatter);
-  }
-
-  private isStudyBriefPath(path: string): boolean {
-    const known = this.briefPathMemo.get(path);
-    if (known !== undefined) return known;
-    const file = this.app.vault.getAbstractFileByPath?.(path);
-    const isBrief = file instanceof TFile && (
-      isStudyBriefFrontmatter(this.app.metadataCache?.getFileCache?.(file)?.frontmatter)
-      || this.existingGoals.some((goal) => goal.briefPath === path)
-    );
-    this.briefPathMemo.set(path, isBrief);
-    return isBrief;
-  }
-
-  private isValidBriefFile(path: string): boolean {
-    return this.app.vault.getAbstractFileByPath?.(path) instanceof TFile;
-  }
-
-  private getBriefPaths(candidateNotes: string[]): string[] {
-    const savedPaths = this.existingGoals.map((goal) => goal.briefPath).filter((path) => this.isValidBriefFile(path));
-    const selectedPaths = this.briefPath && this.isValidBriefFile(this.briefPath) ? [this.briefPath] : [];
-    return Array.from(new Set([
-      ...candidateNotes.filter((path) => this.isStudyBriefPath(path)),
-      ...savedPaths,
-      ...selectedPaths,
-    ])).sort();
-  }
-
-  /** Documents the tutor writes for a goal: never evidence, never a goal document. */
-  private isTutorRecordPath(path: string): boolean {
-    const basename = path.split('/').pop()?.toUpperCase();
-    return basename === 'QUIZ_HISTORY.MD' || basename === 'STUDY_CONTEXT.MD'
-      || path === this.studyContextPath || this.existingGoals.some((goal) => goal.contextPath === path);
-  }
-
-  /** Brief and tutor-written documents are never course evidence, in any mode or scope. */
-  private getQuestionEvidencePaths(paths: string[]): string[] {
-    return paths.filter((path) => {
-      if (this.isTutorRecordPath(path)) return false;
-      if (this.emptyNotePaths.has(path)) return false;
-      return path !== this.briefPath && !this.isStudyBriefPath(path);
-    });
   }
 }

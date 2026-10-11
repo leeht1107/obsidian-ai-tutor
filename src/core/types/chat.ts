@@ -100,8 +100,6 @@ export interface ChatMessage {
   quizReviewAvailable?: boolean;
   quizReviewSourceInstruction?: string;
   quizReviewEnableWebSearch?: boolean;
-  /** Goal the reviewed Quiz was bound to; a review continues only that goal. */
-  quizReviewStudyGoalId?: string;
   socraticTurn?: SocraticTurnMeta;
   /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
   requestOutcome?: 'completed' | 'failed' | 'interrupted';
