@@ -51,6 +51,14 @@ export function findNpmPath(): string | null {
   return null;
 }
 
+/**
+ * A shell spawn joins command and args unquoted, so cmd.exe reads Node's default
+ * `C:\Program Files\nodejs\npm.cmd` as the command `C:\Program`.
+ */
+export function shellSafeCommand(command: string, shell: boolean): string {
+  return shell && /\s/.test(command) ? `"${command}"` : command;
+}
+
 export interface SetupStatus {
   /** True if the copilot CLI binary is found and usable. */
   cliFound: boolean;
@@ -114,7 +122,7 @@ export async function installCopilotCLI(
   }
 
   return new Promise<InstallResult>((resolve) => {
-    const proc = spawn(npmPath, ['install', '-g', '@github/copilot'], {
+    const proc = spawn(shellSafeCommand(npmPath, isWindows), ['install', '-g', '@github/copilot'], {
       env: { ...process.env, PATH: getEnhancedPath() },
       // shell:true needed on Windows for .cmd shim execution
       shell: isWindows,
@@ -245,7 +253,7 @@ export function startProviderInstall(providerId: ProviderId, onProgress: (msg: s
     resolveDone(result);
   };
 
-  const child = spawn(install.command, install.args, {
+  const child = spawn(shellSafeCommand(install.command, install.shell), install.args, {
     env: { ...process.env, PATH: getEnhancedPath() },
     shell: install.shell,
     detached: install.detached,
