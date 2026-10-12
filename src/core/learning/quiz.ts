@@ -106,7 +106,7 @@ export function buildQuizPrompt(input: QuizPromptInput): string {
     input.scopeInstruction,
     difficultyInstruction,
     input.focusText ? `Focus especially on this topic: ${input.focusText}.` : '',
-    'Randomly vary the primary concept, question format, and reasoning approach on each new quiz. Do not follow a fixed question template or always begin with the same concept/example; when earlier quiz questions are visible in this conversation, avoid reusing them.',
+    'Unless a selected note sets the topic order, question format or approach, randomly vary the primary concept, question format, and reasoning approach on each new quiz, and do not follow a fixed question template or always begin with the same concept/example; vary only what such a note leaves open. When earlier quiz questions are visible in this conversation, avoid reusing them.',
     questionStyleInstruction,
     'Ask exactly one question at a time.',
     'After the student answers, immediately tell them whether they are correct, explain why in Korean, and then move to the next question.',

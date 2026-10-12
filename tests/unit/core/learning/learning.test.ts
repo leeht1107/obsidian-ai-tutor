@@ -51,8 +51,11 @@ describe('learning helpers', () => {
       });
 
       expect(prompt).toContain('@db.md');
-      expect(prompt).toContain('Randomly vary the primary concept, question format, and reasoning approach');
-      expect(prompt).toContain('Do not follow a fixed question template');
+      expect(prompt).toContain('randomly vary the primary concept, question format, and reasoning approach');
+      expect(prompt).toContain('do not follow a fixed question template');
+      // Variety is the default only where a selected preparation note leaves the choice open.
+      expect(prompt).toContain('Unless a selected note sets the topic order, question format or approach');
+      expect(prompt).toContain('vary only what such a note leaves open');
     });
 
     it('applies selected concepts to fresh scenarios without requiring outside facts', () => {
