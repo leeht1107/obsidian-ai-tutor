@@ -14046,6 +14046,7 @@ All output must be in Korean.`;
 }
 
 // src/ui/modals/LearningSetupModal.ts
+var EMPTY_NOTE_READ_CONCURRENCY = 16;
 var NO_EVIDENCE = "No eligible course notes selected.";
 var LearningSetupModal = class extends import_obsidian14.Modal {
   constructor(app, activeFilePath, initialMode, initialFocusText = "") {
@@ -14220,18 +14221,26 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
   }
   /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
   async findEmptyNotes(paths) {
-    const checks = await Promise.all(paths.map(async (path17) => {
+    const isEmpty = async (path17) => {
       var _a, _b;
       const file = (_b = (_a = this.app.vault).getAbstractFileByPath) == null ? void 0 : _b.call(_a, path17);
-      if (!(file instanceof import_obsidian14.TFile)) return path17;
+      if (!(file instanceof import_obsidian14.TFile)) return true;
       try {
-        const body = await this.app.vault.cachedRead(file);
-        return stripFrontmatter(body).trim() ? null : path17;
+        return !stripFrontmatter(await this.app.vault.cachedRead(file)).trim();
       } catch (e) {
-        return path17;
+        return true;
       }
-    }));
-    return checks.filter((path17) => path17 !== null);
+    };
+    const empty = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < paths.length) {
+        const path17 = paths[next++];
+        if (await isEmpty(path17)) empty.push(path17);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(EMPTY_NOTE_READ_CONCURRENCY, paths.length) }, worker));
+    return empty;
   }
   canStart(result) {
     if (!result.hasSourceNotes) {
@@ -17540,7 +17549,7 @@ var InputController = class {
   }
   /** Resolves false only when the review may be retried, so the caller re-enables its button. */
   async startQuizReview(messageId) {
-    var _a, _b;
+    var _a;
     const { state } = this.deps;
     if (state.isStreaming || state.quizSession || state.socraticSession) {
       new import_obsidian24.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
@@ -17551,6 +17560,7 @@ var InputController = class {
       new import_obsidian24.Notice("\uC774 Quiz\uC758 \uBCF5\uC2B5\uC740 \uC774\uBBF8 \uC2DC\uC791\uD588\uAC70\uB098 \uB354 \uC774\uC0C1 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return true;
     }
+    const conversationId = state.currentConversationId;
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
     let outcome;
@@ -17570,12 +17580,25 @@ var InputController = class {
         }
       });
     } finally {
-      if (outcome !== "completed" && !((_b = this.deps.state.socraticSession) == null ? void 0 : _b.quizReview)) {
-        finalTurn.quizReviewAvailable = true;
-        void this.deps.conversationController.save(true);
-      }
+      if (outcome !== "completed") this.restoreQuizReview(conversationId, messageId, finalTurn);
     }
     return outcome === "completed";
+  }
+  /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
+  restoreQuizReview(conversationId, messageId, finalTurn) {
+    var _a, _b;
+    const { plugin, state, conversationController } = this.deps;
+    if (state.currentConversationId === conversationId) {
+      if ((_a = state.socraticSession) == null ? void 0 : _a.quizReview) return;
+      finalTurn.quizReviewAvailable = true;
+      void conversationController.save(true);
+      return;
+    }
+    const stored = conversationId ? plugin.getConversationById(conversationId) : null;
+    if (!stored || ((_b = stored.socraticSession) == null ? void 0 : _b.quizReview)) return;
+    if (!stored.messages.some((message) => message.id === messageId)) return;
+    const messages = stored.messages.map((message) => message.id === messageId ? { ...message, quizReviewAvailable: true } : message);
+    void plugin.updateConversation(stored.id, { messages });
   }
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
   sendSocraticShortcut(content) {
@@ -17694,7 +17717,7 @@ var InputController = class {
       fileContextManager
     );
     const isLearningCommand = !(options == null ? void 0 : options.skipLearningCommand) && (mentionedLearningCommand !== null || content === "/quiz" || content.startsWith("/quiz ") || content === "/socratic" || content.startsWith("/socratic "));
-    if (state.isStreaming && (isLearningCommand || (options == null ? void 0 : options.quizSessionInit) || (options == null ? void 0 : options.socraticSessionInit))) {
+    if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
       new import_obsidian24.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
       return;
     }
