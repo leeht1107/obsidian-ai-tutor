@@ -23,6 +23,7 @@ export class BlanketWriteConsentModal extends Modal {
     contentEl.createEl('p', {
       text: writesOutsideVault(this.provider)
         ? `${providerLabel}를 Agent로 두면 파일 수정·삭제와 명령 실행을 개별 확인 없이 허용하며, 금고 밖의 다른 파일에도 접근할 수 있습니다.`
+          + (this.provider === 'agy' ? ' (agy는 개별 승인을 물을 수 없어 --dangerously-skip-permissions로 실행됩니다.)' : '')
         : `${providerLabel}를 Agent로 두면 이 금고 안의 파일 수정·삭제와 도구 실행을 개별 확인 없이 허용합니다.`,
     });
     contentEl.createEl('p', {

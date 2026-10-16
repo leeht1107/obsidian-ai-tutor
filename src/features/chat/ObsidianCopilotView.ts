@@ -321,6 +321,9 @@ export class ObsidianCopilotView extends ItemView {
         const acknowledged = new Set(this.plugin.settings.blanketWriteAcknowledged ?? []);
         acknowledged.add(provider);
         this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
+        // Accepting this dialog for agy is the unsafe-mode consent; the advanced setting
+        // remains the place to turn it back off. Persisted by the mode change's save.
+        if (provider === 'agy') this.plugin.settings.allowUnsafeAgyAgent = true;
         return true;
       },
       onModelChange: async (model: CopilotModel) => {

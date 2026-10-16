@@ -262,7 +262,7 @@ describe('PermissionToggle - runtime Agent grants', () => {
     expect(callbacks.onPermissionModeChange).not.toHaveBeenCalled();
   });
 
-  it('blocks Agy Agent before the expert setting is enabled', async () => {
+  it('lets the consent popup alone enable Agy Agent, without the expert setting first', async () => {
     const { settings, callbacks, container } = build({
       permissionMode: 'ask', selectedProvider: 'agy', blanketWriteAcknowledged: [], allowUnsafeAgyAgent: false,
     });
@@ -270,8 +270,19 @@ describe('PermissionToggle - runtime Agent grants', () => {
 
     await container.clickAndSettle();
 
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledWith('agy', expect.any(Number));
+    expect(settings.permissionMode).toBe('agent');
+  });
+
+  it('keeps Agy in Ask when its consent popup is declined, without the expert setting', async () => {
+    const { settings, callbacks, container } = build({
+      permissionMode: 'ask', selectedProvider: 'agy', blanketWriteAcknowledged: [], allowUnsafeAgyAgent: false,
+    });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
+
+    await container.clickAndSettle();
+
     expect(settings.permissionMode).toBe('ask');
-    expect(callbacks.confirmBlanketWrite).not.toHaveBeenCalled();
   });
 
   it('requires confirmation again after returning to Ask', async () => {

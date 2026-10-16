@@ -10393,11 +10393,6 @@ var PermissionToggle = class {
     const shown = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
     const next = shown === "agent" ? "ask" : "agent";
     const authorityEpoch = (_e = (_d = (_c = this.callbacks).getPermissionAuthorityEpoch) == null ? void 0 : _d.call(_c)) != null ? _e : 0;
-    if (next === "agent" && provider === "agy" && !settings.allowUnsafeAgyAgent) {
-      new import_obsidian7.Notice("Antigravity Agent \uBAA8\uB4DC\uB294 \uACE0\uAE09 \uC124\uC815\uC5D0\uC11C \uC704\uD5D8 \uB3D9\uC758\uB97C \uBA3C\uC800 \uCF1C\uC57C \uD569\uB2C8\uB2E4. \uC9C0\uAE08\uC740 Ask\uB97C \uC720\uC9C0\uD569\uB2C8\uB2E4.");
-      this.updateDisplay();
-      return;
-    }
     if (next === "agent" && needsBlanketWriteConsent(provider, settings.blanketWriteAcknowledged)) {
       const accepted = await ((_g = (_f = this.callbacks).confirmBlanketWrite) == null ? void 0 : _g.call(_f, provider, authorityEpoch));
       if (!accepted) {
@@ -12402,7 +12397,7 @@ var BlanketWriteConsentModal = class extends import_obsidian11.Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: `${providerLabel}\uC5D0 \uC4F0\uAE30\uB97C \uD5C8\uC6A9\uD560\uAE4C\uC694?` });
     contentEl.createEl("p", {
-      text: writesOutsideVault(this.provider) ? `${providerLabel}\uB97C Agent\uB85C \uB450\uBA74 \uD30C\uC77C \uC218\uC815\xB7\uC0AD\uC81C\uC640 \uBA85\uB839 \uC2E4\uD589\uC744 \uAC1C\uBCC4 \uD655\uC778 \uC5C6\uC774 \uD5C8\uC6A9\uD558\uBA70, \uAE08\uACE0 \uBC16\uC758 \uB2E4\uB978 \uD30C\uC77C\uC5D0\uB3C4 \uC811\uADFC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.` : `${providerLabel}\uB97C Agent\uB85C \uB450\uBA74 \uC774 \uAE08\uACE0 \uC548\uC758 \uD30C\uC77C \uC218\uC815\xB7\uC0AD\uC81C\uC640 \uB3C4\uAD6C \uC2E4\uD589\uC744 \uAC1C\uBCC4 \uD655\uC778 \uC5C6\uC774 \uD5C8\uC6A9\uD569\uB2C8\uB2E4.`
+      text: writesOutsideVault(this.provider) ? `${providerLabel}\uB97C Agent\uB85C \uB450\uBA74 \uD30C\uC77C \uC218\uC815\xB7\uC0AD\uC81C\uC640 \uBA85\uB839 \uC2E4\uD589\uC744 \uAC1C\uBCC4 \uD655\uC778 \uC5C6\uC774 \uD5C8\uC6A9\uD558\uBA70, \uAE08\uACE0 \uBC16\uC758 \uB2E4\uB978 \uD30C\uC77C\uC5D0\uB3C4 \uC811\uADFC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.` + (this.provider === "agy" ? " (agy\uB294 \uAC1C\uBCC4 \uC2B9\uC778\uC744 \uBB3C\uC744 \uC218 \uC5C6\uC5B4 --dangerously-skip-permissions\uB85C \uC2E4\uD589\uB429\uB2C8\uB2E4.)" : "") : `${providerLabel}\uB97C Agent\uB85C \uB450\uBA74 \uC774 \uAE08\uACE0 \uC548\uC758 \uD30C\uC77C \uC218\uC815\xB7\uC0AD\uC81C\uC640 \uB3C4\uAD6C \uC2E4\uD589\uC744 \uAC1C\uBCC4 \uD655\uC778 \uC5C6\uC774 \uD5C8\uC6A9\uD569\uB2C8\uB2E4.`
     });
     contentEl.createEl("p", {
       // The unqualified version of this sentence is false, and an adversarial
@@ -19539,6 +19534,7 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
   // ============================================
   /** Shows the thinking indicator. */
   showThinkingIndicator(parentEl) {
+    var _a;
     const { state } = this.deps;
     if (state.thinkingEl) {
       parentEl.appendChild(state.thinkingEl);
@@ -19551,7 +19547,8 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
     dotsEl.createSpan({ cls: "ocop-thinking-dot" });
     dotsEl.createSpan({ cls: "ocop-thinking-dot" });
     state.thinkingEl.createSpan({ text: " \uC791\uC5C5 \uC911", cls: "ocop-thinking-status" });
-    if (!this.deps.plugin.agentService.isCliReady()) {
+    const provider = (_a = this.deps.plugin.settings.selectedProvider) != null ? _a : "copilot";
+    if (provider === "copilot" && !this.deps.plugin.agentService.isCliReady()) {
       state.thinkingEl.createSpan({ text: " Copilot \uC2DC\uC791 \uC911...", cls: "ocop-thinking-startup" });
     }
     state.queueIndicatorEl = state.thinkingEl.createDiv({ cls: "ocop-queue-indicator" });
@@ -20743,6 +20740,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         const acknowledged = new Set((_a = this.plugin.settings.blanketWriteAcknowledged) != null ? _a : []);
         acknowledged.add(provider);
         this.plugin.settings.blanketWriteAcknowledged = [...acknowledged];
+        if (provider === "agy") this.plugin.settings.allowUnsafeAgyAgent = true;
         return true;
       },
       onModelChange: async (model) => {
@@ -21876,7 +21874,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uAE30\uBCF8\uAC12\uC740 \uAEBC\uC9D0\uC785\uB2C8\uB2E4. \uCF1C\uB3C4 Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C\uB9C8\uB2E4 \uB2E4\uC2DC \uD655\uC778\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
+    new import_obsidian29.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uCC44\uD305\uC5D0\uC11C Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C \uB728\uB294 \uD655\uC778 \uCC3D\uC5D0\uC11C \uD5C8\uC6A9\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCF1C\uC9D1\uB2C8\uB2E4. \uB044\uBA74 Agy\uB294 Ask(\uC77D\uAE30 \uC804\uC6A9)\uB85C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
       var _a;
       return toggle.setValue((_a = this.plugin.settings.allowUnsafeAgyAgent) != null ? _a : false).onChange(async (value) => {
         if (!value) {

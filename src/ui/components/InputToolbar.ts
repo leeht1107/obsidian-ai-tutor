@@ -635,14 +635,10 @@ export class PermissionToggle {
     const next: PermissionMode = shown === 'agent' ? 'ask' : 'agent';
     const authorityEpoch = this.callbacks.getPermissionAuthorityEpoch?.() ?? 0;
 
-    if (next === 'agent' && provider === 'agy' && !settings.allowUnsafeAgyAgent) {
-      new Notice('Antigravity Agent 모드는 고급 설정에서 위험 동의를 먼저 켜야 합니다. 지금은 Ask를 유지합니다.');
-      this.updateDisplay();
-      return;
-    }
-
     // A provider with no per-tool permission is asked about once, in a dialog the
-    // student has to answer. A tooltip they may never hover is not consent.
+    // student has to answer. A tooltip they may never hover is not consent. For agy this
+    // dialog IS the unsafe-mode consent: choosing Agent is choosing to let it write, so a
+    // separate expert setting to discover first only stranded beginners in Ask.
     if (next === 'agent' && needsBlanketWriteConsent(provider, settings.blanketWriteAcknowledged)) {
       const accepted = await this.callbacks.confirmBlanketWrite?.(provider, authorityEpoch);
       if (!accepted) {

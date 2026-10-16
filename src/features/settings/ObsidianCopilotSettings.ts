@@ -745,7 +745,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
 
     new Setting(advancedContentEl)
       .setName('Agy 위험 Agent 모드 허용')
-      .setDesc('기본값은 꺼짐입니다. 켜도 Agy를 Agent로 바꿀 때마다 다시 확인합니다.')
+      .setDesc('채팅에서 Agy를 Agent로 바꿀 때 뜨는 확인 창에서 허용하면 자동으로 켜집니다. 끄면 Agy는 Ask(읽기 전용)로만 동작합니다.')
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.allowUnsafeAgyAgent ?? false)
         .onChange(async (value) => {

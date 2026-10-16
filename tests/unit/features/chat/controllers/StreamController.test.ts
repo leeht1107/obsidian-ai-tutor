@@ -203,6 +203,19 @@ describe('StreamController - Text Content', () => {
       expect((deps.state.thinkingEl as any)?.children[2].textContent).toBe(' Copilot 시작 중...');
     });
 
+    it('does not name Copilot while a non-Copilot provider is starting', () => {
+      (deps.plugin.agentService.isCliReady as jest.Mock).mockReturnValue(false);
+      for (const provider of ['agy', 'claude', 'codex'] as const) {
+        deps.state.thinkingEl = null;
+        deps.plugin.settings.selectedProvider = provider;
+        controller.showThinkingIndicator(deps.state.currentContentEl!);
+
+        const texts = (deps.state.thinkingEl as any).children.map((child: any) => child.textContent);
+        expect(texts).toContain(' 작업 중');
+        expect(texts).not.toContain(' Copilot 시작 중...');
+      }
+    });
+
     it('should append text content to message', async () => {
       const msg = createTestMessage();
 

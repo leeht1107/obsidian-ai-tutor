@@ -743,7 +743,11 @@ export class StreamController {
     dotsEl.createSpan({ cls: 'ocop-thinking-dot' });
     dotsEl.createSpan({ cls: 'ocop-thinking-dot' });
     state.thinkingEl.createSpan({ text: ' 작업 중', cls: 'ocop-thinking-status' });
-    if (!this.deps.plugin.agentService.isCliReady()) {
+    // Only the Copilot CLI is probed before its first request, so readiness says nothing
+    // about claude, codex or agy: asking it for them named Copilot on every agy request
+    // made on a machine without Copilot installed.
+    const provider = this.deps.plugin.settings.selectedProvider ?? 'copilot';
+    if (provider === 'copilot' && !this.deps.plugin.agentService.isCliReady()) {
       state.thinkingEl.createSpan({ text: ' Copilot 시작 중...', cls: 'ocop-thinking-startup' });
     }
 
