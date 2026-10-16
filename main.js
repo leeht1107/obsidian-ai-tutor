@@ -17580,17 +17580,18 @@ var InputController = class {
         }
       });
     } finally {
-      if (outcome !== "completed") this.restoreQuizReview(conversationId, messageId, finalTurn);
+      if (outcome !== "completed") this.restoreQuizReview(conversationId, messageId);
     }
     return outcome === "completed";
   }
   /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
-  restoreQuizReview(conversationId, messageId, finalTurn) {
+  restoreQuizReview(conversationId, messageId) {
     var _a, _b;
     const { plugin, state, conversationController } = this.deps;
     if (state.currentConversationId === conversationId) {
-      if ((_a = state.socraticSession) == null ? void 0 : _a.quizReview) return;
-      finalTurn.quizReviewAvailable = true;
+      const turn = state.messages.find((message) => message.id === messageId);
+      if (!turn || ((_a = state.socraticSession) == null ? void 0 : _a.quizReview)) return;
+      turn.quizReviewAvailable = true;
       void conversationController.save(true);
       return;
     }
@@ -18050,69 +18051,72 @@ ${promptToSend}`;
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
       }
       streamController.hideThinkingIndicator();
-      state.isStreaming = false;
-      state.cancelRequested = false;
       state.currentContentEl = null;
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.requestOutcome = streamOutcome;
-      if (streamOutcome !== "completed" && quizRequest) {
-        assistantMsg.quizQuestion = null;
-      }
-      if (streamOutcome === "completed" && contentEl) {
-        streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-          void this.sendMessage({ content: choice });
-        });
-      }
-      state.activeSubagents.clear();
-      const finishedQuiz = streamOutcome === "completed" && Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
-      if (finishedQuiz && state.quizSession) {
-        assistantMsg.quizReviewAvailable = true;
-        assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
-        assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
-        if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
-      }
-      if (streamOutcome !== "completed" && quizSessionInit) {
-        state.quizSession = null;
-      }
-      if (streamOutcome !== "completed" && socraticSessionInit) {
-        state.socraticSession = null;
-        (_y = (_x = this.deps).hideSocraticBanner) == null ? void 0 : _y.call(_x);
-      }
-      if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
-        if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
-          state.quizSession = {
-            ...state.quizSession,
-            currentQuestion: state.quizSession.currentQuestion + 1
-          };
-        } else {
+      try {
+        streamController.finalizeCurrentThinkingBlock(assistantMsg);
+        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        assistantMsg.requestOutcome = streamOutcome;
+        if (streamOutcome !== "completed" && quizRequest) {
+          assistantMsg.quizQuestion = null;
+        }
+        if (streamOutcome === "completed" && contentEl) {
+          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+            void this.sendMessage({ content: choice });
+          });
+        }
+        state.activeSubagents.clear();
+        const finishedQuiz = streamOutcome === "completed" && Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
+        if (finishedQuiz && state.quizSession) {
+          assistantMsg.quizReviewAvailable = true;
+          assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
+          assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
+          if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
+        }
+        if (streamOutcome !== "completed" && quizSessionInit) {
           state.quizSession = null;
         }
-      }
-      if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
-        const s = state.socraticSession;
-        const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-        if ((_z = assistantMsg.socraticTurn) == null ? void 0 : _z.isSummary) {
+        if (streamOutcome !== "completed" && socraticSessionInit) {
           state.socraticSession = null;
-          (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
-        } else if (updatedSession.isSummaryPhase) {
-          state.socraticSession = updatedSession;
-        } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
-          state.socraticSession = { ...updatedSession, isSummaryPhase: true };
-        } else {
-          state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
+          (_y = (_x = this.deps).hideSocraticBanner) == null ? void 0 : _y.call(_x);
         }
-      }
-      if (streamOutcome === "completed" && (quizSessionInit || socraticSessionInit) && !(socraticSessionInit == null ? void 0 : socraticSessionInit.quizReview)) {
-        for (const message of state.messages) {
-          if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+        if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
+          if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
+            state.quizSession = {
+              ...state.quizSession,
+              currentQuestion: state.quizSession.currentQuestion + 1
+            };
+          } else {
+            state.quizSession = null;
+          }
         }
-        const reviewButtons = (_D = (_C = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _D.call(_C, ".ocop-quiz-review-btn");
-        reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
-          button.disabled = true;
-        });
+        if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
+          const s = state.socraticSession;
+          const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
+          if ((_z = assistantMsg.socraticTurn) == null ? void 0 : _z.isSummary) {
+            state.socraticSession = null;
+            (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
+          } else if (updatedSession.isSummaryPhase) {
+            state.socraticSession = updatedSession;
+          } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
+            state.socraticSession = { ...updatedSession, isSummaryPhase: true };
+          } else {
+            state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
+          }
+        }
+        if (streamOutcome === "completed" && (quizSessionInit || socraticSessionInit) && !(socraticSessionInit == null ? void 0 : socraticSessionInit.quizReview)) {
+          for (const message of state.messages) {
+            if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+          }
+          const reviewButtons = (_D = (_C = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _D.call(_C, ".ocop-quiz-review-btn");
+          reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
+            button.disabled = true;
+          });
+        }
+        await conversationController.save(true);
+      } finally {
+        state.isStreaming = false;
+        state.cancelRequested = false;
       }
-      await conversationController.save(true);
       let skipPostCompletionFollowups = false;
       if (assistantMsg.quizQuestion && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
         const quizContainerEl = this.deps.getMessagesEl().parentElement;

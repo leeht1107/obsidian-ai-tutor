@@ -226,17 +226,19 @@ export class InputController {
       });
     } finally {
       // Restore only when the review never got going; a started review stays consumed.
-      if (outcome !== 'completed') this.restoreQuizReview(conversationId, messageId, finalTurn);
+      if (outcome !== 'completed') this.restoreQuizReview(conversationId, messageId);
     }
     return outcome === 'completed';
   }
 
   /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
-  private restoreQuizReview(conversationId: string | null, messageId: string, finalTurn: ChatMessage): void {
+  private restoreQuizReview(conversationId: string | null, messageId: string): void {
     const { plugin, state, conversationController } = this.deps;
     if (state.currentConversationId === conversationId) {
-      if (state.socraticSession?.quizReview) return;
-      finalTurn.quizReviewAvailable = true;
+      // Look the turn up again: a switch away and back reloads messages as new objects.
+      const turn = state.messages.find((message) => message.id === messageId);
+      if (!turn || state.socraticSession?.quizReview) return;
+      turn.quizReviewAvailable = true;
       void conversationController.save(true);
       return;
     }
@@ -821,78 +823,83 @@ ${promptToSend}`;
         await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
       }
       streamController.hideThinkingIndicator();
-      state.isStreaming = false;
-      state.cancelRequested = false;
       state.currentContentEl = null;
 
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.requestOutcome = streamOutcome;
-      if (streamOutcome !== 'completed' && quizRequest) {
-        // Keep partial output visible, but don't let replay turn it into an answer target.
-        assistantMsg.quizQuestion = null;
-      }
-      if (streamOutcome === 'completed' && contentEl) {
-        streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-          void this.sendMessage({ content: choice });
-        });
-      }
-      state.activeSubagents.clear();
+      // Hold the switch lock until this turn's state is settled and saved: finalizing awaits
+      // rendering, and a switch in that gap would apply the cleanup below to another conversation.
+      try {
+        streamController.finalizeCurrentThinkingBlock(assistantMsg);
+        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        assistantMsg.requestOutcome = streamOutcome;
+        if (streamOutcome !== 'completed' && quizRequest) {
+          // Keep partial output visible, but don't let replay turn it into an answer target.
+          assistantMsg.quizQuestion = null;
+        }
+        if (streamOutcome === 'completed' && contentEl) {
+          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+            void this.sendMessage({ content: choice });
+          });
+        }
+        state.activeSubagents.clear();
 
-      const finishedQuiz = streamOutcome === 'completed' && Boolean(state.quizSession && !quizSessionInit
-        && !options?.quizHintRequest && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
-      if (finishedQuiz && state.quizSession) {
-        assistantMsg.quizReviewAvailable = true;
-        assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
-        assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
-        if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
-      }
+        const finishedQuiz = streamOutcome === 'completed' && Boolean(state.quizSession && !quizSessionInit
+          && !options?.quizHintRequest && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
+        if (finishedQuiz && state.quizSession) {
+          assistantMsg.quizReviewAvailable = true;
+          assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
+          assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
+          if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
+        }
 
-      if (streamOutcome !== 'completed' && quizSessionInit) {
-        state.quizSession = null;
-      }
-      if (streamOutcome !== 'completed' && socraticSessionInit) {
-        state.socraticSession = null;
-        this.deps.hideSocraticBanner?.();
-      }
-
-      if (state.quizSession && !quizSessionInit && streamOutcome === 'completed' && !options?.quizHintRequest) {
-        if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
-          state.quizSession = {
-            ...state.quizSession,
-            currentQuestion: state.quizSession.currentQuestion + 1,
-          };
-        } else {
+        if (streamOutcome !== 'completed' && quizSessionInit) {
           state.quizSession = null;
         }
-      }
-
-      if (state.socraticSession && !socraticSessionInit && streamOutcome === 'completed') {
-        const s = state.socraticSession;
-        const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel ?? s.supportLevel };
-        if (assistantMsg.socraticTurn?.isSummary) {
+        if (streamOutcome !== 'completed' && socraticSessionInit) {
           state.socraticSession = null;
           this.deps.hideSocraticBanner?.();
-        } else if (updatedSession.isSummaryPhase) {
-          // Waiting for student's final answer — keep state unchanged
-          state.socraticSession = updatedSession;
-        } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
-          state.socraticSession = { ...updatedSession, isSummaryPhase: true };
-        } else {
-          state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
         }
-      }
 
-      // A new learning session that actually started retires earlier review offers.
-      if (streamOutcome === 'completed' && (quizSessionInit || socraticSessionInit) && !socraticSessionInit?.quizReview) {
-        for (const message of state.messages) {
-          if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+        if (state.quizSession && !quizSessionInit && streamOutcome === 'completed' && !options?.quizHintRequest) {
+          if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
+            state.quizSession = {
+              ...state.quizSession,
+              currentQuestion: state.quizSession.currentQuestion + 1,
+            };
+          } else {
+            state.quizSession = null;
+          }
         }
-        const reviewButtons = this.deps.getMessagesEl().querySelectorAll?.<HTMLButtonElement>('.ocop-quiz-review-btn');
-        reviewButtons?.forEach((button) => { button.disabled = true; });
-      }
 
-      await conversationController.save(true);
+        if (state.socraticSession && !socraticSessionInit && streamOutcome === 'completed') {
+          const s = state.socraticSession;
+          const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel ?? s.supportLevel };
+          if (assistantMsg.socraticTurn?.isSummary) {
+            state.socraticSession = null;
+            this.deps.hideSocraticBanner?.();
+          } else if (updatedSession.isSummaryPhase) {
+            // Waiting for student's final answer — keep state unchanged
+            state.socraticSession = updatedSession;
+          } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
+            state.socraticSession = { ...updatedSession, isSummaryPhase: true };
+          } else {
+            state.socraticSession = { ...updatedSession, currentDepth: updatedSession.currentDepth + 1 };
+          }
+        }
+
+        // A new learning session that actually started retires earlier review offers.
+        if (streamOutcome === 'completed' && (quizSessionInit || socraticSessionInit) && !socraticSessionInit?.quizReview) {
+          for (const message of state.messages) {
+            if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
+          }
+          const reviewButtons = this.deps.getMessagesEl().querySelectorAll?.<HTMLButtonElement>('.ocop-quiz-review-btn');
+          reviewButtons?.forEach((button) => { button.disabled = true; });
+        }
+
+        await conversationController.save(true);
+      } finally {
+        state.isStreaming = false;
+        state.cancelRequested = false;
+      }
 
       // Show quiz answer panel if the assistant message has a quiz question
       let skipPostCompletionFollowups = false;

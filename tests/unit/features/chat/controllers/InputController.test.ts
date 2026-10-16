@@ -5,6 +5,7 @@
 import { Notice, TFile } from 'obsidian';
 
 import { DEFAULT_SETTINGS } from '@/core/types/settings';
+import { ConversationController } from '@/features/chat/controllers/ConversationController';
 import { InputController, type InputControllerDeps } from '@/features/chat/controllers/InputController';
 import { dispatchLearningSetup } from '@/features/chat/ObsidianCopilotView';
 import { ChatState } from '@/features/chat/state/ChatState';
@@ -2170,6 +2171,110 @@ describe('InputController learning sessions and Quiz review', () => {
     });
     // Only the consume-save ran; conversation B is never saved with A's restore.
     expect(deps.conversationController.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores a failed Quiz review on the turn reloaded after switching away and back', async () => {
+    const deps = createMockDeps();
+    const controller = new InputController(deps);
+    deps.state.currentConversationId = 'conv-A';
+    const finalTurn = {
+      id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source',
+    };
+    deps.state.addMessage(finalTurn);
+    jest.spyOn(controller, 'sendMessage').mockImplementation(async () => {
+      deps.state.messages = deps.state.messages.map((message) => ({ ...message }));
+      return 'failed';
+    });
+
+    await expect(controller.startQuizReview(finalTurn.id)).resolves.toBe(false);
+
+    expect(deps.state.messages.find((message) => message.id === 'quiz-final')?.quizReviewAvailable).toBe(true);
+  });
+
+  it('keeps a failed Quiz review and another conversation intact when the user tries to switch while it finalizes', async () => {
+    const clone = <T>(value: T): T => structuredClone(value);
+    const otherSocratic = {
+      maxDepth: 20, currentDepth: 3, scopeLabel: 'B', supportLevel: 1, isSummaryPhase: false,
+    };
+    const store: Record<string, any> = {
+      'conv-A': {
+        id: 'conv-A', title: 'A', createdAt: 0, updatedAt: 0, sessionId: null,
+        messages: [{
+          id: 'quiz-final', role: 'assistant', content: '완료', timestamp: 0,
+          quizReviewAvailable: true, quizReviewSourceInstruction: 'source',
+        }],
+      },
+      'conv-B': {
+        id: 'conv-B', title: 'B', createdAt: 0, updatedAt: 0, sessionId: null,
+        messages: [], socraticSession: otherSocratic,
+      },
+    };
+    let switchAttempt: Promise<void> | undefined;
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; });
+    plugin.getConversationById = jest.fn((id: string) => store[id] ?? null);
+    plugin.updateConversation = jest.fn(async (id: string, updates: any) => { Object.assign(store[id], clone(updates)); });
+    plugin.switchConversation = jest.fn(async (id: string) => clone(store[id]));
+    (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementation(async () => {
+      // Rendering is still pending here; the user picks conversation B.
+      switchAttempt = conversationController.switchTo('conv-B');
+      await switchAttempt;
+    });
+    const conversationController = new ConversationController({
+      plugin,
+      state: deps.state,
+      renderer: { renderMessages: jest.fn().mockReturnValue(createMockElement()) } as any,
+      asyncSubagentManager: { orphanAllActive: jest.fn() } as any,
+      getHistoryDropdown: () => null,
+      getWelcomeEl: () => null,
+      setWelcomeEl: jest.fn(),
+      getMessagesEl: () => createMockElement() as any,
+      getInputEl: deps.getInputEl,
+      getFileContextManager: () => null,
+      getImageContextManager: () => null,
+      getExternalContextSelector: () => null,
+      clearQueuedMessage: jest.fn(),
+      getApprovedPlan: () => null,
+      setApprovedPlan: jest.fn(),
+      showPlanBanner: jest.fn(),
+      hidePlanBanner: jest.fn(),
+      triggerPendingPlanApproval: jest.fn(),
+      getTitleGenerationService: () => null,
+      setPlanModeActive: jest.fn(),
+      getTodoPanel: () => null,
+    });
+    deps.conversationController = conversationController;
+    deps.state.currentConversationId = 'conv-A';
+    deps.state.messages = clone(store['conv-A'].messages);
+    const controller = new InputController(deps);
+
+    await expect(controller.startQuizReview('quiz-final')).resolves.toBe(false);
+
+    expect(switchAttempt).toBeDefined();
+    expect(plugin.switchConversation).not.toHaveBeenCalled();
+    expect(deps.state.currentConversationId).toBe('conv-A');
+    expect(store['conv-A'].messages[0].quizReviewAvailable).toBe(true);
+    expect(store['conv-A'].socraticSession).toBeUndefined();
+    expect(store['conv-B'].socraticSession).toEqual(otherSocratic);
+    expect(deps.state.isStreaming).toBe(false);
+
+    // Once the turn has settled, the switch goes through.
+    await conversationController.switchTo('conv-B');
+    expect(deps.state.currentConversationId).toBe('conv-B');
+    expect(deps.state.socraticSession).toEqual(otherSocratic);
+  });
+
+  it('releases the switch lock even when finalizing a turn throws', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockRejectedValue(new Error('render failed'));
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
+
+    expect(deps.state.isStreaming).toBe(false);
   });
 
   it('refuses an inferred Quiz start while a reply is streaming', async () => {
