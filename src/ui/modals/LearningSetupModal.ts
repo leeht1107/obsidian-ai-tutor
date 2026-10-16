@@ -19,6 +19,8 @@ import {
   withPreparationGuidance,
 } from '../../core/learning';
 
+const EMPTY_NOTE_READ_CONCURRENCY = 16;
+
 export type LearningSetupMode = 'quiz' | 'socratic';
 
 export interface QuizSetupResult {
@@ -263,17 +265,26 @@ export class LearningSetupModal extends Modal {
 
   /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
   private async findEmptyNotes(paths: string[]): Promise<string[]> {
-    const checks = await Promise.all(paths.map(async (path) => {
+    const isEmpty = async (path: string): Promise<boolean> => {
       const file = this.app.vault.getAbstractFileByPath?.(path);
-      if (!(file instanceof TFile)) return path;
+      if (!(file instanceof TFile)) return true;
       try {
-        const body = await this.app.vault.cachedRead(file);
-        return stripFrontmatter(body).trim() ? null : path;
+        return !stripFrontmatter(await this.app.vault.cachedRead(file)).trim();
       } catch {
-        return path;
+        return true;
       }
-    }));
-    return checks.filter((path): path is string => path !== null);
+    };
+    // A folder or full-vault scope can hold thousands of notes; read a bounded batch at a time.
+    const empty: string[] = [];
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < paths.length) {
+        const path = paths[next++];
+        if (await isEmpty(path)) empty.push(path);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(EMPTY_NOTE_READ_CONCURRENCY, paths.length) }, worker));
+    return empty;
   }
 
   private canStart(result: LearningSetupResult): boolean {

@@ -205,6 +205,7 @@ export class InputController {
       return true;
     }
     // Consume first so a switch or summary-only reply cannot reopen it; restore only on failure.
+    const conversationId = state.currentConversationId;
     finalTurn.quizReviewAvailable = false;
     void this.deps.conversationController.save(true);
     let outcome: StreamOutcome | undefined;
@@ -225,12 +226,27 @@ export class InputController {
       });
     } finally {
       // Restore only when the review never got going; a started review stays consumed.
-      if (outcome !== 'completed' && !this.deps.state.socraticSession?.quizReview) {
-        finalTurn.quizReviewAvailable = true;
-        void this.deps.conversationController.save(true);
-      }
+      if (outcome !== 'completed') this.restoreQuizReview(conversationId, messageId, finalTurn);
     }
     return outcome === 'completed';
+  }
+
+  /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
+  private restoreQuizReview(conversationId: string | null, messageId: string, finalTurn: ChatMessage): void {
+    const { plugin, state, conversationController } = this.deps;
+    if (state.currentConversationId === conversationId) {
+      if (state.socraticSession?.quizReview) return;
+      finalTurn.quizReviewAvailable = true;
+      void conversationController.save(true);
+      return;
+    }
+    const stored = conversationId ? plugin.getConversationById(conversationId) : null;
+    if (!stored || stored.socraticSession?.quizReview) return;
+    if (!stored.messages.some((message) => message.id === messageId)) return;
+    const messages = stored.messages.map((message) => (
+      message.id === messageId ? { ...message, quizReviewAvailable: true } : message
+    ));
+    void plugin.updateConversation(stored.id, { messages });
   }
 
   /** Socratic 힌트/모르겠어요 shortcuts (PRD §9.1): plain STUCK_PATTERNS-recognized text. */
@@ -398,7 +414,7 @@ export class InputController {
       || content === '/socratic' || content.startsWith('/socratic ')
     );
     // A queued learning start would lose its session setup, so it waits for the user instead.
-    if (state.isStreaming && (isLearningCommand || options?.quizSessionInit || options?.socraticSessionInit)) {
+    if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
       new Notice('현재 응답이 끝난 뒤 학습을 시작해 주세요.');
       return;
     }

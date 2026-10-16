@@ -2145,6 +2145,46 @@ describe('InputController learning sessions and Quiz review', () => {
     expect(finalTurn.quizReviewAvailable).toBe(true);
   });
 
+  it('restores a failed Quiz review on its own conversation after the view switched away', async () => {
+    const deps = createMockDeps();
+    const plugin = deps.plugin as any;
+    const controller = new InputController(deps);
+    deps.state.currentConversationId = 'conv-A';
+    const finalTurn = {
+      id: 'quiz-final', role: 'assistant' as const, content: '완료', timestamp: Date.now(),
+      quizReviewAvailable: true, quizReviewSourceInstruction: 'source',
+    };
+    deps.state.addMessage(finalTurn);
+    const storedA = { id: 'conv-A', messages: [{ ...finalTurn, quizReviewAvailable: false }] };
+    plugin.getConversationById = jest.fn((id: string) => (id === 'conv-A' ? storedA : null));
+    jest.spyOn(controller, 'sendMessage').mockImplementation(async () => {
+      deps.state.currentConversationId = 'conv-B';
+      return 'failed';
+    });
+    (deps.conversationController.save as jest.Mock).mockClear();
+
+    await expect(controller.startQuizReview(finalTurn.id)).resolves.toBe(false);
+
+    expect(plugin.updateConversation).toHaveBeenCalledWith('conv-A', {
+      messages: [expect.objectContaining({ id: 'quiz-final', quizReviewAvailable: true })],
+    });
+    // Only the consume-save ran; conversation B is never saved with A's restore.
+    expect(deps.conversationController.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an inferred Quiz start while a reply is streaming', async () => {
+    const deps = createMockDeps();
+    const controller = new InputController(deps);
+    deps.state.isStreaming = true;
+
+    await controller.sendMessage({
+      content: 'Generated quiz prompt',
+      displayContentOverride: '/quiz · 현재 노트 · db.md · 4문제 · 상 · 연계 응용 · 정규화',
+    });
+
+    expect(deps.state.queuedMessage).toBeNull();
+  });
+
   it('lets the toolbar decide Web for a review of a Quiz that did not require Web', async () => {
     const deps = createMockDeps({ getWebSearchToggle: () => ({ isEnabled: jest.fn().mockReturnValue(true) }) });
     const plugin = deps.plugin as any;
