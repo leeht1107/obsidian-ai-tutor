@@ -18047,12 +18047,13 @@ ${promptToSend}`;
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
     } finally {
-      if (streamOutcome === "interrupted") {
-        await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
-      }
-      streamController.hideThinkingIndicator();
-      state.currentContentEl = null;
+      let cleanupSettled = false;
       try {
+        if (streamOutcome === "interrupted") {
+          await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
+        }
+        streamController.hideThinkingIndicator();
+        state.currentContentEl = null;
         streamController.finalizeCurrentThinkingBlock(assistantMsg);
         await streamController.finalizeCurrentTextBlock(assistantMsg);
         assistantMsg.requestOutcome = streamOutcome;
@@ -18113,7 +18114,9 @@ ${promptToSend}`;
           });
         }
         await conversationController.save(true);
+        cleanupSettled = true;
       } finally {
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
       }
@@ -18365,24 +18368,30 @@ ${content}
     try {
       streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (streamOutcome === "interrupted") {
-        await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
-        plugin.agentService.setCurrentPlanFilePath(null);
+      let cleanupSettled = false;
+      try {
+        if (streamOutcome === "interrupted") {
+          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
+          plugin.agentService.setCurrentPlanFilePath(null);
+        }
+        streamController.hideThinkingIndicator();
+        state.currentContentEl = null;
+        streamController.finalizeCurrentThinkingBlock(assistantMsg);
+        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        assistantMsg.requestOutcome = streamOutcome;
+        if (streamOutcome === "completed" && contentEl) {
+          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+            void this.sendMessage({ content: choice });
+          });
+        }
+        state.activeSubagents.clear();
+        await conversationController.save(true);
+        cleanupSettled = true;
+      } finally {
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
+        state.isStreaming = false;
+        state.cancelRequested = false;
       }
-      streamController.hideThinkingIndicator();
-      state.isStreaming = false;
-      state.cancelRequested = false;
-      state.currentContentEl = null;
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.requestOutcome = streamOutcome;
-      if (streamOutcome === "completed" && contentEl) {
-        streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-          void this.sendMessage({ content: choice });
-        });
-      }
-      state.activeSubagents.clear();
-      await conversationController.save(true);
       await this.activatePendingPlanMode();
       if (streamOutcome === "completed") {
         await this.triggerTitleGeneration({ isPlanMode: true });
@@ -18417,6 +18426,28 @@ ${content}
     const { state } = this.deps;
     state.queuedMessage = null;
     this.updateQueueIndicator();
+  }
+  /**
+   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * Hands a visible queued message back to the input instead of leaving it stranded.
+   */
+  recoverFromTurnCleanupFailure() {
+    var _a;
+    const { state } = this.deps;
+    const queued = state.queuedMessage;
+    if (!queued || queued.hidden) {
+      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    const inputEl = this.deps.getInputEl();
+    inputEl.value = inputEl.value ? `${queued.content}
+
+${inputEl.value}` : queued.content;
+    if (queued.images && queued.images.length > 0) {
+      (_a = this.deps.getImageContextManager()) == null ? void 0 : _a.setImages(queued.images);
+    }
+    this.clearQueuedMessage();
+    new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
   }
   /** Processes the queued message. */
   processQueuedMessage() {
