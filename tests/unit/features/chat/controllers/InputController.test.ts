@@ -2356,7 +2356,7 @@ describe('InputController learning sessions and Quiz review', () => {
   it('keeps the save error and releases the lock when restoring the queued message throws', async () => {
     const imageContextManager = {
       getAttachedImages: jest.fn(() => []),
-      setImages: jest.fn(() => { throw new Error('preview failed'); }),
+      setImages: jest.fn().mockImplementationOnce(() => { throw new Error('preview failed'); }),
       clearImages: jest.fn(),
       hasImages: jest.fn(() => false),
     };
@@ -2372,6 +2372,21 @@ describe('InputController learning sessions and Quiz review', () => {
     await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
 
     expect(deps.state.isStreaming).toBe(false);
+    // The partial restore left the text in the input, so it must not also stay queued.
+    expect(deps.getInputEl().value).toBe('follow-up');
+    expect(deps.state.queuedMessage).toBeNull();
+
+    // Sending the restored input sends the follow-up once, with no queued duplicate after it.
+    (deps.conversationController.save as jest.Mock).mockResolvedValue(undefined);
+    jest.useFakeTimers();
+    try {
+      await controller.sendMessage();
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+    const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.filter((prompt) => prompt.includes('follow-up'))).toHaveLength(1);
     errorSpy.mockRestore();
   });
 

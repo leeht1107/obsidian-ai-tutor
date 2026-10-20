@@ -1302,6 +1302,9 @@ ${content}
       new Notice('응답을 저장하지 못했습니다.');
       return;
     }
+    // Take it off the queue first: a partial restore must not leave the same message both
+    // in the input and queued, or sending the input would later send it a second time.
+    this.clearQueuedMessage();
     // Runs inside a finally that is already propagating the cleanup error: never replace it.
     try {
       const inputEl = this.deps.getInputEl();
@@ -1315,11 +1318,10 @@ ${content}
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      this.clearQueuedMessage();
       new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
     } catch (error) {
       console.error('[ObsidianCopilot] Failed to restore the queued message:', error);
-      new Notice('응답을 저장하지 못했습니다.');
+      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.');
     }
   }
 
