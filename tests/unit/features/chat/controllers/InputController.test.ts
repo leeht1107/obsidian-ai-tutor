@@ -2331,6 +2331,50 @@ describe('InputController learning sessions and Quiz review', () => {
     expect(deps.getInputEl().value).toBe('follow-up');
   });
 
+  it('merges restored queued images with images attached to the new draft', async () => {
+    const queuedImage = { id: 'img-queued' } as any;
+    const draftImage = { id: 'img-draft' } as any;
+    const imageContextManager = {
+      getAttachedImages: jest.fn(() => [draftImage, queuedImage]),
+      setImages: jest.fn(),
+      clearImages: jest.fn(),
+      hasImages: jest.fn(() => true),
+    };
+    const deps = createMockDeps({ getImageContextManager: () => imageContextManager as any });
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
+      deps.state.queuedMessage = { content: 'follow-up', editorContext: null, images: [queuedImage] };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    expect(imageContextManager.setImages).toHaveBeenLastCalledWith([queuedImage, draftImage]);
+  });
+
+  it('keeps the save error and releases the lock when restoring the queued message throws', async () => {
+    const imageContextManager = {
+      getAttachedImages: jest.fn(() => []),
+      setImages: jest.fn(() => { throw new Error('preview failed'); }),
+      clearImages: jest.fn(),
+      hasImages: jest.fn(() => false),
+    };
+    const deps = createMockDeps({ getImageContextManager: () => imageContextManager as any });
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
+      deps.state.queuedMessage = { content: 'follow-up', editorContext: null, images: [{ id: 'img' } as any] };
+      throw new Error('vault write failed');
+    });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    expect(deps.state.isStreaming).toBe(false);
+    errorSpy.mockRestore();
+  });
+
   it('releases the switch lock when appending the interrupted notice throws', async () => {
     const deps = createMockDeps();
     deps.plugin.agentService.query = jest.fn(async function* () {

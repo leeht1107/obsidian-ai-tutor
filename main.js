@@ -18116,9 +18116,9 @@ ${promptToSend}`;
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
       }
       let skipPostCompletionFollowups = false;
       if (assistantMsg.quizQuestion && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
@@ -18388,9 +18388,9 @@ ${content}
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
       }
       await this.activatePendingPlanMode();
       if (streamOutcome === "completed") {
@@ -18432,22 +18432,31 @@ ${content}
    * Hands a visible queued message back to the input instead of leaving it stranded.
    */
   recoverFromTurnCleanupFailure() {
-    var _a;
     const { state } = this.deps;
     const queued = state.queuedMessage;
     if (!queued || queued.hidden) {
       new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       return;
     }
-    const inputEl = this.deps.getInputEl();
-    inputEl.value = inputEl.value ? `${queued.content}
+    try {
+      const inputEl = this.deps.getInputEl();
+      inputEl.value = inputEl.value ? `${queued.content}
 
 ${inputEl.value}` : queued.content;
-    if (queued.images && queued.images.length > 0) {
-      (_a = this.deps.getImageContextManager()) == null ? void 0 : _a.setImages(queued.images);
+      if (queued.images && queued.images.length > 0) {
+        const imageContextManager = this.deps.getImageContextManager();
+        if (imageContextManager) {
+          const queuedIds = new Set(queued.images.map((image) => image.id));
+          const drafted = imageContextManager.getAttachedImages().filter((image) => !queuedIds.has(image.id));
+          imageContextManager.setImages([...queued.images, ...drafted]);
+        }
+      }
+      this.clearQueuedMessage();
+      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
+    } catch (error) {
+      console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
+      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     }
-    this.clearQueuedMessage();
-    new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
   }
   /** Processes the queued message. */
   processQueuedMessage() {
