@@ -819,15 +819,16 @@ ${promptToSend}`;
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
     } finally {
-      if (streamOutcome === 'interrupted') {
-        await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
-      }
-      streamController.hideThinkingIndicator();
-      state.currentContentEl = null;
-
       // Hold the switch lock until this turn's state is settled and saved: finalizing awaits
       // rendering, and a switch in that gap would apply the cleanup below to another conversation.
+      let cleanupSettled = false;
       try {
+        if (streamOutcome === 'interrupted') {
+          await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
+        }
+        streamController.hideThinkingIndicator();
+        state.currentContentEl = null;
+
         streamController.finalizeCurrentThinkingBlock(assistantMsg);
         await streamController.finalizeCurrentTextBlock(assistantMsg);
         assistantMsg.requestOutcome = streamOutcome;
@@ -896,7 +897,9 @@ ${promptToSend}`;
         }
 
         await conversationController.save(true);
+        cleanupSettled = true;
       } finally {
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
       }
@@ -1212,26 +1215,35 @@ ${content}
     try {
       streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      if (streamOutcome === 'interrupted') {
-        await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
-        plugin.agentService.setCurrentPlanFilePath(null);
-      }
-      streamController.hideThinkingIndicator();
-      state.isStreaming = false;
-      state.cancelRequested = false;
-      state.currentContentEl = null;
+      // Same switch lock as sendMessage: a switch while finalizing would save this turn
+      // without its requestOutcome and run the cleanup below on another conversation.
+      let cleanupSettled = false;
+      try {
+        if (streamOutcome === 'interrupted') {
+          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
+          plugin.agentService.setCurrentPlanFilePath(null);
+        }
+        streamController.hideThinkingIndicator();
+        state.currentContentEl = null;
 
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.requestOutcome = streamOutcome;
-      if (streamOutcome === 'completed' && contentEl) {
-        streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-          void this.sendMessage({ content: choice });
-        });
-      }
-      state.activeSubagents.clear();
+        streamController.finalizeCurrentThinkingBlock(assistantMsg);
+        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        assistantMsg.requestOutcome = streamOutcome;
+        if (streamOutcome === 'completed' && contentEl) {
+          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+            void this.sendMessage({ content: choice });
+          });
+        }
+        state.activeSubagents.clear();
 
-      await conversationController.save(true);
+        await conversationController.save(true);
+        cleanupSettled = true;
+      } finally {
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
+        state.isStreaming = false;
+        state.cancelRequested = false;
+      }
+
       await this.activatePendingPlanMode();
 
       // Failed/interrupted plan turns can leave partial prose. Do not start a second
@@ -1277,6 +1289,26 @@ ${content}
     const { state } = this.deps;
     state.queuedMessage = null;
     this.updateQueueIndicator();
+  }
+
+  /**
+   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * Hands a visible queued message back to the input instead of leaving it stranded.
+   */
+  private recoverFromTurnCleanupFailure(): void {
+    const { state } = this.deps;
+    const queued = state.queuedMessage;
+    if (!queued || queued.hidden) {
+      new Notice('응답을 저장하지 못했습니다.');
+      return;
+    }
+    const inputEl = this.deps.getInputEl();
+    inputEl.value = inputEl.value ? `${queued.content}\n\n${inputEl.value}` : queued.content;
+    if (queued.images && queued.images.length > 0) {
+      this.deps.getImageContextManager()?.setImages(queued.images);
+    }
+    this.clearQueuedMessage();
+    new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
   }
 
   /** Processes the queued message. */

@@ -1621,6 +1621,44 @@ describe('InputController - Message Queue', () => {
       );
     });
 
+    it('holds the switch lock until an interrupted plan turn is finalized and saved', async () => {
+      const lockedDuring: Record<string, boolean> = {};
+      deps.plugin.settings.permissionMode = 'plan';
+      deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
+        yield { type: 'text', content: 'partial plan' };
+        deps.state.cancelRequested = true;
+        yield { type: 'done' };
+      });
+      (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementation(async () => {
+        lockedDuring.finalize = deps.state.isStreaming;
+      });
+      (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
+        lockedDuring.save = deps.state.isStreaming;
+        lockedDuring.outcomeSet = deps.state.messages.at(-1)?.requestOutcome === 'interrupted';
+      });
+
+      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+
+      expect(lockedDuring).toEqual({ finalize: true, save: true, outcomeSet: true });
+      expect(deps.state.isStreaming).toBe(false);
+    });
+
+    it('returns a queued message to the input when a plan turn fails to save', async () => {
+      deps.plugin.settings.permissionMode = 'plan';
+      (deps.plugin.agentService.query as jest.Mock).mockReturnValue(createMockStream([{ type: 'done' }]));
+      (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
+        deps.state.queuedMessage = { content: 'next question', editorContext: null };
+        throw new Error('vault write failed');
+      });
+
+      await expect((controller as any).sendMessageWithPlanMode({ content: 'Plan this' }))
+        .rejects.toThrow('vault write failed');
+
+      expect(deps.state.isStreaming).toBe(false);
+      expect(deps.state.queuedMessage).toBeNull();
+      expect(inputEl.value).toBe('next question');
+    });
+
     it('restores ask, not agent, when exiting plan mode with no prior mode recorded', async () => {
       // lastNonPlanPermissionMode unset is the fallback path — it must never silently
       // escalate to agent (full write access, no blanket-write consent gate).
@@ -2270,6 +2308,37 @@ describe('InputController learning sessions and Quiz review', () => {
     const deps = createMockDeps();
     deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
     (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockRejectedValue(new Error('render failed'));
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
+
+    expect(deps.state.isStreaming).toBe(false);
+  });
+
+  it('returns a message queued while finalizing to the input when saving the turn fails', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementation(async () => {
+      deps.state.queuedMessage = { content: 'follow-up', editorContext: null };
+    });
+    (deps.conversationController.save as jest.Mock).mockRejectedValue(new Error('vault write failed'));
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    expect(deps.state.isStreaming).toBe(false);
+    expect(deps.state.queuedMessage).toBeNull();
+    expect(deps.getInputEl().value).toBe('follow-up');
+  });
+
+  it('releases the switch lock when appending the interrupted notice throws', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () {
+      yield { type: 'text', content: 'partial' };
+      deps.state.cancelRequested = true;
+      yield { type: 'done' };
+    }) as any;
+    (deps.streamController.appendText as jest.Mock).mockRejectedValue(new Error('render failed'));
     const controller = new InputController(deps);
 
     await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
