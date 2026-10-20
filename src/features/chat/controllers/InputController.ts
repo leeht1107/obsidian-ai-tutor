@@ -899,9 +899,9 @@ ${promptToSend}`;
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
       }
 
       // Show quiz answer panel if the assistant message has a quiz question
@@ -1239,9 +1239,9 @@ ${content}
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
         state.isStreaming = false;
         state.cancelRequested = false;
+        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
       }
 
       await this.activatePendingPlanMode();
@@ -1302,13 +1302,25 @@ ${content}
       new Notice('응답을 저장하지 못했습니다.');
       return;
     }
-    const inputEl = this.deps.getInputEl();
-    inputEl.value = inputEl.value ? `${queued.content}\n\n${inputEl.value}` : queued.content;
-    if (queued.images && queued.images.length > 0) {
-      this.deps.getImageContextManager()?.setImages(queued.images);
+    // Runs inside a finally that is already propagating the cleanup error: never replace it.
+    try {
+      const inputEl = this.deps.getInputEl();
+      inputEl.value = inputEl.value ? `${queued.content}\n\n${inputEl.value}` : queued.content;
+      if (queued.images && queued.images.length > 0) {
+        const imageContextManager = this.deps.getImageContextManager();
+        if (imageContextManager) {
+          // Keep images attached to a new draft meanwhile; setImages replaces the whole set.
+          const queuedIds = new Set(queued.images.map((image) => image.id));
+          const drafted = imageContextManager.getAttachedImages().filter((image) => !queuedIds.has(image.id));
+          imageContextManager.setImages([...queued.images, ...drafted]);
+        }
+      }
+      this.clearQueuedMessage();
+      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
+    } catch (error) {
+      console.error('[ObsidianCopilot] Failed to restore the queued message:', error);
+      new Notice('응답을 저장하지 못했습니다.');
     }
-    this.clearQueuedMessage();
-    new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
   }
 
   /** Processes the queued message. */
