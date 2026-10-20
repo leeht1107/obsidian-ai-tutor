@@ -18438,6 +18438,7 @@ ${content}
       new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       return;
     }
+    this.clearQueuedMessage();
     try {
       const inputEl = this.deps.getInputEl();
       inputEl.value = inputEl.value ? `${queued.content}
@@ -18451,11 +18452,10 @@ ${inputEl.value}` : queued.content;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      this.clearQueuedMessage();
       new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
     }
   }
   /** Processes the queued message. */
