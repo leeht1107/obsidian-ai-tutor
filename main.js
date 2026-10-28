@@ -16322,7 +16322,7 @@ var ConversationController = class {
   async createNew() {
     var _a, _b, _c, _d, _e, _f;
     const { plugin, state, asyncSubagentManager } = this.deps;
-    if (state.isStreaming) return;
+    if (state.isTurnBusy) return;
     if (state.messages.length > 0) {
       await this.save();
     }
@@ -16419,7 +16419,7 @@ var ConversationController = class {
     var _a, _b, _c, _d, _e, _f, _g;
     const { plugin, state, renderer, asyncSubagentManager } = this.deps;
     if (id === state.currentConversationId) return;
-    if (state.isStreaming) return;
+    if (state.isTurnBusy) return;
     await this.save();
     asyncSubagentManager.orphanAllActive();
     state.asyncSubagentStates.clear();
@@ -16602,7 +16602,7 @@ var ConversationController = class {
       deleteBtn.setAttribute("aria-label", "Delete");
       deleteBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (state.isStreaming) return;
+        if (state.isTurnBusy) return;
         await plugin.deleteConversation(conv.id);
         this.updateHistoryDropdown();
         if (conv.id === state.currentConversationId) {
@@ -17544,14 +17544,14 @@ var InputController = class {
   /** Public: the stored-message quiz row reaches this through the view's delegation. */
   requestQuizHint() {
     const { state } = this.deps;
-    if (state.isStreaming || !state.quizSession) return;
+    if (state.isTurnBusy || !state.quizSession) return;
     void this.sendMessage({ content: "\uD78C\uD2B8 \uC8FC\uC138\uC694", quizHintRequest: true });
   }
   /** Resolves false only when the review may be retried, so the caller re-enables its button. */
   async startQuizReview(messageId) {
-    var _a;
+    var _a, _b;
     const { state } = this.deps;
-    if (state.isStreaming || state.quizSession || state.socraticSession) {
+    if (state.isTurnBusy || state.quizSession || state.socraticSession) {
       new import_obsidian24.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
       return false;
     }
@@ -17579,10 +17579,12 @@ var InputController = class {
           quizReview: true
         }
       });
+    } catch (error) {
+      console.error("[ObsidianCopilot] Quiz review turn failed:", error);
     } finally {
       if (outcome !== "completed") this.restoreQuizReview(conversationId, messageId);
     }
-    return outcome === "completed";
+    return outcome === "completed" || Boolean((_b = this.deps.state.socraticSession) == null ? void 0 : _b.quizReview);
   }
   /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
   restoreQuizReview(conversationId, messageId) {
@@ -17694,8 +17696,8 @@ var InputController = class {
     });
   }
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w;
+    const { plugin, state, renderer, streamController, selectionController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
@@ -17718,7 +17720,7 @@ var InputController = class {
       fileContextManager
     );
     const isLearningCommand = !(options == null ? void 0 : options.skipLearningCommand) && (mentionedLearningCommand !== null || content === "/quiz" || content.startsWith("/quiz ") || content === "/socratic" || content.startsWith("/socratic "));
-    if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
+    if (state.isTurnBusy && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
       new import_obsidian24.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
       return;
     }
@@ -17756,7 +17758,7 @@ var InputController = class {
       });
       return;
     }
-    if (state.isStreaming) {
+    if (state.isTurnBusy) {
       const images2 = hasImages ? [...(imageContextManager == null ? void 0 : imageContextManager.getAttachedImages()) || []] : void 0;
       const editorContext2 = selectionController.getContext();
       const promptPrefix = options == null ? void 0 : options.promptPrefix;
@@ -18038,32 +18040,31 @@ ${promptToSend}`;
       enableWebSearch: requestWebSearchEnabled,
       readOnly: Boolean((queryOptions == null ? void 0 : queryOptions.readOnly) || learningRequest)
     };
-    let streamOutcome = "completed";
+    let streamOutcome = "failed";
     try {
       if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== "copilot") {
-        streamOutcome = "failed";
         await streamController.appendText("**Error:** This provider cannot enforce a slash command\u2019s Allowed tools restriction. Use Copilot or remove the restriction before running this command.");
       } else {
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
     } finally {
-      let cleanupSettled = false;
-      try {
+      await this.settleTurn(async (render) => {
+        var _a2;
         if (streamOutcome === "interrupted") {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
+          await render(() => streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>'));
         }
         streamController.hideThinkingIndicator();
         state.currentContentEl = null;
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        await render(() => streamController.finalizeCurrentThinkingBlock(assistantMsg));
+        await render(() => streamController.finalizeCurrentTextBlock(assistantMsg));
         assistantMsg.requestOutcome = streamOutcome;
         if (streamOutcome !== "completed" && quizRequest) {
           assistantMsg.quizQuestion = null;
         }
         if (streamOutcome === "completed" && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+          await render(() => streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
             void this.sendMessage({ content: choice });
-          });
+          }));
         }
         state.activeSubagents.clear();
         const finishedQuiz = streamOutcome === "completed" && Boolean(state.quizSession && !quizSessionInit && !(options == null ? void 0 : options.quizHintRequest) && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
@@ -18071,14 +18072,17 @@ ${promptToSend}`;
           assistantMsg.quizReviewAvailable = true;
           assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
           assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
-          if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
+          if (contentEl) await render(() => renderQuizReviewButton(contentEl, assistantMsg.id));
         }
         if (streamOutcome !== "completed" && quizSessionInit) {
           state.quizSession = null;
         }
         if (streamOutcome !== "completed" && socraticSessionInit) {
           state.socraticSession = null;
-          (_y = (_x = this.deps).hideSocraticBanner) == null ? void 0 : _y.call(_x);
+          await render(() => {
+            var _a3, _b2;
+            return (_b2 = (_a3 = this.deps).hideSocraticBanner) == null ? void 0 : _b2.call(_a3);
+          });
         }
         if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
           if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
@@ -18093,9 +18097,12 @@ ${promptToSend}`;
         if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
           const s = state.socraticSession;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-          if ((_z = assistantMsg.socraticTurn) == null ? void 0 : _z.isSummary) {
+          if ((_a2 = assistantMsg.socraticTurn) == null ? void 0 : _a2.isSummary) {
             state.socraticSession = null;
-            (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
+            await render(() => {
+              var _a3, _b2;
+              return (_b2 = (_a3 = this.deps).hideSocraticBanner) == null ? void 0 : _b2.call(_a3);
+            });
           } else if (updatedSession.isSummaryPhase) {
             state.socraticSession = updatedSession;
           } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
@@ -18108,18 +18115,15 @@ ${promptToSend}`;
           for (const message of state.messages) {
             if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
           }
-          const reviewButtons = (_D = (_C = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _D.call(_C, ".ocop-quiz-review-btn");
-          reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
-            button.disabled = true;
+          await render(() => {
+            var _a3, _b2;
+            const reviewButtons = (_b2 = (_a3 = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _b2.call(_a3, ".ocop-quiz-review-btn");
+            reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
+              button.disabled = true;
+            });
           });
         }
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
+      });
       let skipPostCompletionFollowups = false;
       if (assistantMsg.quizQuestion && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
         const quizContainerEl = this.deps.getMessagesEl().parentElement;
@@ -18235,7 +18239,7 @@ ${promptToSend}`;
     const inputEl = this.deps.getInputEl();
     const content = inputEl.value.trim();
     if (!content) return;
-    if (state.isStreaming) {
+    if (state.isTurnBusy) {
       new import_obsidian24.Notice("Cannot request plan mode while agent is working");
       return;
     }
@@ -18271,7 +18275,7 @@ ${promptToSend}`;
   /** Internal: sends message with plan mode options. */
   async sendMessageWithPlanMode(options) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i;
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
+    const { plugin, state, renderer, streamController, selectionController } = this.deps;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
@@ -18364,34 +18368,27 @@ ${content}
       ...options == null ? void 0 : options.queryOptions,
       planMode: true
     };
-    let streamOutcome = "completed";
+    let streamOutcome = "failed";
     try {
       streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      let cleanupSettled = false;
-      try {
+      await this.settleTurn(async (render) => {
         if (streamOutcome === "interrupted") {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
+          await render(() => streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>'));
           plugin.agentService.setCurrentPlanFilePath(null);
         }
         streamController.hideThinkingIndicator();
         state.currentContentEl = null;
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        await render(() => streamController.finalizeCurrentThinkingBlock(assistantMsg));
+        await render(() => streamController.finalizeCurrentTextBlock(assistantMsg));
         assistantMsg.requestOutcome = streamOutcome;
         if (streamOutcome === "completed" && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+          await render(() => streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
             void this.sendMessage({ content: choice });
-          });
+          }));
         }
         state.activeSubagents.clear();
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
+      });
       await this.activatePendingPlanMode();
       if (streamOutcome === "completed") {
         await this.triggerTitleGeneration({ isPlanMode: true });
@@ -18428,17 +18425,58 @@ ${content}
     this.updateQueueIndicator();
   }
   /**
-   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands a visible queued message back to the input instead of leaving it stranded.
+   * Settles a turn whose stream has ended, then saves it. The switch lock stays held until
+   * the save: finalizing awaits rendering, and a switch in that gap would apply the cleanup
+   * to another conversation. A render error is reported but must not skip the outcome and
+   * learning-session bookkeeping after it, so only `settle` itself or the save can fail a turn.
    */
-  recoverFromTurnCleanupFailure() {
+  async settleTurn(settle) {
+    const { state, conversationController } = this.deps;
+    state.turnSettling = true;
+    state.isStreaming = false;
+    state.cancelRequested = false;
+    let renderFailed = false;
+    const render = async (step) => {
+      try {
+        await step();
+      } catch (error) {
+        renderFailed = true;
+        console.error("[ObsidianCopilot] Failed to render the reply:", error);
+      }
+    };
+    let stage = "settle";
+    let settled = false;
+    try {
+      await settle(render);
+      stage = "save";
+      await conversationController.save(true);
+      settled = true;
+    } finally {
+      state.turnSettling = false;
+      if (!settled) this.recoverFromTurnCleanupFailure(stage);
+    }
+    if (renderFailed) {
+      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uD654\uBA74\uC5D0 \uD45C\uC2DC\uD558\uB294 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4. \uB300\uD654 \uB0B4\uC6A9\uC740 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+    }
+  }
+  /**
+   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * Nothing may send it automatically later either: the next, unrelated turn would carry it.
+   */
+  recoverFromTurnCleanupFailure(stage) {
     const { state } = this.deps;
+    const failure = stage === "save" ? "\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." : "\uC751\uB2F5\uC744 \uB9C8\uBB34\uB9AC\uD558\uB294 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.";
     const queued = state.queuedMessage;
-    if (!queued || queued.hidden) {
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    if (!queued) {
+      new import_obsidian24.Notice(failure);
       return;
     }
     this.clearQueuedMessage();
+    if (queued.hidden) {
+      console.error("[ObsidianCopilot] Dropped a queued automatic follow-up after a failed turn:", queued.content);
+      new import_obsidian24.Notice(`${failure} \uB300\uAE30 \uC911\uC774\uB358 \uC790\uB3D9 \uD6C4\uC18D \uC694\uCCAD\uC740 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uD544\uC694\uD558\uBA74 \uB2E4\uC2DC \uC694\uCCAD\uD574 \uC8FC\uC138\uC694.`);
+      return;
+    }
     try {
       const inputEl = this.deps.getInputEl();
       inputEl.value = inputEl.value ? `${queued.content}
@@ -18452,10 +18490,11 @@ ${inputEl.value}` : queued.content;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
+      const droppedContext = queued.promptPrefix || queued.editorContext ? " \uD568\uAED8 \uBCF4\uB0B4\uB824\uB358 \uC120\uD0DD \uC601\uC5ED\uC774\uB098 \uC694\uCCAD \uC635\uC158\uC740 \uBCF5\uC6D0\uB418\uC9C0 \uC54A\uC558\uC73C\uB2C8 \uD655\uC778 \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4 \uC8FC\uC138\uC694." : "";
+      new import_obsidian24.Notice(`${failure} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.${droppedContext}`);
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian24.Notice(`${failure} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
     }
   }
   /** Processes the queued message. */
@@ -18574,9 +18613,13 @@ ${inputEl.value}` : queued.content;
       outcome = "failed";
       console.error("[Copilot] Stream error:", error);
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      await streamController.appendText(`
+      try {
+        await streamController.appendText(`
 
 **Error:** ${errorMsg}`);
+      } catch (renderError) {
+        console.error("[Copilot] Failed to show the stream error:", renderError);
+      }
     } finally {
       this.deps.setBashExpansionActive(false);
     }
@@ -19389,12 +19432,15 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
         msg.socraticTurn = parseSocraticMeta(finalizedText);
       }
     }
-    if (state.currentTextEl && finalizedText) {
-      state.currentTextEl.removeClass("ocop-text-block-streaming");
-      await renderer.renderContent(state.currentTextEl, finalizedText);
+    try {
+      if (state.currentTextEl && finalizedText) {
+        state.currentTextEl.removeClass("ocop-text-block-streaming");
+        await renderer.renderContent(state.currentTextEl, finalizedText);
+      }
+    } finally {
+      state.currentTextEl = null;
+      state.currentTextContent = "";
     }
-    state.currentTextEl = null;
-    state.currentTextContent = "";
   }
   // ============================================
   // Thinking Block Management
@@ -20292,6 +20338,7 @@ function createInitialState() {
   return {
     messages: [],
     isStreaming: false,
+    turnSettling: false,
     cancelRequested: false,
     currentConversationId: null,
     queuedMessage: null,
@@ -20354,6 +20401,19 @@ var ChatState = class {
     var _a, _b;
     this.state.isStreaming = value;
     (_b = (_a = this.callbacks).onStreamingStateChanged) == null ? void 0 : _b.call(_a, value);
+  }
+  get turnSettling() {
+    return this.state.turnSettling;
+  }
+  set turnSettling(value) {
+    this.state.turnSettling = value;
+  }
+  /**
+   * True from a turn's start until its cleanup is saved. Only `isStreaming` can be cancelled;
+   * anything that starts new work or changes the conversation waits for the whole turn.
+   */
+  get isTurnBusy() {
+    return this.state.isStreaming || this.state.turnSettling;
   }
   get cancelRequested() {
     return this.state.cancelRequested;
@@ -21156,7 +21216,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     if (!inputEl) return;
     this.registerDomEvent(inputEl, "keydown", (e) => {
       var _a;
-      if (e.key === "Tab" && e.shiftKey && !this.state.isStreaming) {
+      if (e.key === "Tab" && e.shiftKey && !this.state.isTurnBusy) {
         e.preventDefault();
         e.stopPropagation();
         (_a = this.permissionToggle) == null ? void 0 : _a.togglePlanMode();

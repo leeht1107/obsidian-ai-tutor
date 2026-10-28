@@ -164,6 +164,14 @@ describe('ConversationController - Queue Management', () => {
       expect(deps.plugin.createConversation).not.toHaveBeenCalled();
     });
 
+    it('should not create new conversation while a finished turn is still being saved', async () => {
+      deps.state.turnSettling = true;
+
+      await controller.createNew();
+
+      expect(deps.plugin.createConversation).not.toHaveBeenCalled();
+    });
+
     it('should save current conversation before creating new one', async () => {
       deps.state.messages = [{ id: '1', role: 'user', content: 'test', timestamp: Date.now() }];
       deps.state.currentConversationId = 'old-conv';
@@ -255,6 +263,15 @@ describe('ConversationController - Queue Management', () => {
 
     it('should not switch while streaming', async () => {
       deps.state.isStreaming = true;
+      deps.state.currentConversationId = 'old-conv';
+
+      await controller.switchTo('new-conv');
+
+      expect(deps.plugin.switchConversation).not.toHaveBeenCalled();
+    });
+
+    it('should not switch while a finished turn is still being saved', async () => {
+      deps.state.turnSettling = true;
       deps.state.currentConversationId = 'old-conv';
 
       await controller.switchTo('new-conv');

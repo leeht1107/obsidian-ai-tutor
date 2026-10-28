@@ -653,7 +653,7 @@ export class ObsidianCopilotView extends ItemView {
     if (!inputEl) return;
 
     this.registerDomEvent(inputEl, 'keydown', (e) => {
-      if (e.key === 'Tab' && e.shiftKey && !this.state.isStreaming) {
+      if (e.key === 'Tab' && e.shiftKey && !this.state.isTurnBusy) {
         e.preventDefault();
         e.stopPropagation();
         this.permissionToggle?.togglePlanMode();

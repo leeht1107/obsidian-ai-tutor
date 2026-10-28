@@ -86,6 +86,9 @@ function parseMentionedLearningCommand(
 }
 
 type StreamOutcome = 'completed' | 'interrupted' | 'failed';
+/** Runs one rendering step of a turn's cleanup, reporting rather than throwing its error. */
+type TurnRenderStep = (step: () => unknown) => Promise<void>;
+type TurnCleanupStage = 'settle' | 'save';
 
 /** Dependencies for InputController. */
 export interface InputControllerDeps {
@@ -188,14 +191,14 @@ export class InputController {
   /** Public: the stored-message quiz row reaches this through the view's delegation. */
   requestQuizHint(): void {
     const { state } = this.deps;
-    if (state.isStreaming || !state.quizSession) return;
+    if (state.isTurnBusy || !state.quizSession) return;
     void this.sendMessage({ content: '힌트 주세요', quizHintRequest: true });
   }
 
   /** Resolves false only when the review may be retried, so the caller re-enables its button. */
   async startQuizReview(messageId: string): Promise<boolean> {
     const { state } = this.deps;
-    if (state.isStreaming || state.quizSession || state.socraticSession) {
+    if (state.isTurnBusy || state.quizSession || state.socraticSession) {
       new Notice('진행 중인 학습이 끝난 뒤 퀴즈 복습을 시작할 수 있습니다.');
       return false;
     }
@@ -224,11 +227,15 @@ export class InputController {
         quizReview: true,
       },
       });
+    } catch (error) {
+      // The turn already reported its failure; what matters here is whether the review started.
+      console.error('[ObsidianCopilot] Quiz review turn failed:', error);
     } finally {
       // Restore only when the review never got going; a started review stays consumed.
       if (outcome !== 'completed') this.restoreQuizReview(conversationId, messageId);
     }
-    return outcome === 'completed';
+    // A turn that streamed but failed to save still started the review: keep its button spent.
+    return outcome === 'completed' || Boolean(this.deps.state.socraticSession?.quizReview);
   }
 
   /** Restores the offer on the Quiz's own conversation, even if the view switched away meanwhile. */
@@ -383,7 +390,7 @@ export class InputController {
     /** Prevent a deferred ordinary message from opening a learning setup after queueing. */
     skipLearningCommand?: boolean;
   }): Promise<StreamOutcome | undefined> {
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
+    const { plugin, state, renderer, streamController, selectionController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
@@ -416,7 +423,7 @@ export class InputController {
       || content === '/socratic' || content.startsWith('/socratic ')
     );
     // A queued learning start would lose its session setup, so it waits for the user instead.
-    if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
+    if (state.isTurnBusy && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
       new Notice('현재 응답이 끝난 뒤 학습을 시작해 주세요.');
       return;
     }
@@ -464,7 +471,7 @@ export class InputController {
     }
 
     // If agent is working, queue the message instead of dropping it
-    if (state.isStreaming) {
+    if (state.isTurnBusy) {
       const images = hasImages ? [...(imageContextManager?.getAttachedImages() || [])] : undefined;
       const editorContext = selectionController.getContext();
       const promptPrefix = options?.promptPrefix;
@@ -810,36 +817,33 @@ ${promptToSend}`;
       readOnly: Boolean(queryOptions?.readOnly || learningRequest),
     };
 
-    let streamOutcome: StreamOutcome = 'completed';
+    // Success is recorded only when the stream reports it; a throw leaves the turn failed.
+    let streamOutcome: StreamOutcome = 'failed';
     try {
       if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
-        streamOutcome = 'failed';
         await streamController.appendText('**Error:** This provider cannot enforce a slash command’s Allowed tools restriction. Use Copilot or remove the restriction before running this command.');
       } else {
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
     } finally {
-      // Hold the switch lock until this turn's state is settled and saved: finalizing awaits
-      // rendering, and a switch in that gap would apply the cleanup below to another conversation.
-      let cleanupSettled = false;
-      try {
+      await this.settleTurn(async (render) => {
         if (streamOutcome === 'interrupted') {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
+          await render(() => streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>'));
         }
         streamController.hideThinkingIndicator();
         state.currentContentEl = null;
 
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        await render(() => streamController.finalizeCurrentThinkingBlock(assistantMsg));
+        await render(() => streamController.finalizeCurrentTextBlock(assistantMsg));
         assistantMsg.requestOutcome = streamOutcome;
         if (streamOutcome !== 'completed' && quizRequest) {
           // Keep partial output visible, but don't let replay turn it into an answer target.
           assistantMsg.quizQuestion = null;
         }
         if (streamOutcome === 'completed' && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+          await render(() => streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
             void this.sendMessage({ content: choice });
-          });
+          }));
         }
         state.activeSubagents.clear();
 
@@ -849,7 +853,7 @@ ${promptToSend}`;
           assistantMsg.quizReviewAvailable = true;
           assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
           assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
-          if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
+          if (contentEl) await render(() => renderQuizReviewButton(contentEl, assistantMsg.id));
         }
 
         if (streamOutcome !== 'completed' && quizSessionInit) {
@@ -857,7 +861,7 @@ ${promptToSend}`;
         }
         if (streamOutcome !== 'completed' && socraticSessionInit) {
           state.socraticSession = null;
-          this.deps.hideSocraticBanner?.();
+          await render(() => this.deps.hideSocraticBanner?.());
         }
 
         if (state.quizSession && !quizSessionInit && streamOutcome === 'completed' && !options?.quizHintRequest) {
@@ -876,7 +880,7 @@ ${promptToSend}`;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel ?? s.supportLevel };
           if (assistantMsg.socraticTurn?.isSummary) {
             state.socraticSession = null;
-            this.deps.hideSocraticBanner?.();
+            await render(() => this.deps.hideSocraticBanner?.());
           } else if (updatedSession.isSummaryPhase) {
             // Waiting for student's final answer — keep state unchanged
             state.socraticSession = updatedSession;
@@ -892,17 +896,12 @@ ${promptToSend}`;
           for (const message of state.messages) {
             if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
           }
-          const reviewButtons = this.deps.getMessagesEl().querySelectorAll?.<HTMLButtonElement>('.ocop-quiz-review-btn');
-          reviewButtons?.forEach((button) => { button.disabled = true; });
+          await render(() => {
+            const reviewButtons = this.deps.getMessagesEl().querySelectorAll?.<HTMLButtonElement>('.ocop-quiz-review-btn');
+            reviewButtons?.forEach((button) => { button.disabled = true; });
+          });
         }
-
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
+      });
 
       // Show quiz answer panel if the assistant message has a quiz question
       let skipPostCompletionFollowups = false;
@@ -1046,7 +1045,7 @@ ${promptToSend}`;
     if (!content) return;
 
     // Cannot enter plan mode while streaming
-    if (state.isStreaming) {
+    if (state.isTurnBusy) {
       new Notice('Cannot request plan mode while agent is working');
       return;
     }
@@ -1093,7 +1092,7 @@ ${promptToSend}`;
 
   /** Internal: sends message with plan mode options. */
   private async sendMessageWithPlanMode(options?: PlanModeSendOptions): Promise<void> {
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
+    const { plugin, state, renderer, streamController, selectionController } = this.deps;
     const inputEl = this.deps.getInputEl();
     const imageContextManager = this.deps.getImageContextManager();
     const fileContextManager = this.deps.getFileContextManager();
@@ -1211,38 +1210,28 @@ ${content}
       planMode: true,
     };
 
-    let streamOutcome: StreamOutcome = 'completed';
+    let streamOutcome: StreamOutcome = 'failed';
     try {
       streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
-      // Same switch lock as sendMessage: a switch while finalizing would save this turn
-      // without its requestOutcome and run the cleanup below on another conversation.
-      let cleanupSettled = false;
-      try {
+      await this.settleTurn(async (render) => {
         if (streamOutcome === 'interrupted') {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
+          await render(() => streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>'));
           plugin.agentService.setCurrentPlanFilePath(null);
         }
         streamController.hideThinkingIndicator();
         state.currentContentEl = null;
 
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        await render(() => streamController.finalizeCurrentThinkingBlock(assistantMsg));
+        await render(() => streamController.finalizeCurrentTextBlock(assistantMsg));
         assistantMsg.requestOutcome = streamOutcome;
         if (streamOutcome === 'completed' && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
+          await render(() => streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
             void this.sendMessage({ content: choice });
-          });
+          }));
         }
         state.activeSubagents.clear();
-
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
+      });
 
       await this.activatePendingPlanMode();
 
@@ -1292,19 +1281,63 @@ ${content}
   }
 
   /**
-   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands a visible queued message back to the input instead of leaving it stranded.
+   * Settles a turn whose stream has ended, then saves it. The switch lock stays held until
+   * the save: finalizing awaits rendering, and a switch in that gap would apply the cleanup
+   * to another conversation. A render error is reported but must not skip the outcome and
+   * learning-session bookkeeping after it, so only `settle` itself or the save can fail a turn.
    */
-  private recoverFromTurnCleanupFailure(): void {
+  private async settleTurn(settle: (render: TurnRenderStep) => Promise<void>): Promise<void> {
+    const { state, conversationController } = this.deps;
+    // The provider is done, so Escape has nothing left to cancel; new work still waits.
+    state.turnSettling = true;
+    state.isStreaming = false;
+    state.cancelRequested = false;
+    let renderFailed = false;
+    const render: TurnRenderStep = async (step) => {
+      try {
+        await step();
+      } catch (error) {
+        renderFailed = true;
+        console.error('[ObsidianCopilot] Failed to render the reply:', error);
+      }
+    };
+    let stage: TurnCleanupStage = 'settle';
+    let settled = false;
+    try {
+      await settle(render);
+      stage = 'save';
+      await conversationController.save(true);
+      settled = true;
+    } finally {
+      state.turnSettling = false;
+      if (!settled) this.recoverFromTurnCleanupFailure(stage);
+    }
+    if (renderFailed) {
+      new Notice('응답을 화면에 표시하는 중 오류가 발생했습니다. 대화 내용은 저장되었습니다.');
+    }
+  }
+
+  /**
+   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * Nothing may send it automatically later either: the next, unrelated turn would carry it.
+   */
+  private recoverFromTurnCleanupFailure(stage: TurnCleanupStage): void {
     const { state } = this.deps;
+    const failure = stage === 'save' ? '응답을 저장하지 못했습니다.' : '응답을 마무리하는 중 오류가 발생했습니다.';
     const queued = state.queuedMessage;
-    if (!queued || queued.hidden) {
-      new Notice('응답을 저장하지 못했습니다.');
+    if (!queued) {
+      new Notice(failure);
       return;
     }
     // Take it off the queue first: a partial restore must not leave the same message both
     // in the input and queued, or sending the input would later send it a second time.
     this.clearQueuedMessage();
+    if (queued.hidden) {
+      // An internal follow-up has no draft form the user could review, so it is dropped visibly.
+      console.error('[ObsidianCopilot] Dropped a queued automatic follow-up after a failed turn:', queued.content);
+      new Notice(`${failure} 대기 중이던 자동 후속 요청은 보내지 않았습니다. 필요하면 다시 요청해 주세요.`);
+      return;
+    }
     // Runs inside a finally that is already propagating the cleanup error: never replace it.
     try {
       const inputEl = this.deps.getInputEl();
@@ -1318,10 +1351,14 @@ ${content}
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
+      // The input holds only text and images: say so rather than resend a different request.
+      const droppedContext = queued.promptPrefix || queued.editorContext
+        ? ' 함께 보내려던 선택 영역이나 요청 옵션은 복원되지 않았으니 확인 후 다시 보내 주세요.'
+        : '';
+      new Notice(`${failure} 대기 중이던 메시지를 입력창으로 되돌렸습니다.${droppedContext}`);
     } catch (error) {
       console.error('[ObsidianCopilot] Failed to restore the queued message:', error);
-      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.');
+      new Notice(`${failure} 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.`);
     }
   }
 
@@ -1493,7 +1530,12 @@ ${content}
       outcome = 'failed';
       console.error('[Copilot] Stream error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      await streamController.appendText(`\n\n**Error:** ${errorMsg}`);
+      try {
+        await streamController.appendText(`\n\n**Error:** ${errorMsg}`);
+      } catch (renderError) {
+        // Showing the error must not lose it: the caller would never learn the turn failed.
+        console.error('[Copilot] Failed to show the stream error:', renderError);
+      }
     } finally {
       this.deps.setBashExpansionActive(false);
     }

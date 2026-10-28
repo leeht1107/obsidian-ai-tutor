@@ -25,6 +25,7 @@ function createInitialState(): ChatStateData {
   return {
     messages: [],
     isStreaming: false,
+    turnSettling: false,
     cancelRequested: false,
     currentConversationId: null,
     queuedMessage: null,
@@ -101,6 +102,22 @@ export class ChatState {
   set isStreaming(value: boolean) {
     this.state.isStreaming = value;
     this.callbacks.onStreamingStateChanged?.(value);
+  }
+
+  get turnSettling(): boolean {
+    return this.state.turnSettling;
+  }
+
+  set turnSettling(value: boolean) {
+    this.state.turnSettling = value;
+  }
+
+  /**
+   * True from a turn's start until its cleanup is saved. Only `isStreaming` can be cancelled;
+   * anything that starts new work or changes the conversation waits for the whole turn.
+   */
+  get isTurnBusy(): boolean {
+    return this.state.isStreaming || this.state.turnSettling;
   }
 
   get cancelRequested(): boolean {

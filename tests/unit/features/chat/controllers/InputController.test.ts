@@ -1630,17 +1630,17 @@ describe('InputController - Message Queue', () => {
         yield { type: 'done' };
       });
       (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementation(async () => {
-        lockedDuring.finalize = deps.state.isStreaming;
+        lockedDuring.finalize = deps.state.isTurnBusy;
       });
       (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
-        lockedDuring.save = deps.state.isStreaming;
+        lockedDuring.save = deps.state.isTurnBusy;
         lockedDuring.outcomeSet = deps.state.messages.at(-1)?.requestOutcome === 'interrupted';
       });
 
       await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
 
       expect(lockedDuring).toEqual({ finalize: true, save: true, outcomeSet: true });
-      expect(deps.state.isStreaming).toBe(false);
+      expect(deps.state.isTurnBusy).toBe(false);
     });
 
     it('returns a queued message to the input when a plan turn fails to save', async () => {
@@ -2152,9 +2152,12 @@ describe('InputController learning sessions and Quiz review', () => {
     };
     deps.state.addMessage(finalTurn);
 
-    await expect(controller.startQuizReview(finalTurn.id)).rejects.toThrow('save failed');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(controller.startQuizReview(finalTurn.id)).resolves.toBe(false);
 
     expect(finalTurn.quizReviewAvailable).toBe(true);
+    errorSpy.mockRestore();
   });
 
   it('refuses to queue a learning session start while a reply is streaming', async () => {
@@ -2304,15 +2307,21 @@ describe('InputController learning sessions and Quiz review', () => {
     expect(deps.state.socraticSession).toEqual(otherSocratic);
   });
 
-  it('releases the switch lock even when finalizing a turn throws', async () => {
+  it('settles and saves a turn whose final render throws, and says the render failed', async () => {
     const deps = createMockDeps();
     deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
     (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockRejectedValue(new Error('render failed'));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    (Notice as any).messages.length = 0;
     const controller = new InputController(deps);
 
-    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
+    await expect(controller.sendMessage({ content: 'hello' })).resolves.toBe('completed');
 
-    expect(deps.state.isStreaming).toBe(false);
+    expect(deps.state.isTurnBusy).toBe(false);
+    expect(deps.state.messages.at(-1)?.requestOutcome).toBe('completed');
+    expect(deps.conversationController.save).toHaveBeenCalledWith(true);
+    expect((Notice as any).messages.at(-1)).toMatch(/표시하는 중 오류/);
+    errorSpy.mockRestore();
   });
 
   it('returns a message queued while finalizing to the input when saving the turn fails', async () => {
@@ -2398,11 +2407,15 @@ describe('InputController learning sessions and Quiz review', () => {
       yield { type: 'done' };
     }) as any;
     (deps.streamController.appendText as jest.Mock).mockRejectedValue(new Error('render failed'));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const controller = new InputController(deps);
 
-    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
+    await expect(controller.sendMessage({ content: 'hello' })).resolves.toBe('interrupted');
 
-    expect(deps.state.isStreaming).toBe(false);
+    expect(deps.state.isTurnBusy).toBe(false);
+    expect(deps.streamController.hideThinkingIndicator).toHaveBeenCalled();
+    expect(deps.state.messages.at(-1)?.requestOutcome).toBe('interrupted');
+    errorSpy.mockRestore();
   });
 
   it('refuses an inferred Quiz start while a reply is streaming', async () => {
@@ -2516,5 +2529,205 @@ describe('InputController learning sessions and Quiz review', () => {
     const finalTurn = deps.state.messages.find(message => message.quizReviewAvailable);
     expect(finalTurn).toBeDefined();
     expect(button.dataset.messageId).toBe(finalTurn?.id);
+  });
+  describe('turn settling', () => {
+    const quizMeta = { current: 1, total: 2, multiSelect: false, freeText: false, options: [{ label: 'A', text: '예' }] };
+
+    it('ignores Escape once the reply has completed, keeping the queued follow-up', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+      const controller = new InputController(deps);
+      (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementationOnce(async () => {
+        // The user queues a follow-up and presses Escape while the reply is still rendering.
+        await controller.sendMessage({ content: 'follow-up' });
+        if (deps.state.isStreaming) controller.cancelStreaming();
+      });
+
+      jest.useFakeTimers();
+      try {
+        await expect(controller.sendMessage({ content: 'hello' })).resolves.toBe('completed');
+        expect(deps.plugin.agentService.cancel).not.toHaveBeenCalled();
+        jest.runOnlyPendingTimers();
+      } finally {
+        jest.useRealTimers();
+      }
+      await Promise.resolve();
+      const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+      expect(prompts.some((prompt) => prompt.includes('follow-up'))).toBe(true);
+    });
+
+    it('keeps new turns, learning starts and conversation changes out until the turn is saved', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+      const controller = new InputController(deps);
+      deps.state.quizSession = { totalQuestions: 3, currentQuestion: 2, scopeLabel: 'quiz' };
+      const during: Record<string, unknown> = {};
+      (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+        during.busy = deps.state.isTurnBusy;
+        during.cancellable = deps.state.isStreaming;
+        await controller.sendMessage({ content: 'next' });
+        during.queued = deps.state.queuedMessage?.content;
+        during.providerCalls = (deps.plugin.agentService.query as jest.Mock).mock.calls.length;
+        during.review = await controller.startQuizReview('missing');
+      });
+
+      jest.useFakeTimers();
+      try {
+        await controller.sendMessage({ content: 'A' });
+      } finally {
+        jest.useRealTimers();
+      }
+
+      expect(during).toEqual({ busy: true, cancellable: false, queued: 'next', providerCalls: 1, review: false });
+    });
+
+    it('drops a hidden follow-up when saving fails instead of sending it after the next turn', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+      (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+        deps.state.queuedMessage = { content: 'stale-hidden', editorContext: null, hidden: true, promptPrefix: 'hidden-prefix' };
+        throw new Error('vault write failed');
+      });
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      (Notice as any).messages.length = 0;
+      const controller = new InputController(deps);
+
+      await expect(controller.sendMessage({ content: 'first' })).rejects.toThrow('vault write failed');
+      expect(deps.state.queuedMessage).toBeNull();
+      expect((Notice as any).messages.at(-1)).toMatch(/저장하지 못했습니다.*자동 후속 요청/);
+
+      jest.useFakeTimers();
+      try {
+        await controller.sendMessage({ content: 'unrelated' });
+        jest.runOnlyPendingTimers();
+      } finally {
+        jest.useRealTimers();
+      }
+      const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+      expect(prompts).toHaveLength(2);
+      expect(prompts.some((prompt) => prompt.includes('stale-hidden'))).toBe(false);
+      errorSpy.mockRestore();
+    });
+
+    it('says which parts of a queued request did not survive being restored as a draft', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+      (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+        deps.state.queuedMessage = {
+          content: 'plan this', editorContext: { selectedText: 'x' } as any, promptPrefix: 'PLAN', skipLearningCommand: true,
+        };
+        throw new Error('vault write failed');
+      });
+      (Notice as any).messages.length = 0;
+      const controller = new InputController(deps);
+
+      await expect(controller.sendMessage({ content: 'first' })).rejects.toThrow('vault write failed');
+
+      expect(deps.getInputEl().value).toBe('plan this');
+      expect((Notice as any).messages.at(-1)).toMatch(/선택 영역이나 요청 옵션은 복원되지 않았/);
+    });
+
+    it('records a failure, not success, when showing a provider error also throws', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield* []; throw new Error('provider down'); }) as any;
+      (deps.streamController.appendText as jest.Mock).mockRejectedValue(new Error('render failed'));
+      deps.state.quizSession = { totalQuestions: 3, currentQuestion: 1, scopeLabel: 'quiz' };
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const controller = new InputController(deps);
+
+      await expect(controller.sendMessage({ content: 'A' })).resolves.toBe('failed');
+
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('failed');
+      expect(deps.state.quizSession?.currentQuestion).toBe(1);
+      errorSpy.mockRestore();
+    });
+
+    it('rolls back a failed review start and restores its offer even when finalizing throws', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; }) as any;
+      (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockRejectedValue(new Error('render failed'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const controller = new InputController(deps);
+      deps.state.addMessage({ id: 'quiz-final', role: 'assistant', content: '완료', timestamp: Date.now(), quizReviewAvailable: true });
+
+      await expect(controller.startQuizReview('quiz-final')).resolves.toBe(false);
+
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('failed');
+      expect(deps.state.socraticSession).toBeNull();
+      expect(deps.state.messages.find((message) => message.id === 'quiz-final')?.quizReviewAvailable).toBe(true);
+      errorSpy.mockRestore();
+    });
+
+    it('drops a failed quiz turn\'s parsed question even when finalizing throws', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'error', content: 'provider down' }; }) as any;
+      (deps.streamController.finalizeCurrentTextBlock as jest.Mock).mockImplementation(async (msg: any) => {
+        // finalize records the parsed question before its render fails.
+        msg.quizQuestion = quizMeta;
+        throw new Error('render failed');
+      });
+      deps.state.quizSession = { totalQuestions: 2, currentQuestion: 1, scopeLabel: 'quiz' };
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const controller = new InputController(deps);
+
+      await expect(controller.sendMessage({ content: 'A' })).resolves.toBe('failed');
+
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('failed');
+      expect(deps.state.messages.at(-1)?.quizQuestion).toBeNull();
+      expect(deps.state.quizSession?.currentQuestion).toBe(1);
+      errorSpy.mockRestore();
+    });
+
+    it('keeps a review that streamed but failed to save, without asking the model again', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'text', content: '질문' }; yield { type: 'done' }; }) as any;
+      const save = deps.conversationController.save as jest.Mock;
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const controller = new InputController(deps);
+      deps.state.addMessage({ id: 'quiz-final', role: 'assistant', content: '완료', timestamp: Date.now(), quizReviewAvailable: true });
+      // The first save consumes the offer; the turn's own save is the one that fails.
+      save.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('vault write failed'));
+
+      await expect(controller.startQuizReview('quiz-final')).resolves.toBe(true);
+
+      expect(deps.plugin.agentService.query).toHaveBeenCalledTimes(1);
+      expect(deps.state.socraticSession?.quizReview).toBe(true);
+      expect(deps.state.messages.find((message) => message.id === 'quiz-final')?.quizReviewAvailable).toBe(false);
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('completed');
+      errorSpy.mockRestore();
+    });
+
+    it('still clears an interrupted plan turn\'s file path when its notice fails to render', async () => {
+      const deps = createMockDeps();
+      deps.plugin.settings.permissionMode = 'plan';
+      deps.plugin.agentService.query = jest.fn(async function* () {
+        yield { type: 'text', content: 'partial plan' };
+        deps.state.cancelRequested = true;
+        yield { type: 'done' };
+      }) as any;
+      (deps.streamController.appendText as jest.Mock).mockRejectedValue(new Error('render failed'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const controller = new InputController(deps);
+
+      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+
+      expect(deps.plugin.agentService.setCurrentPlanFilePath).toHaveBeenCalledWith(null);
+      expect(deps.state.messages.at(-1)?.requestOutcome).toBe('interrupted');
+      expect(deps.state.isTurnBusy).toBe(false);
+      errorSpy.mockRestore();
+    });
+
+    it('names a non-save cleanup failure as such', async () => {
+      const deps = createMockDeps();
+      deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+      (deps.streamController.hideThinkingIndicator as jest.Mock).mockImplementation(() => { throw new Error('state broke'); });
+      (Notice as any).messages.length = 0;
+      const controller = new InputController(deps);
+
+      await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('state broke');
+
+      expect((Notice as any).messages.at(-1)).toBe('응답을 마무리하는 중 오류가 발생했습니다.');
+      expect(deps.state.isTurnBusy).toBe(false);
+    });
   });
 });

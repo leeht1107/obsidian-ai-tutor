@@ -65,6 +65,8 @@ export interface ChatStateData {
 
   // Streaming control
   isStreaming: boolean;
+  /** The provider stream has ended but the turn is still being rendered and saved. */
+  turnSettling: boolean;
   cancelRequested: boolean;
 
   // Conversation identity

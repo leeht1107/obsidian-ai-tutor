@@ -447,12 +447,16 @@ export class StreamController {
       }
     }
 
-    if (state.currentTextEl && finalizedText) {
-      state.currentTextEl.removeClass('ocop-text-block-streaming');
-      await renderer.renderContent(state.currentTextEl, finalizedText);
+    try {
+      if (state.currentTextEl && finalizedText) {
+        state.currentTextEl.removeClass('ocop-text-block-streaming');
+        await renderer.renderContent(state.currentTextEl, finalizedText);
+      }
+    } finally {
+      // The text is already on the message; a failed render must not leak into the next block.
+      state.currentTextEl = null;
+      state.currentTextContent = '';
     }
-    state.currentTextEl = null;
-    state.currentTextContent = '';
   }
 
   // ============================================

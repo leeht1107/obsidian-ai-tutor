@@ -81,7 +81,7 @@ export class ConversationController {
   /** Creates a new conversation, or switches to an existing empty one. */
   async createNew(): Promise<void> {
     const { plugin, state, asyncSubagentManager } = this.deps;
-    if (state.isStreaming) return;
+    if (state.isTurnBusy) return;
 
     if (state.messages.length > 0) {
       await this.save();
@@ -222,7 +222,7 @@ export class ConversationController {
     const { plugin, state, renderer, asyncSubagentManager } = this.deps;
 
     if (id === state.currentConversationId) return;
-    if (state.isStreaming) return;
+    if (state.isTurnBusy) return;
 
     await this.save();
 
@@ -450,7 +450,7 @@ export class ConversationController {
       deleteBtn.setAttribute('aria-label', 'Delete');
       deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (state.isStreaming) return;
+        if (state.isTurnBusy) return;
         await plugin.deleteConversation(conv.id);
         this.updateHistoryDropdown();
 
