@@ -678,12 +678,26 @@ export class PermissionToggle {
   }
 
   /**
-   * Shift+Tab in the input. It flips the same visible Ask/Agent toggle as a click,
-   * through the same consent and in-flight guards. It used to arm a hidden plan
-   * request that the label never showed, silently changing the next message.
+   * Shift+Tab in the input: the same Ask/Agent toggle as a click, through the same
+   * consent and in-flight guards, plus a notice since a keystroke shows nothing itself.
    */
   async togglePermissionMode() {
+    const before = this.shownMode();
     await this.toggle();
+    const after = this.shownMode();
+    // A keystroke gives no visual cue of its own, and Agent can write files.
+    if (after !== before) {
+      new Notice(after === 'agent'
+        ? 'Agent 모드: 이제 파일을 수정할 수 있습니다.'
+        : 'Ask 모드: 파일을 수정하지 않습니다.');
+    }
+  }
+
+  private shownMode(): 'ask' | 'agent' {
+    const settings = this.callbacks.getSettings();
+    return resolveEffectivePermissionMode(
+      settings.permissionMode, settings.selectedProvider as ProviderId, settings.blanketWriteAcknowledged
+    );
   }
 }
 

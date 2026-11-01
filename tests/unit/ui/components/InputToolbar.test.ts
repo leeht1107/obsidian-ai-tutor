@@ -1,3 +1,7 @@
+import { Notice } from 'obsidian';
+
+const noticeMessages = (): string[] => (Notice as any).messages;
+
 import { ExternalContextSelector, LearningLauncherButton, PermissionToggle } from '../../../../src/ui/components/InputToolbar';
 
 /** Minimal Obsidian element stand-in — same shape used by ModelSelectorEffort.test.ts. */
@@ -149,6 +153,47 @@ describe('PermissionToggle - Shift+Tab shortcut', () => {
 
     expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
     expect(settings.permissionMode).toBe('ask');
+  });
+
+  it('shows a notice for each switch, since a keystroke shows nothing itself', async () => {
+    const { toggle } = build({ permissionMode: 'ask', blanketWriteAcknowledged: ['copilot'] });
+    noticeMessages().length = 0;
+
+    await toggle.togglePermissionMode();
+    await toggle.togglePermissionMode();
+
+    expect(noticeMessages()).toEqual([
+      'Agent 모드: 이제 파일을 수정할 수 있습니다.',
+      'Ask 모드: 파일을 수정하지 않습니다.',
+    ]);
+  });
+
+  it('shows no mode notice when the consent dialog is declined', async () => {
+    const { callbacks, toggle } = build({ permissionMode: 'ask' });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
+    noticeMessages().length = 0;
+
+    await toggle.togglePermissionMode();
+
+    expect(noticeMessages()).toEqual([]);
+  });
+
+  it('asks for write consent only the first time, not on every Ask/Agent round trip', async () => {
+    const { settings, callbacks, toggle } = build({ permissionMode: 'ask', blanketWriteAcknowledged: [] });
+    // As the view does: accepting records consent, and going back to Ask keeps it.
+    callbacks.confirmBlanketWrite = jest.fn().mockImplementation(async (provider: string) => {
+      settings.blanketWriteAcknowledged = [...settings.blanketWriteAcknowledged, provider];
+      return true;
+    });
+
+    for (let i = 0; i < 3; i++) {
+      await toggle.togglePermissionMode();
+      expect(settings.permissionMode).toBe('agent');
+      await toggle.togglePermissionMode();
+      expect(settings.permissionMode).toBe('ask');
+    }
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the same in-flight lock as a click', async () => {

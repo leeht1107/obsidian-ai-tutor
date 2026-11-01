@@ -57,6 +57,24 @@ export async function dispatchLearningSetup(
   await inputController?.sendMessage({ content: `/${mode}` });
 }
 
+/**
+ * Shift+Tab in the chat input flips Ask/Agent, exactly like clicking the toolbar toggle.
+ * It belongs to this plugin's input only; the CLIs keep their own keys and settings.
+ * Returns true when it claimed the key.
+ */
+export function handlePermissionShortcut(e: KeyboardEvent, toggle: () => void): boolean {
+  if (e.key !== 'Tab' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return false;
+  // Mid-syllable in a Korean (or other) IME: let the composition finish first.
+  if (e.isComposing) return false;
+  e.preventDefault();
+  // The `/` command and `@` file lists take any Tab as "select". They share this input,
+  // so they must not also act on this key; stopPropagation alone does not stop them.
+  e.stopImmediatePropagation();
+  // Holding the key flips the mode once, not back and forth on every auto-repeat.
+  if (!e.repeat) toggle();
+  return true;
+}
+
 export class ObsidianCopilotView extends ItemView {
   private plugin: ObsidianCopilotPlugin;
   public readonly state: ChatState;
@@ -368,7 +386,7 @@ export class ObsidianCopilotView extends ItemView {
           this.plugin.settings.lastNonPlanPermissionMode = mode;
         }
 
-        if (mode === 'ask') this.plugin.resetPermissionAuthority();
+        if (mode === 'ask') this.plugin.returnToAsk();
         else this.plugin.settings.permissionMode = mode;
         await this.plugin.saveSettings();
 
@@ -472,7 +490,7 @@ export class ObsidianCopilotView extends ItemView {
         getFileContextManager: () => this.fileContextManager,
         getImageContextManager: () => this.imageContextManager,
         getExternalContextSelector: () => this.externalContextSelector,
-        clearQueuedMessage: () => this.inputController?.clearQueuedMessage(),
+        clearQueuedMessage: () => this.inputController?.discardQueuedInput(),
         getApprovedPlan: () => this.plugin.agentService.getApprovedPlanContent(),
         setApprovedPlan: (plan) => this.plugin.agentService.setApprovedPlanContent(plan),
         showPlanBanner: (content) => {
@@ -653,11 +671,7 @@ export class ObsidianCopilotView extends ItemView {
     if (!inputEl) return;
 
     this.registerDomEvent(inputEl, 'keydown', (e) => {
-      if (e.key === 'Tab' && e.shiftKey && !this.state.isStreaming) {
-        e.preventDefault();
-        e.stopPropagation();
-        void this.permissionToggle?.togglePermissionMode();
-      }
+      handlePermissionShortcut(e, () => void this.permissionToggle?.togglePermissionMode());
     }, { capture: true });
 
     this.registerDomEvent(inputEl, 'keydown', (e) => {

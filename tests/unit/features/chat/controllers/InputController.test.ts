@@ -2483,6 +2483,26 @@ describe('InputController learning sessions and Quiz review', () => {
     expect(lastPrompt).not.toContain('paragraph B');
   });
 
+  it('drops a restored message\'s send options when the conversation changes', async () => {
+    const deps = createMockDeps();
+    const selectionA = { notePath: 'A.md', mode: 'selection' as const, selectedText: 'paragraph A' };
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = { content: 'explain this', editorContext: selectionA, skipLearningCommand: true };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    // A new conversation (both unsaved, so the id alone cannot tell them apart).
+    controller.discardQueuedInput();
+    deps.getInputEl().value = 'explain this';
+    await controller.sendMessage();
+
+    const lastPrompt = String((deps.plugin.agentService.query as jest.Mock).mock.calls.at(-1)?.[0]);
+    expect(lastPrompt).not.toContain('paragraph A');
+  });
+
   it('refuses an inferred Quiz start while a reply is streaming', async () => {
     const deps = createMockDeps();
     const controller = new InputController(deps);

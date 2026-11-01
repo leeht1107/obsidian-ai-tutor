@@ -10415,12 +10415,24 @@ var PermissionToggle = class {
     this.updateDisplay();
   }
   /**
-   * Shift+Tab in the input. It flips the same visible Ask/Agent toggle as a click,
-   * through the same consent and in-flight guards. It used to arm a hidden plan
-   * request that the label never showed, silently changing the next message.
+   * Shift+Tab in the input: the same Ask/Agent toggle as a click, through the same
+   * consent and in-flight guards, plus a notice since a keystroke shows nothing itself.
    */
   async togglePermissionMode() {
+    const before = this.shownMode();
     await this.toggle();
+    const after = this.shownMode();
+    if (after !== before) {
+      new import_obsidian7.Notice(after === "agent" ? "Agent \uBAA8\uB4DC: \uC774\uC81C \uD30C\uC77C\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." : "Ask \uBAA8\uB4DC: \uD30C\uC77C\uC744 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+  }
+  shownMode() {
+    const settings = this.callbacks.getSettings();
+    return resolveEffectivePermissionMode(
+      settings.permissionMode,
+      settings.selectedProvider,
+      settings.blanketWriteAcknowledged
+    );
   }
 };
 var LearningLauncherButton = class {
@@ -18439,6 +18451,11 @@ ${content}
       state.queueIndicatorEl.style.display = "none";
     }
   }
+  /** A conversation change: drops the queue and a restored message's send options with it. */
+  discardQueuedInput() {
+    this.restoredQueuedSend = null;
+    this.clearQueuedMessage();
+  }
   /** Clears the queued message. */
   clearQueuedMessage() {
     const { state } = this.deps;
@@ -20607,6 +20624,14 @@ var ChatState = class {
 async function dispatchLearningSetup(inputController, mode) {
   await (inputController == null ? void 0 : inputController.sendMessage({ content: `/${mode}` }));
 }
+function handlePermissionShortcut(e, toggle) {
+  if (e.key !== "Tab" || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return false;
+  if (e.isComposing) return false;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (!e.repeat) toggle();
+  return true;
+}
 var ObsidianCopilotView = class extends import_obsidian26.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -20890,7 +20915,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         } else {
           this.plugin.settings.lastNonPlanPermissionMode = mode;
         }
-        if (mode === "ask") this.plugin.resetPermissionAuthority();
+        if (mode === "ask") this.plugin.returnToAsk();
         else this.plugin.settings.permissionMode = mode;
         await this.plugin.saveSettings();
         if (mode === "plan") {
@@ -20995,7 +21020,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         getExternalContextSelector: () => this.externalContextSelector,
         clearQueuedMessage: () => {
           var _a2;
-          return (_a2 = this.inputController) == null ? void 0 : _a2.clearQueuedMessage();
+          return (_a2 = this.inputController) == null ? void 0 : _a2.discardQueuedInput();
         },
         getApprovedPlan: () => this.plugin.agentService.getApprovedPlanContent(),
         setApprovedPlan: (plan) => this.plugin.agentService.setApprovedPlanContent(plan),
@@ -21191,12 +21216,10 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     const inputEl = this.inputEl;
     if (!inputEl) return;
     this.registerDomEvent(inputEl, "keydown", (e) => {
-      var _a;
-      if (e.key === "Tab" && e.shiftKey && !this.state.isStreaming) {
-        e.preventDefault();
-        e.stopPropagation();
-        void ((_a = this.permissionToggle) == null ? void 0 : _a.togglePermissionMode());
-      }
+      handlePermissionShortcut(e, () => {
+        var _a;
+        return void ((_a = this.permissionToggle) == null ? void 0 : _a.togglePermissionMode());
+      });
     }, { capture: true });
     this.registerDomEvent(inputEl, "keydown", (e) => {
       var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -22679,6 +22702,18 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     this.settings.permissionMode = "ask";
     this.settings.lastNonPlanPermissionMode = "ask";
     this.settings.blanketWriteAcknowledged = [];
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+  /**
+   * The toggle going back to Ask. Unlike resetPermissionAuthority this keeps the write
+   * consents given this session, so flipping back to Agent does not ask again; a reload,
+   * a new view or a provider switch still clears them. The epoch still moves, so a
+   * consent dialog that is open right now cannot grant Agent after this.
+   */
+  returnToAsk() {
+    this.permissionAuthorityEpoch += 1;
+    this.settings.permissionMode = "ask";
+    this.settings.lastNonPlanPermissionMode = "ask";
     this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
   getPermissionAuthorityEpoch() {

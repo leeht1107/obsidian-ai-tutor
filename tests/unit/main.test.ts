@@ -189,6 +189,24 @@ describe('ObsidianCopilotPlugin - multi-leaf permission toggle repaint', () => {
   });
 });
 
+describe('ObsidianCopilotPlugin - toggle back to Ask', () => {
+  it('drops Agent but keeps this session\'s write consent, so Agent is not asked for again', () => {
+    const plugin = buildPlugin({
+      selectedProvider: 'agy', permissionMode: 'agent', lastNonPlanPermissionMode: 'agent',
+      blanketWriteAcknowledged: ['agy'],
+    });
+    const epoch = plugin.getPermissionAuthorityEpoch();
+
+    plugin.returnToAsk();
+
+    expect(plugin.settings.permissionMode).toBe('ask');
+    expect(plugin.settings.lastNonPlanPermissionMode).toBe('ask');
+    expect(plugin.settings.blanketWriteAcknowledged).toEqual(['agy']);
+    // A consent dialog still open from before cannot grant Agent afterwards.
+    expect(plugin.getPermissionAuthorityEpoch()).toBe(epoch + 1);
+  });
+});
+
 describe('ObsidianCopilotPlugin - runtime authority reset', () => {
   it('drops Agent mode and every provider grant without changing an in-flight capture', () => {
     const plugin = buildPlugin({

@@ -687,6 +687,19 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 
+  /**
+   * The toggle going back to Ask. Unlike resetPermissionAuthority this keeps the write
+   * consents given this session, so flipping back to Agent does not ask again; a reload,
+   * a new view or a provider switch still clears them. The epoch still moves, so a
+   * consent dialog that is open right now cannot grant Agent after this.
+   */
+  returnToAsk(): void {
+    this.permissionAuthorityEpoch += 1;
+    this.settings.permissionMode = 'ask';
+    this.settings.lastNonPlanPermissionMode = 'ask';
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+
   getPermissionAuthorityEpoch(): number {
     return this.permissionAuthorityEpoch;
   }

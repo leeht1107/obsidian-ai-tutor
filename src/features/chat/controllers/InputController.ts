@@ -1315,6 +1315,12 @@ ${content}
     }
   }
 
+  /** A conversation change: drops the queue and a restored message's send options with it. */
+  discardQueuedInput(): void {
+    this.restoredQueuedSend = null;
+    this.clearQueuedMessage();
+  }
+
   /** Clears the queued message. */
   clearQueuedMessage(): void {
     const { state } = this.deps;
