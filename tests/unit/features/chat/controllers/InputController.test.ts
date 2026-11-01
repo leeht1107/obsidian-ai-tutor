@@ -2405,6 +2405,84 @@ describe('InputController learning sessions and Quiz review', () => {
     expect(deps.state.isStreaming).toBe(false);
   });
 
+  it('keeps a queued message when Escape is pressed while a finished turn is being saved', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    const controller = new InputController(deps);
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = { content: 'follow-up', editorContext: null, skipLearningCommand: true };
+      controller.cancelStreaming();
+    });
+
+    jest.useFakeTimers();
+    let outcome: unknown;
+    try {
+      outcome = await controller.sendMessage({ content: 'hello' });
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(outcome).toBe('completed');
+    expect(deps.plugin.agentService.cancel).not.toHaveBeenCalled();
+    const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes('follow-up'))).toBe(true);
+  });
+
+  it('hands a hidden queued message back to the input instead of sending it after a later turn', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = {
+        content: 'Please implement the approved plan.\n\nalso add tests', editorContext: null, hidden: true,
+      };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    expect(deps.state.queuedMessage).toBeNull();
+    expect(deps.getInputEl().value).toBe('Please implement the approved plan.\n\nalso add tests');
+
+    // A later, unrelated turn must not carry the stale request along after it.
+    deps.getInputEl().value = '';
+    jest.useFakeTimers();
+    try {
+      await controller.sendMessage({ content: 'unrelated' });
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+    const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.filter((prompt) => prompt.includes('approved plan'))).toHaveLength(0);
+  });
+
+  it('resends a restored queued message with the selection it was queued with', async () => {
+    const deps = createMockDeps();
+    const selectionA = { notePath: 'A.md', mode: 'selection' as const, selectedText: 'paragraph A' };
+    const selectionB = { notePath: 'B.md', mode: 'selection' as const, selectedText: 'paragraph B' };
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = {
+        content: '이 부분을 설명해 줘', editorContext: selectionA, skipLearningCommand: true,
+      };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+    expect(deps.getInputEl().value).toBe('이 부분을 설명해 줘');
+
+    // Meanwhile the user selected a paragraph in another note.
+    (deps.selectionController.getContext as jest.Mock).mockReturnValue(selectionB);
+    await controller.sendMessage();
+
+    const lastPrompt = String((deps.plugin.agentService.query as jest.Mock).mock.calls.at(-1)?.[0]);
+    expect(lastPrompt).toContain('paragraph A');
+    expect(lastPrompt).not.toContain('paragraph B');
+  });
+
   it('refuses an inferred Quiz start while a reply is streaming', async () => {
     const deps = createMockDeps();
     const controller = new InputController(deps);

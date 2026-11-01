@@ -160,8 +160,19 @@ interface SocraticSessionInit {
  * InputController handles user input and message sending.
  */
 
+/** Send options of a queued message handed back to the input after a turn's cleanup failed. */
+interface RestoredQueuedSend {
+  conversationId: string | null;
+  content: string;
+  editorContext: EditorSelectionContext | null;
+  promptPrefix?: string;
+}
+
 export class InputController {
   private deps: InputControllerDeps;
+  /** True while a finished stream is being finalized and saved: the switch lock is held, but nothing is left to cancel. */
+  private finalizingTurn = false;
+  private restoredQueuedSend: RestoredQueuedSend | null = null;
 
   constructor(deps: InputControllerDeps) {
     this.deps = deps;
@@ -395,6 +406,19 @@ export class InputController {
     let content = (contentOverride ?? inputEl.value).trim();
     const hasImages = imageContextManager?.hasImages() ?? false;
     if (!content && !hasImages) return;
+    const restored = shouldUseInput ? this.takeRestoredQueuedSend(content) : null;
+    if (restored) {
+      // Resend the restored message the way the queue would have: its own selection and prefix,
+      // and no learning-setup detour for text that was already accepted as an ordinary message.
+      options = {
+        ...options,
+        editorContextOverride: options?.editorContextOverride !== undefined
+          ? options.editorContextOverride
+          : restored.editorContext,
+        promptPrefix: options?.promptPrefix ?? restored.promptPrefix,
+        skipLearningCommand: true,
+      };
+    }
     const quizSessionInit = options?.quizSessionInit ?? this.inferQuizSessionInit(options?.displayContentOverride);
     const socraticSessionInit = options?.socraticSessionInit;
     const learningRequest = Boolean(
@@ -822,6 +846,7 @@ ${promptToSend}`;
       // Hold the switch lock until this turn's state is settled and saved: finalizing awaits
       // rendering, and a switch in that gap would apply the cleanup below to another conversation.
       let cleanupSettled = false;
+      this.finalizingTurn = true;
       try {
         if (streamOutcome === 'interrupted') {
           await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">· What should Copilot do instead?</span>');
@@ -899,6 +924,7 @@ ${promptToSend}`;
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
+        this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
         if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
@@ -1067,9 +1093,12 @@ ${promptToSend}`;
         agentInitiated: wasAgentInitiated,
       };
 
+      const restored = this.takeRestoredQueuedSend(content);
       // Clear input and send
       inputEl.value = '';
-      await this.sendMessageWithPlanMode({ content });
+      await this.sendMessageWithPlanMode(
+        restored ? { content, editorContext: restored.editorContext } : { content }
+      );
       return;
     }
 
@@ -1218,6 +1247,7 @@ ${content}
       // Same switch lock as sendMessage: a switch while finalizing would save this turn
       // without its requestOutcome and run the cleanup below on another conversation.
       let cleanupSettled = false;
+      this.finalizingTurn = true;
       try {
         if (streamOutcome === 'interrupted') {
           await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
@@ -1239,6 +1269,7 @@ ${content}
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
+        this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
         if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
@@ -1293,18 +1324,26 @@ ${content}
 
   /**
    * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands a visible queued message back to the input instead of leaving it stranded.
+   * Hands the queued message back to the input instead of leaving it stranded. A hidden one
+   * is handed back too: left queued, it would fire after some later, unrelated turn, and it
+   * may carry the user's own text merged into it, so dropping it is not an option either.
    */
   private recoverFromTurnCleanupFailure(): void {
     const { state } = this.deps;
     const queued = state.queuedMessage;
-    if (!queued || queued.hidden) {
+    if (!queued) {
       new Notice('응답을 저장하지 못했습니다.');
       return;
     }
     // Take it off the queue first: a partial restore must not leave the same message both
     // in the input and queued, or sending the input would later send it a second time.
     this.clearQueuedMessage();
+    this.restoredQueuedSend = {
+      conversationId: state.currentConversationId,
+      content: queued.content.trim(),
+      editorContext: queued.editorContext,
+      promptPrefix: queued.promptPrefix,
+    };
     // Runs inside a finally that is already propagating the cleanup error: never replace it.
     try {
       const inputEl = this.deps.getInputEl();
@@ -1323,6 +1362,17 @@ ${content}
       console.error('[ObsidianCopilot] Failed to restore the queued message:', error);
       new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.');
     }
+  }
+
+  /**
+   * Claims the restored queued message's send options if the input still carries its text
+   * in the same conversation. Any send from the input consumes the record either way.
+   */
+  private takeRestoredQueuedSend(content: string): RestoredQueuedSend | null {
+    const restored = this.restoredQueuedSend;
+    this.restoredQueuedSend = null;
+    if (!restored || restored.conversationId !== this.deps.state.currentConversationId) return null;
+    return content.includes(restored.content) ? restored : null;
   }
 
   /** Processes the queued message. */
@@ -1503,7 +1553,8 @@ ${content}
   /** Cancels the current streaming operation. */
   cancelStreaming(): void {
     const { plugin, state, streamController } = this.deps;
-    if (!state.isStreaming) return;
+    // While finalizing, the reply is already complete: cancelling would only drop the queue.
+    if (!state.isStreaming || this.finalizingTurn) return;
     state.cancelRequested = true;
     this.clearQueuedMessage();
     plugin.agentService.cancel();

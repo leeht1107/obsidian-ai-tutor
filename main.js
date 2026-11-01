@@ -17523,6 +17523,9 @@ function parseMentionedLearningCommand(content, fileContextManager) {
 }
 var InputController = class {
   constructor(deps) {
+    /** True while a finished stream is being finalized and saved: the switch lock is held, but nothing is left to cancel. */
+    this.finalizingTurn = false;
+    this.restoredQueuedSend = null;
     this.deps = deps;
   }
   dismissActiveQuizAnswerPanel() {
@@ -17694,7 +17697,7 @@ var InputController = class {
     });
   }
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
@@ -17706,13 +17709,22 @@ var InputController = class {
     let content = (contentOverride != null ? contentOverride : inputEl.value).trim();
     const hasImages = (_a = imageContextManager == null ? void 0 : imageContextManager.hasImages()) != null ? _a : false;
     if (!content && !hasImages) return;
-    const quizSessionInit = (_b = options == null ? void 0 : options.quizSessionInit) != null ? _b : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
+    const restored = shouldUseInput ? this.takeRestoredQueuedSend(content) : null;
+    if (restored) {
+      options = {
+        ...options,
+        editorContextOverride: (options == null ? void 0 : options.editorContextOverride) !== void 0 ? options.editorContextOverride : restored.editorContext,
+        promptPrefix: (_b = options == null ? void 0 : options.promptPrefix) != null ? _b : restored.promptPrefix,
+        skipLearningCommand: true
+      };
+    }
+    const quizSessionInit = (_c = options == null ? void 0 : options.quizSessionInit) != null ? _c : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
     const socraticSessionInit = options == null ? void 0 : options.socraticSessionInit;
     const learningRequest = Boolean(
       quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
     );
     const quizRequest = Boolean(quizSessionInit || !socraticSessionInit && state.quizSession);
-    const quizWebSearchEnabled = quizRequest ? (_h = (_d = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _d : (_c = state.quizSession) == null ? void 0 : _c.enableWebSearch) != null ? _h : shouldEnableQuizWebSearch((_g = (_f = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _f : (_e = state.quizSession) == null ? void 0 : _e.difficulty) != null ? _g : "\uC911") : void 0;
+    const quizWebSearchEnabled = quizRequest ? (_i = (_e = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _e : (_d = state.quizSession) == null ? void 0 : _d.enableWebSearch) != null ? _i : shouldEnableQuizWebSearch((_h = (_g = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _g : (_f = state.quizSession) == null ? void 0 : _f.difficulty) != null ? _h : "\uC911") : void 0;
     const mentionedLearningCommand = (options == null ? void 0 : options.skipLearningCommand) ? null : parseMentionedLearningCommand(
       content,
       fileContextManager
@@ -17724,7 +17736,7 @@ var InputController = class {
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "quiz" || content === "/quiz" || content.startsWith("/quiz "))) {
       const quizFocusText = mentionedLearningCommand ? "" : content === "/quiz" ? "" : content.slice("/quiz".length).trim();
-      const quizModal = new LearningSetupModal(plugin.app, (_j = (_i = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _i : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _j : null, "quiz", quizFocusText);
+      const quizModal = new LearningSetupModal(plugin.app, (_k = (_j = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _j : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _k : null, "quiz", quizFocusText);
       const learningResult = await quizModal.openAndWait();
       if (!learningResult) {
         return;
@@ -17741,7 +17753,7 @@ var InputController = class {
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "socratic" || content === "/socratic" || content.startsWith("/socratic "))) {
       const socraticFocusText = mentionedLearningCommand ? "" : content === "/socratic" ? "" : content.slice("/socratic".length).trim();
-      const socraticModal = new LearningSetupModal(plugin.app, (_l = (_k = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _k : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _l : null, "socratic", socraticFocusText);
+      const socraticModal = new LearningSetupModal(plugin.app, (_m = (_l = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _l : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _m : null, "socratic", socraticFocusText);
       const learningResult = await socraticModal.openAndWait();
       if (!learningResult) {
         return;
@@ -17768,7 +17780,7 @@ var InputController = class {
         state.queuedMessage.editorContext = editorContext2;
         state.queuedMessage.hidden = state.queuedMessage.hidden || (options == null ? void 0 : options.hidden);
         if (promptPrefix) {
-          state.queuedMessage.promptPrefix = (_m = state.queuedMessage.promptPrefix) != null ? _m : promptPrefix;
+          state.queuedMessage.promptPrefix = (_n = state.queuedMessage.promptPrefix) != null ? _n : promptPrefix;
         }
         state.queuedMessage.skipLearningCommand = true;
       } else {
@@ -17819,8 +17831,8 @@ var InputController = class {
         isSummaryPhase: false,
         ...socraticSessionInit.quizReview ? { quizReview: true } : {}
       };
-      (_o = (_n = this.deps).showSocraticBanner) == null ? void 0 : _o.call(
-        _n,
+      (_p = (_o = this.deps).showSocraticBanner) == null ? void 0 : _p.call(
+        _o,
         socraticSessionInit.scopeLabel,
         socraticSessionInit.focusText,
         () => this.sendSocraticShortcut("\uD78C\uD2B8 \uC8FC\uC138\uC694"),
@@ -17868,7 +17880,7 @@ var InputController = class {
     state.currentTextContent = "";
     streamController.showThinkingIndicator(contentEl);
     const currentNotePath = (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null;
-    const shouldSendCurrentNote = !((_p = state.socraticSession) == null ? void 0 : _p.quizReview) && ((_q = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _q : false);
+    const shouldSendCurrentNote = !((_q = state.socraticSession) == null ? void 0 : _q.quizReview) && ((_r = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _r : false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     let slashTemplateCurrentNoteScope = false;
     const displayContent = content;
@@ -17942,7 +17954,7 @@ var InputController = class {
       imageContextManager == null ? void 0 : imageContextManager.clearImages();
     }
     const editorContextOverride = options == null ? void 0 : options.editorContextOverride;
-    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : ((_r = state.socraticSession) == null ? void 0 : _r.quizReview) ? null : selectionController.getContext();
+    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : ((_s = state.socraticSession) == null ? void 0 : _s.quizReview) ? null : selectionController.getContext();
     let promptToSend = `<query>
 ${content}
 </query>`;
@@ -17973,7 +17985,7 @@ ${content}
       }
       currentNoteForMessage = currentNotePath;
     }
-    userMsg.displayContent = (_s = options == null ? void 0 : options.displayContentOverride) != null ? _s : displayContent !== content ? displayContent : void 0;
+    userMsg.displayContent = (_t = options == null ? void 0 : options.displayContentOverride) != null ? _t : displayContent !== content ? displayContent : void 0;
     userMsg.currentNote = currentNoteForMessage;
     if (options == null ? void 0 : options.promptPrefix) {
       promptToSend = `${options.promptPrefix}
@@ -18030,8 +18042,8 @@ ${promptToSend}`;
         externalContextPaths
       };
     }
-    const webSearchEnabled = (_u = (_t = this.deps.getWebSearchToggle()) == null ? void 0 : _t.isEnabled()) != null ? _u : false;
-    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_w = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _w : (_v = state.socraticSession) == null ? void 0 : _v.enableWebSearch;
+    const webSearchEnabled = (_v = (_u = this.deps.getWebSearchToggle()) == null ? void 0 : _u.isEnabled()) != null ? _v : false;
+    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_x = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _x : (_w = state.socraticSession) == null ? void 0 : _w.enableWebSearch;
     const requestWebSearchEnabled = sessionWebSearchEnabled != null ? sessionWebSearchEnabled : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
@@ -18048,6 +18060,7 @@ ${promptToSend}`;
       }
     } finally {
       let cleanupSettled = false;
+      this.finalizingTurn = true;
       try {
         if (streamOutcome === "interrupted") {
           await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
@@ -18078,7 +18091,7 @@ ${promptToSend}`;
         }
         if (streamOutcome !== "completed" && socraticSessionInit) {
           state.socraticSession = null;
-          (_y = (_x = this.deps).hideSocraticBanner) == null ? void 0 : _y.call(_x);
+          (_z = (_y = this.deps).hideSocraticBanner) == null ? void 0 : _z.call(_y);
         }
         if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
           if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
@@ -18093,9 +18106,9 @@ ${promptToSend}`;
         if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
           const s = state.socraticSession;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-          if ((_z = assistantMsg.socraticTurn) == null ? void 0 : _z.isSummary) {
+          if ((_A = assistantMsg.socraticTurn) == null ? void 0 : _A.isSummary) {
             state.socraticSession = null;
-            (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
+            (_C = (_B = this.deps).hideSocraticBanner) == null ? void 0 : _C.call(_B);
           } else if (updatedSession.isSummaryPhase) {
             state.socraticSession = updatedSession;
           } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
@@ -18108,7 +18121,7 @@ ${promptToSend}`;
           for (const message of state.messages) {
             if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
           }
-          const reviewButtons = (_D = (_C = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _D.call(_C, ".ocop-quiz-review-btn");
+          const reviewButtons = (_E = (_D = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _E.call(_D, ".ocop-quiz-review-btn");
           reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
             button.disabled = true;
           });
@@ -18116,6 +18129,7 @@ ${promptToSend}`;
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
+        this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
         if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
@@ -18250,8 +18264,11 @@ ${promptToSend}`;
         originalQuery: content,
         agentInitiated: wasAgentInitiated
       };
+      const restored = this.takeRestoredQueuedSend(content);
       inputEl.value = "";
-      await this.sendMessageWithPlanMode({ content });
+      await this.sendMessageWithPlanMode(
+        restored ? { content, editorContext: restored.editorContext } : { content }
+      );
       return;
     }
     await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
@@ -18369,6 +18386,7 @@ ${content}
       streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
     } finally {
       let cleanupSettled = false;
+      this.finalizingTurn = true;
       try {
         if (streamOutcome === "interrupted") {
           await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
@@ -18388,6 +18406,7 @@ ${content}
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
+        this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
         if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
@@ -18429,16 +18448,24 @@ ${content}
   }
   /**
    * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands a visible queued message back to the input instead of leaving it stranded.
+   * Hands the queued message back to the input instead of leaving it stranded. A hidden one
+   * is handed back too: left queued, it would fire after some later, unrelated turn, and it
+   * may carry the user's own text merged into it, so dropping it is not an option either.
    */
   recoverFromTurnCleanupFailure() {
     const { state } = this.deps;
     const queued = state.queuedMessage;
-    if (!queued || queued.hidden) {
+    if (!queued) {
       new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       return;
     }
     this.clearQueuedMessage();
+    this.restoredQueuedSend = {
+      conversationId: state.currentConversationId,
+      content: queued.content.trim(),
+      editorContext: queued.editorContext,
+      promptPrefix: queued.promptPrefix
+    };
     try {
       const inputEl = this.deps.getInputEl();
       inputEl.value = inputEl.value ? `${queued.content}
@@ -18457,6 +18484,16 @@ ${inputEl.value}` : queued.content;
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
       new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
     }
+  }
+  /**
+   * Claims the restored queued message's send options if the input still carries its text
+   * in the same conversation. Any send from the input consumes the record either way.
+   */
+  takeRestoredQueuedSend(content) {
+    const restored = this.restoredQueuedSend;
+    this.restoredQueuedSend = null;
+    if (!restored || restored.conversationId !== this.deps.state.currentConversationId) return null;
+    return content.includes(restored.content) ? restored : null;
   }
   /** Processes the queued message. */
   processQueuedMessage() {
@@ -18585,7 +18622,7 @@ ${inputEl.value}` : queued.content;
   /** Cancels the current streaming operation. */
   cancelStreaming() {
     const { plugin, state, streamController } = this.deps;
-    if (!state.isStreaming) return;
+    if (!state.isStreaming || this.finalizingTurn) return;
     state.cancelRequested = true;
     this.clearQueuedMessage();
     plugin.agentService.cancel();
