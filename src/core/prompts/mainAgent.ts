@@ -16,10 +16,6 @@ export interface SystemPromptSettings {
   externalContextPaths?: string[];
   vaultPath?: string;
   hasEditorContext?: boolean;
-  /** Whether this query is in plan mode (read-only exploration). */
-  planMode?: boolean;
-  /** Approved plan content to append (from plan mode approval). */
-  appendedPlan?: string;
   /** Current permission mode. Subagent instructions are AGENT-only (they spawn CLI processes). */
   permissionMode?: PermissionMode;
   /** Effective per-request Web availability passed through from dispatch options. */
@@ -70,12 +66,11 @@ Spawn subagents for complex multi-step tasks. Parameters: \`prompt\`, \`descript
 function getBaseSystemPrompt(vaultPath?: string, permissionMode?: PermissionMode, enableWebSearch = true, providerId?: ProviderId): string {
   const vaultInfo = vaultPath ? `\n\nVault absolute path: ${vaultPath}` : '';
   const subagentInstructions = permissionMode === 'agent' ? getSubagentInstructions() : '';
-  const readOnly = permissionMode === 'ask' || permissionMode === 'plan';
+  const readOnly = permissionMode === 'ask';
   const toolNames = readOnly
     ? ['Read', 'Glob', 'Grep', 'LS', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])]
     : ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'LS', 'Bash', ...(enableWebSearch ? ['WebSearch', 'WebFetch'] : [])];
   // Headless agy auto-denies shell commands, but its view_file tool needs no permission.
-  // Its own line: plan mode rewrites the tools line by anchoring on its end.
   const agyReadHint = readOnly && providerId === 'agy'
     ? '\nShell commands are unavailable in this mode; read notes with the view_file tool instead of cat/ls.'
     : '';
@@ -342,42 +337,11 @@ possibly multiple lines
 **When present:** The user selected this text before sending their message. Use this context to understand what they're referring to.`;
 }
 
-/** Returns plan mode instructions (only included during plan mode). */
-function getPlanModeInstructions(): string {
-  return `
-
-### Plan Mode (EnterPlanMode / ExitPlanMode)
-
-You are in **plan mode** - a read-only exploration phase before implementation.
-
-**Available tools:**
-- Read, Grep, Glob, LS (file exploration)
-- WebSearch, WebFetch (research)
-- TodoWrite (organize findings)
-
-**Disabled tools:** Write, Edit, Bash, NotebookEdit - you cannot modify files during planning.
-
-**Workflow:**
-1. Call \`EnterPlanMode\` to begin (already done if you see this)
-2. Explore the codebase to understand the task
-3. Create a detailed implementation plan
-4. Call \`ExitPlanMode\` when ready for user approval
-
-**Plan structure guidelines:**
-- Start with a brief summary of the task
-- List files to create/modify with specific changes
-- Note dependencies and order of operations
-- Identify potential risks or edge cases
-- Keep it actionable - each step should be concrete
-
-**After approval:** The plan is appended to your system prompt and you gain full tool access for implementation.`;
-}
-
 /** Builds the complete system prompt with optional custom settings. */
 export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
   let prompt = getBaseSystemPrompt(
     settings.vaultPath,
-    settings.planMode ? 'plan' : settings.permissionMode,
+    settings.permissionMode,
     settings.enableWebSearch ?? true,
     settings.providerId,
   );
@@ -394,16 +358,6 @@ export function buildSystemPrompt(settings: SystemPromptSettings = {}): string {
   // Variable content (changes per query, placed last for cache efficiency)
   if (settings.hasEditorContext) {
     prompt += getEditorContextInstructions();
-  }
-
-  if (settings.planMode) {
-    prompt = prompt.replace(/^(Standard tools \(.+\) work as expected\.)$/m, '$1 Write, Edit, and Bash are disabled in plan mode.');
-    prompt += getPlanModeInstructions();
-  }
-
-  if (settings.appendedPlan?.trim()) {
-    prompt += '\n\n## Approved Implementation Plan\n\n<plan>\n' + settings.appendedPlan.trim() + '\n</plan>';
-    prompt += '\n\n**IMPORTANT:** Follow this plan exactly. The user has approved this implementation. Execute the steps in order.';
   }
 
   return prompt;

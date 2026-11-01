@@ -12,7 +12,6 @@ import type {
   ChatMessage,
   ChatStateCallbacks,
   ChatStateData,
-  PlanModeState,
   QueuedMessage,
   SubagentState,
   ThinkingBlockState,
@@ -42,10 +41,6 @@ function createInitialState(): ChatStateData {
     usage: null,
     ignoreUsageUpdates: false,
     subagentsSpawnedThisStream: 0,
-    planModeState: null,
-    planModeRequested: false,
-    planModeActivationPending: false,
-    pendingPlanContent: null,
     currentTodos: null,
     quizSession: null,
     socraticSession: null,
@@ -242,51 +237,6 @@ export class ChatState {
   }
 
   // ============================================
-  // Plan Mode State
-  // ============================================
-
-  get planModeState(): PlanModeState | null {
-    return this.state.planModeState;
-  }
-
-  set planModeState(value: PlanModeState | null) {
-    this.state.planModeState = value;
-  }
-
-  /** Resets plan mode state. */
-  resetPlanModeState(): void {
-    this.state.planModeState = null;
-  }
-
-  get planModeRequested(): boolean {
-    return this.state.planModeRequested;
-  }
-
-  set planModeRequested(value: boolean) {
-    this.state.planModeRequested = value;
-  }
-
-  get planModeActivationPending(): boolean {
-    return this.state.planModeActivationPending;
-  }
-
-  set planModeActivationPending(value: boolean) {
-    this.state.planModeActivationPending = value;
-  }
-
-  // ============================================
-  // Pending Plan Content (for approval persistence)
-  // ============================================
-
-  get pendingPlanContent(): string | null {
-    return this.state.pendingPlanContent;
-  }
-
-  set pendingPlanContent(value: string | null) {
-    this.state.pendingPlanContent = value;
-  }
-
-  // ============================================
   // Current Todos (for persistent bottom panel)
   // ============================================
 
@@ -346,8 +296,6 @@ export class ChatState {
     this.resetStreamingState();
     this.clearMaps();
     this.state.queuedMessage = null;
-    this.state.planModeRequested = false;
-    this.state.planModeActivationPending = false;
     this.usage = null;
     this.currentTodos = null;
     this.quizSession = null;

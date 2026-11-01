@@ -114,6 +114,26 @@ describe('PermissionToggle - bash expansion busy lock', () => {
   });
 });
 
+describe('PermissionToggle - write consent', () => {
+  it('asks for write consent only the first time, not on every Ask/Agent round trip', async () => {
+    const { settings, callbacks, container } = build({ permissionMode: 'ask', blanketWriteAcknowledged: [] });
+    // As the view does: accepting records consent, and going back to Ask keeps it.
+    callbacks.confirmBlanketWrite = jest.fn().mockImplementation(async (provider: string) => {
+      settings.blanketWriteAcknowledged = [...settings.blanketWriteAcknowledged, provider];
+      return true;
+    });
+
+    for (let i = 0; i < 3; i++) {
+      await container.clickAndSettle();
+      expect(settings.permissionMode).toBe('agent');
+      await container.clickAndSettle();
+      expect(settings.permissionMode).toBe('ask');
+    }
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('PermissionToggle - busy label shows the CAPTURED mode, not a fresh resolution', () => {
   it('reproduces the reviewer sequence: captured under agent, then a fresh resolution would give ask, label still reads Agent and stays disabled', () => {
     // Start as the in-flight work was authorized: agent, claude, already acknowledged —

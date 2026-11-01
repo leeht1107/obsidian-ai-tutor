@@ -94,8 +94,7 @@ export function getBashToolBlockedCommands(commands: PlatformBlockedCommands): s
 }
 
 /** Permission mode for tool execution. */
-export type PermissionMode = 'agent' | 'ask' | 'plan';
-export type NonPlanPermissionMode = Exclude<PermissionMode, 'plan'>;
+export type PermissionMode = 'agent' | 'ask';
 
 /** Permanently approved tool permission (like Claude Code). */
 export interface Permission {
@@ -147,7 +146,6 @@ export interface ObsidianCopilotSettings {
   lastEnvHash?: string;
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
-  lastNonPlanPermissionMode?: NonPlanPermissionMode;
   /** Providers whose all-or-nothing write permission the student has confirmed once. */
   blanketWriteAcknowledged?: string[];
   /** Device-local expert gate. Agy Agent still requires a fresh runtime grant. */
@@ -182,7 +180,6 @@ export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   lastEnvHash: '',
   thinkingBudget: 'off',
   permissionMode: 'ask',
-  lastNonPlanPermissionMode: 'ask',
   blanketWriteAcknowledged: [],
   allowUnsafeAgyAgent: false,
   permissions: [],

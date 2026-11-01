@@ -907,7 +907,7 @@ function needsBlanketWriteConsent(id, blanketWriteAcknowledged) {
   return !(Array.isArray(blanketWriteAcknowledged) && blanketWriteAcknowledged.includes(id));
 }
 function resolveEffectivePermissionMode(mode, provider, blanketWriteAcknowledged, forcedReadOnly = false) {
-  const wantsReadOnly = mode === "ask" || mode === "plan" || forcedReadOnly;
+  const wantsReadOnly = mode === "ask" || forcedReadOnly;
   const needsConsent = needsBlanketWriteConsent(provider, blanketWriteAcknowledged);
   return wantsReadOnly && supportsReadOnlyMode(provider) || needsConsent ? "ask" : "agent";
 }
@@ -1333,7 +1333,6 @@ var init_settings = __esm({
       lastEnvHash: "",
       thinkingBudget: "off",
       permissionMode: "ask",
-      lastNonPlanPermissionMode: "ask",
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: false,
       permissions: [],
@@ -3161,9 +3160,9 @@ function readTrust(app) {
     const defaults = getDefaultTrust();
     return {
       // Agent authority is deliberately runtime-only. Older releases persisted all
-      // three fields; ignore them so an upgrade or reload always starts in Ask.
+      // fields (and a since-removed `lastNonPlanPermissionMode`); ignore them so an
+      // upgrade or reload always starts in Ask.
       permissionMode: "ask",
-      lastNonPlanPermissionMode: "ask",
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: typeof raw.allowUnsafeAgyAgent === "boolean" ? raw.allowUnsafeAgyAgent : defaults.allowUnsafeAgyAgent,
       permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
@@ -3380,11 +3379,11 @@ async function removeSkill(app, skillName, providerId, host) {
   try {
     const skillPath = path16.join(skillsRoot, skillName);
     if (!fs12.existsSync(skillPath)) {
-      new import_obsidian27.Notice(`Skill "${skillName}" not found`);
+      new import_obsidian26.Notice(`Skill "${skillName}" not found`);
       return false;
     }
     fs12.rmSync(skillPath, { recursive: true });
-    new import_obsidian27.Notice(`Skill "${skillName}" removed`);
+    new import_obsidian26.Notice(`Skill "${skillName}" removed`);
     return true;
   } catch (error) {
     console.error(`Failed to remove skill "${skillName}":`, error);
@@ -3406,7 +3405,7 @@ async function installObsidianSkills(app, providerId, host) {
       writeBundledSkill(skillsBasePath, "obsidian-markdown", OBSIDIAN_MARKDOWN_SKILL),
       writeBundledSkill(skillsBasePath, "json-canvas", JSON_CANVAS_SKILL)
     ].filter((result) => result === "kept").length;
-    new import_obsidian27.Notice(kept > 0 ? `\uAC19\uC740 \uC774\uB984\uC758 \uC2A4\uD0AC\uC774 \uC774\uBBF8 \uC788\uC5B4 ${kept}\uAC1C\uB294 \uADF8\uB300\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.` : "\u2705 Obsidian \uC2A4\uD0AC\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.");
+    new import_obsidian26.Notice(kept > 0 ? `\uAC19\uC740 \uC774\uB984\uC758 \uC2A4\uD0AC\uC774 \uC774\uBBF8 \uC788\uC5B4 ${kept}\uAC1C\uB294 \uADF8\uB300\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.` : "\u2705 Obsidian \uC2A4\uD0AC\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.");
     return true;
   } catch (error) {
     console.error("Failed to install Obsidian Skills:", error);
@@ -3437,7 +3436,7 @@ async function uninstallObsidianSkills(app, providerId, host) {
       if (!fs12.existsSync(file) || !isPluginOwnedSkill(fs12.readFileSync(file, "utf-8"))) continue;
       fs12.rmSync(path16.join(skillsBasePath, name), { recursive: true });
     }
-    new import_obsidian27.Notice("Obsidian Skills removed");
+    new import_obsidian26.Notice("Obsidian Skills removed");
     return true;
   } catch (error) {
     console.error("Failed to uninstall Obsidian Skills:", error);
@@ -3452,7 +3451,7 @@ async function uninstallObsidianSkills(app, providerId, host) {
 }
 async function getRepoDefaultBranch(owner, repo) {
   try {
-    const response = await (0, import_obsidian27.requestUrl)({
+    const response = await (0, import_obsidian26.requestUrl)({
       url: `https://api.github.com/repos/${owner}/${repo}`,
       throw: false
     });
@@ -3467,7 +3466,7 @@ async function getRepoDefaultBranch(owner, repo) {
 }
 async function checkRawUrl(url) {
   try {
-    const res = await (0, import_obsidian27.requestUrl)({ url, throw: false });
+    const res = await (0, import_obsidian26.requestUrl)({ url, throw: false });
     return res.status === 200;
   } catch (e) {
     return false;
@@ -3549,7 +3548,7 @@ async function collectFolderFiles(folder, listDir, maxFiles = MAX_SKILL_FILES) {
 }
 async function listGitHubDir(folder, dirPath) {
   const url = `https://api.github.com/repos/${folder.owner}/${folder.repo}/contents/${dirPath}?ref=${folder.ref}`;
-  const response = await (0, import_obsidian27.requestUrl)({ url, throw: false });
+  const response = await (0, import_obsidian26.requestUrl)({ url, throw: false });
   if (response.status === 403 || response.status === 429) {
     throw new Error("GitHub is rate-limiting this computer. Wait an hour, or install the skill folder by hand.");
   }
@@ -3562,13 +3561,13 @@ async function listGitHubDir(folder, dirPath) {
 }
 async function installSkillFolder(folder, providerId, vaultPath) {
   var _a, _b, _c;
-  new import_obsidian27.Notice(`Reading ${folder.dir}...`);
+  new import_obsidian26.Notice(`Reading ${folder.dir}...`);
   const files = await collectFolderFiles(folder, (dirPath) => listGitHubDir(folder, dirPath));
   const manifestFile = files.find((file) => file.relativePath === "SKILL.md");
   if (((_a = manifestFile.size) != null ? _a : 0) > MAX_SKILL_BYTES) {
     throw new Error(`That folder's SKILL.md is too large to install (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
   }
-  const manifest = await (0, import_obsidian27.requestUrl)({ url: manifestFile.downloadUrl, throw: false });
+  const manifest = await (0, import_obsidian26.requestUrl)({ url: manifestFile.downloadUrl, throw: false });
   if (manifest.status !== 200) throw new Error(`Failed to download SKILL.md (status ${manifest.status}).`);
   if (manifest.arrayBuffer.byteLength > MAX_SKILL_BYTES) {
     throw new Error(`That folder's SKILL.md is too large to install (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
@@ -3595,7 +3594,7 @@ async function installSkillFolder(folder, providerId, vaultPath) {
   }
   fs12.mkdirSync(stagingDir, { recursive: true });
   try {
-    new import_obsidian27.Notice(`Downloading ${files.length} files...`);
+    new import_obsidian26.Notice(`Downloading ${files.length} files...`);
     let bytes = manifest.arrayBuffer.byteLength;
     for (const file of files) {
       const target = resolveSkillFilePath(stagingDir, file.relativePath);
@@ -3605,7 +3604,7 @@ async function installSkillFolder(folder, providerId, vaultPath) {
         if (bytes + ((_c = file.size) != null ? _c : 0) > MAX_SKILL_BYTES) {
           throw new Error(`That folder is too large to install as one skill (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
         }
-        const response = await (0, import_obsidian27.requestUrl)({ url: file.downloadUrl, throw: false });
+        const response = await (0, import_obsidian26.requestUrl)({ url: file.downloadUrl, throw: false });
         if (response.status !== 200) {
           throw new Error(`Failed to download ${file.relativePath} (status ${response.status}).`);
         }
@@ -3638,13 +3637,13 @@ async function installSkillFolder(folder, providerId, vaultPath) {
         fs12.rmSync(replacedDir, { recursive: true, force: true });
         fs12.renameSync(backupDir, replacedDir);
       } else {
-        new import_obsidian27.Notice(`Your previous copy is in "${REPLACING_PREFIX}${skillName}" \u2014 "${REPLACED_PREFIX}${skillName}" was already taken.`);
+        new import_obsidian26.Notice(`Your previous copy is in "${REPLACING_PREFIX}${skillName}" \u2014 "${REPLACED_PREFIX}${skillName}" was already taken.`);
       }
     }
   } finally {
     fs12.rmSync(stagingDir, { recursive: true, force: true });
   }
-  new import_obsidian27.Notice(`\u2705 Skill "${skillName}" installed (${files.length} files).`);
+  new import_obsidian26.Notice(`\u2705 Skill "${skillName}" installed (${files.length} files).`);
   return true;
 }
 async function installSkillFromUrl(app, url, providerId, host) {
@@ -3672,7 +3671,7 @@ async function installSkillFromUrl(app, url, providerId, host) {
           rawUrl = rawUrl.replace(/\/$/, "") + "/SKILL.md";
         }
       } else {
-        new import_obsidian27.Notice("Searching for SKILL.md in repository...");
+        new import_obsidian26.Notice("Searching for SKILL.md in repository...");
         const foundUrl = await findSkillInRepo(url);
         if (foundUrl) {
           rawUrl = foundUrl;
@@ -3681,8 +3680,8 @@ async function installSkillFromUrl(app, url, providerId, host) {
         }
       }
     }
-    new import_obsidian27.Notice(`Downloading skill from ${rawUrl}...`);
-    const response = await (0, import_obsidian27.requestUrl)({ url: rawUrl });
+    new import_obsidian26.Notice(`Downloading skill from ${rawUrl}...`);
+    const response = await (0, import_obsidian26.requestUrl)({ url: rawUrl });
     if (response.status !== 200) {
       throw new Error(`Failed to download skill (Status: ${response.status}). Please check the URL.`);
     }
@@ -3704,7 +3703,7 @@ async function installSkillFromUrl(app, url, providerId, host) {
       fs12.mkdirSync(skillDir, { recursive: true });
     }
     fs12.writeFileSync(path16.join(skillDir, "SKILL.md"), content, "utf-8");
-    new import_obsidian27.Notice(`\u2705 Skill "${skillName}" installed successfully!`);
+    new import_obsidian26.Notice(`\u2705 Skill "${skillName}" installed successfully!`);
     return true;
   } catch (error) {
     console.error("Failed to install skill from URL:", error);
@@ -3720,11 +3719,11 @@ ${error instanceof Error ? (_a = error.stack) != null ? _a : error.message : Str
     return false;
   }
 }
-var fs12, import_obsidian27, os8, path16, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
+var fs12, import_obsidian26, os8, path16, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
 var init_ObsidianSkillsInstaller = __esm({
   "src/features/skills/ObsidianSkillsInstaller.ts"() {
     fs12 = __toESM(require("fs"));
-    import_obsidian27 = require("obsidian");
+    import_obsidian26 = require("obsidian");
     os8 = __toESM(require("os"));
     path16 = __toESM(require("path"));
     init_FailureReport();
@@ -4040,11 +4039,11 @@ __export(SecretMoveNoticeModal_exports, {
 function showSecretMoveNotice(app) {
   new SecretMoveNoticeModal(app).open();
 }
-var import_obsidian30, SecretMoveNoticeModal;
+var import_obsidian29, SecretMoveNoticeModal;
 var init_SecretMoveNoticeModal = __esm({
   "src/ui/modals/SecretMoveNoticeModal.ts"() {
-    import_obsidian30 = require("obsidian");
-    SecretMoveNoticeModal = class extends import_obsidian30.Modal {
+    import_obsidian29 = require("obsidian");
+    SecretMoveNoticeModal = class extends import_obsidian29.Modal {
       onOpen() {
         const { contentEl } = this;
         contentEl.empty();
@@ -4063,7 +4062,7 @@ var init_SecretMoveNoticeModal = __esm({
           text: "\uD55C \uAC00\uC9C0 \uB354 \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uAE4C\uC9C0 \uC774 \uAE08\uACE0\uB97C OneDrive\xB7Dropbox\xB7GitHub \uAC19\uC740 \uACF3\uC5D0 \uC62C\uB9B0 \uC801\uC774 \uC788\uB2E4\uBA74, \uC608\uC804 \uC0AC\uBCF8\uC774\uB098 \uBC84\uC804 \uAE30\uB85D \uC548\uC5D0\uB294 \uC778\uC99D \uC815\uBCF4\uAC00 \uADF8\uB300\uB85C \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uBC29\uAE08\uC758 \uC774\uB3D9\uC740 \uC9C0\uAE08 \uD30C\uC77C\uB9CC \uC815\uB9AC\uD558\uBBC0\uB85C, \uADF8\uB7F0 \uC801\uC774 \uC788\uB2E4\uBA74 \uD574\uB2F9 \uD1A0\uD070\xB7API \uD0A4\uB97C \uBC1C\uAE09\uCC98\uC5D0\uC11C \uD3D0\uAE30\uD558\uACE0 \uC0C8\uB85C \uC7AC\uBC1C\uAE09\uBC1B\uC73C\uC2DC\uAE38 \uAD8C\uD569\uB2C8\uB2E4.",
           cls: "setting-item-description"
         });
-        new import_obsidian30.Setting(contentEl).addButton(
+        new import_obsidian29.Setting(contentEl).addButton(
           (button) => button.setButtonText("\uC54C\uACA0\uC2B5\uB2C8\uB2E4").setCta().onClick(() => this.close())
         );
       }
@@ -4080,7 +4079,7 @@ __export(main_exports, {
   default: () => ObsidianCopilotPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian31 = require("obsidian");
+var import_obsidian30 = require("obsidian");
 
 // src/assets/icon.ts
 var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Obsidian AI Tutor">
@@ -4272,7 +4271,7 @@ function getBaseSystemPrompt(vaultPath, permissionMode, enableWebSearch = true, 
 
 Vault absolute path: ${vaultPath}` : "";
   const subagentInstructions = permissionMode === "agent" ? getSubagentInstructions() : "";
-  const readOnly = permissionMode === "ask" || permissionMode === "plan";
+  const readOnly = permissionMode === "ask";
   const toolNames = readOnly ? ["Read", "Glob", "Grep", "LS", ...enableWebSearch ? ["WebSearch", "WebFetch"] : []] : ["Read", "Write", "Edit", "Glob", "Grep", "LS", "Bash", ...enableWebSearch ? ["WebSearch", "WebFetch"] : []];
   const agyReadHint = readOnly && providerId === "agy" ? "\nShell commands are unavailable in this mode; read notes with the view_file tool instead of cat/ls." : "";
   const toolsInstruction = `Standard tools (${toolNames.join(", ")}) work as expected.${agyReadHint}`;
@@ -4515,40 +4514,11 @@ possibly multiple lines
 
 **When present:** The user selected this text before sending their message. Use this context to understand what they're referring to.`;
 }
-function getPlanModeInstructions() {
-  return `
-
-### Plan Mode (EnterPlanMode / ExitPlanMode)
-
-You are in **plan mode** - a read-only exploration phase before implementation.
-
-**Available tools:**
-- Read, Grep, Glob, LS (file exploration)
-- WebSearch, WebFetch (research)
-- TodoWrite (organize findings)
-
-**Disabled tools:** Write, Edit, Bash, NotebookEdit - you cannot modify files during planning.
-
-**Workflow:**
-1. Call \`EnterPlanMode\` to begin (already done if you see this)
-2. Explore the codebase to understand the task
-3. Create a detailed implementation plan
-4. Call \`ExitPlanMode\` when ready for user approval
-
-**Plan structure guidelines:**
-- Start with a brief summary of the task
-- List files to create/modify with specific changes
-- Note dependencies and order of operations
-- Identify potential risks or edge cases
-- Keep it actionable - each step should be concrete
-
-**After approval:** The plan is appended to your system prompt and you gain full tool access for implementation.`;
-}
 function buildSystemPrompt(settings = {}) {
-  var _a, _b, _c;
+  var _a, _b;
   let prompt = getBaseSystemPrompt(
     settings.vaultPath,
-    settings.planMode ? "plan" : settings.permissionMode,
+    settings.permissionMode,
     (_a = settings.enableWebSearch) != null ? _a : true,
     settings.providerId
   );
@@ -4560,14 +4530,6 @@ function buildSystemPrompt(settings = {}) {
   }
   if (settings.hasEditorContext) {
     prompt += getEditorContextInstructions();
-  }
-  if (settings.planMode) {
-    prompt = prompt.replace(/^(Standard tools \(.+\) work as expected\.)$/m, "$1 Write, Edit, and Bash are disabled in plan mode.");
-    prompt += getPlanModeInstructions();
-  }
-  if ((_c = settings.appendedPlan) == null ? void 0 : _c.trim()) {
-    prompt += "\n\n## Approved Implementation Plan\n\n<plan>\n" + settings.appendedPlan.trim() + "\n</plan>";
-    prompt += "\n\n**IMPORTANT:** Follow this plan exactly. The user has approved this implementation. Execute the steps in order.";
   }
   return prompt;
 }
@@ -4659,11 +4621,11 @@ var MAX_STDERR_CHARS = 1024 * 1024;
 var MAX_LINE_BUFFER_CHARS = 1024 * 1024;
 var MODEL_LIST_MAX_STDOUT_CHARS = 8 * 1024 * 1024;
 var MODEL_LIST_TIMEOUT_MS = 15e3;
-function resolveCopilotAllowedTools(permissionMode, requestedTools, planMode, enableWebSearch = true) {
+function resolveCopilotAllowedTools(permissionMode, requestedTools, enableWebSearch = true) {
   var _a;
   const hasRequestedTools = requestedTools !== void 0;
   const requested = (_a = requestedTools == null ? void 0 : requestedTools.map(normalizeCopilotToolName).filter(Boolean)) != null ? _a : [];
-  const guardrailTools = planMode || permissionMode !== "agent" ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool)) : null;
+  const guardrailTools = permissionMode !== "agent" ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool)) : null;
   const guardrailSet = guardrailTools ? new Set(guardrailTools) : null;
   const requestedToolsInGuardrail = hasRequestedTools ? guardrailSet ? requested.filter((tool) => guardrailSet.has(tool)) : requested : guardrailTools != null ? guardrailTools : [];
   const effectiveTools = enableWebSearch ? requestedToolsInGuardrail : requestedToolsInGuardrail.filter((tool) => !isCopilotWebTool(tool));
@@ -4673,7 +4635,7 @@ function hasExplicitCopilotAllowedTools(requestedTools) {
   return requestedTools !== void 0;
 }
 function shouldUseCopilotAllowAllTools(permissionMode, allowAllToolsSupported, queryOptions) {
-  if (!allowAllToolsSupported || (queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)) {
+  if (!allowAllToolsSupported || (queryOptions == null ? void 0 : queryOptions.readOnly)) {
     return false;
   }
   if (hasExplicitCopilotAllowedTools(queryOptions == null ? void 0 : queryOptions.allowedTools)) {
@@ -4861,11 +4823,8 @@ var CopilotBridgeService = class {
     this.cachedCopilotPath = void 0;
     this.cachedCapabilities = /* @__PURE__ */ new Map();
     this.capabilityProbePromises = /* @__PURE__ */ new Map();
-    this.exitPlanModeCallback = null;
     /** The last permission notice shown per provider, so the same one is not repeated. */
     this.shownPermissionNotices = /* @__PURE__ */ new Set();
-    this.currentPlanFilePath = null;
-    this.approvedPlanContent = null;
     this.askUserQuestionAnswers = /* @__PURE__ */ new Map();
     this.isAskUserQuestionSupported = true;
     this.originalContents = /* @__PURE__ */ new Map();
@@ -4908,7 +4867,7 @@ var CopilotBridgeService = class {
     return provider === "agy" && !this.plugin.settings.allowUnsafeAgyAgent ? "ask" : resolved;
   }
   buildSystemPromptText(prompt, vaultPath, queryOptions, permissionMode) {
-    var _a, _b;
+    var _a;
     const hasEditorContext = prompt.includes("<editor_selection");
     return buildSystemPrompt({
       mediaFolder: this.plugin.settings.mediaFolder,
@@ -4917,13 +4876,10 @@ var CopilotBridgeService = class {
       externalContextPaths: queryOptions == null ? void 0 : queryOptions.externalContextPaths,
       vaultPath,
       hasEditorContext,
-      planMode: queryOptions == null ? void 0 : queryOptions.planMode,
       enableWebSearch: (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch,
-      appendedPlan: (_b = this.approvedPlanContent) != null ? _b : void 0,
       providerId: this.plugin.settings.selectedProvider,
       permissionMode: permissionMode != null ? permissionMode : this.effectivePermissionMode(
-        this.plugin.settings.selectedProvider,
-        Boolean(queryOptions == null ? void 0 : queryOptions.planMode)
+        this.plugin.settings.selectedProvider
       )
     });
   }
@@ -5066,7 +5022,6 @@ User: ${injectedPrompt}`;
     const finalTools = resolveCopilotAllowedTools(
       permissionMode,
       queryOptions == null ? void 0 : queryOptions.allowedTools,
-      queryOptions == null ? void 0 : queryOptions.planMode,
       enableWebSearch
     );
     if (!enableWebSearch && permissionMode === "agent" && capabilities.denyTool) {
@@ -5168,7 +5123,7 @@ User: ${injectedPrompt}`;
       return;
     }
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
-    const permissionMode = this.effectivePermissionMode("copilot", Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)));
+    const permissionMode = this.effectivePermissionMode("copilot", Boolean(queryOptions == null ? void 0 : queryOptions.readOnly));
     const enableWebSearch = (_a = queryOptions == null ? void 0 : queryOptions.enableWebSearch) != null ? _a : this.plugin.settings.enableWebSearch;
     if (!enableWebSearch && permissionMode === "agent" && !capabilities.denyTool) {
       const notice = "\uC774 Copilot CLI\uB294 Agent \uBAA8\uB4DC\uC5D0\uC11C Web \uAC80\uC0C9\uC744 \uCC28\uB2E8\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. CLI\uB97C \uC5C5\uB370\uC774\uD2B8\uD558\uAE30 \uC804\uAE4C\uC9C0 Web \uAC80\uC0C9\uC774 \uC0AC\uC6A9\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
@@ -5202,7 +5157,6 @@ User: ${injectedPrompt}`;
     const finalTools = resolveCopilotAllowedTools(
       permissionMode,
       queryOptions == null ? void 0 : queryOptions.allowedTools,
-      queryOptions == null ? void 0 : queryOptions.planMode,
       enableWebSearch
     );
     if ((queryOptions == null ? void 0 : queryOptions.readOnly) && !capabilities.availableTools) {
@@ -5249,9 +5203,6 @@ User: ${injectedPrompt}`;
     this.addToolArgs(args, capabilities, queryOptions, useAllowAllTools, permissionMode);
     this.abortController = new AbortController();
     try {
-      const isPlanMode = (queryOptions == null ? void 0 : queryOptions.planMode) === true;
-      let bufferedPlanText = "";
-      let sawDone = false;
       for await (const chunk of this.spawnCopilot(copilotPath, args, this.getCustomEnv(copilotPath))) {
         if (chunk.type === "error") {
           this.sessionId = null;
@@ -5262,29 +5213,7 @@ User: ${injectedPrompt}`;
         } else if (chunk.type === "tool_result") {
           this.finalizeWriteEditDiff(chunk.id, !!chunk.isError);
         }
-        if (isPlanMode) {
-          if (chunk.type === "text") {
-            bufferedPlanText += chunk.content;
-          }
-          if (chunk.type === "done") {
-            sawDone = true;
-            continue;
-          }
-        }
         yield chunk;
-      }
-      if (isPlanMode) {
-        const trimmedPlan = bufferedPlanText.trim();
-        if (!this.wasInterrupted && trimmedPlan) {
-          if (this.exitPlanModeCallback) {
-            await this.exitPlanModeCallback(trimmedPlan);
-          } else {
-            yield { type: "text", content: bufferedPlanText };
-          }
-        }
-        if (sawDone) {
-          yield { type: "done" };
-        }
       }
     } catch (error) {
       const msg = this.redactSecrets(error instanceof Error ? error.message : "Unknown error");
@@ -5388,10 +5317,10 @@ ${remedy}`;
     }
     const selection = resolveNativeSelection(this.plugin.settings, queryOptions == null ? void 0 : queryOptions.model);
     const mode = this.plugin.settings.permissionMode;
-    const wantsReadOnly = mode === "ask" || mode === "plan" || Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly));
+    const wantsReadOnly = mode === "ask" || Boolean(queryOptions == null ? void 0 : queryOptions.readOnly);
     const acknowledged = this.plugin.settings.blanketWriteAcknowledged;
     const needsConsent = needsBlanketWriteConsent(provider, acknowledged);
-    const permissionMode = this.effectivePermissionMode(provider, Boolean((queryOptions == null ? void 0 : queryOptions.planMode) || (queryOptions == null ? void 0 : queryOptions.readOnly)));
+    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions == null ? void 0 : queryOptions.readOnly));
     const fullPrompt = this.buildPromptWithHistory(
       prompt,
       conversationHistory,
@@ -5879,8 +5808,6 @@ ${remedy}`;
     this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
     this.askUserQuestionAnswers.clear();
-    this.approvedPlanContent = null;
-    this.currentPlanFilePath = null;
     this.clearDiffState();
   }
   getSessionId() {
@@ -5906,9 +5833,6 @@ ${remedy}`;
   }
   isAskUserQuestionToolSupported() {
     return this.isAskUserQuestionSupported;
-  }
-  setExitPlanModeCallback(callback) {
-    this.exitPlanModeCallback = callback;
   }
   resolveVaultFilePath(filePath) {
     const normalizedPath = normalizePathForFilesystem(filePath);
@@ -6000,21 +5924,6 @@ ${remedy}`;
       this.askUserQuestionAnswers.delete(toolUseId);
     }
     return answers;
-  }
-  setApprovedPlanContent(content) {
-    this.approvedPlanContent = content;
-  }
-  getApprovedPlanContent() {
-    return this.approvedPlanContent;
-  }
-  clearApprovedPlanContent() {
-    this.approvedPlanContent = null;
-  }
-  setCurrentPlanFilePath(planPath) {
-    this.currentPlanFilePath = planPath;
-  }
-  getCurrentPlanFilePath() {
-    return this.currentPlanFilePath;
   }
 };
 
@@ -6264,9 +6173,6 @@ var SessionStorage = class {
       currentNote: meta.currentNote,
       externalContextPaths: meta.externalContextPaths,
       usage: meta.usage,
-      approvedPlan: meta.approvedPlan,
-      pendingPlanContent: meta.pendingPlanContent,
-      isInPlanMode: meta.isInPlanMode,
       titleGenerationStatus: meta.titleGenerationStatus,
       quizSession: meta.quizSession,
       socraticSession: meta.socraticSession,
@@ -6289,9 +6195,6 @@ var SessionStorage = class {
       currentNote: conversation.currentNote,
       externalContextPaths: conversation.externalContextPaths,
       usage: conversation.usage,
-      approvedPlan: conversation.approvedPlan,
-      pendingPlanContent: conversation.pendingPlanContent,
-      isInPlanMode: conversation.isInPlanMode,
       titleGenerationStatus: conversation.titleGenerationStatus,
       quizSession: conversation.quizSession,
       socraticSession: conversation.socraticSession,
@@ -7160,7 +7063,7 @@ var StorageService = class {
 init_FailureReport();
 
 // src/features/chat/ObsidianCopilotView.ts
-var import_obsidian26 = require("obsidian");
+var import_obsidian25 = require("obsidian");
 
 // src/core/commands/SlashCommandManager.ts
 var import_child_process7 = require("child_process");
@@ -9937,7 +9840,6 @@ function toToolbarSettings(settings) {
     selectedProvider: settings.selectedProvider,
     thinkingBudget: settings.thinkingBudget,
     permissionMode: settings.permissionMode,
-    lastNonPlanPermissionMode: settings.lastNonPlanPermissionMode,
     providerModels: settings.providerModels,
     providerEfforts: settings.providerEfforts,
     blanketWriteAcknowledged: settings.blanketWriteAcknowledged,
@@ -10307,7 +10209,6 @@ var PermissionToggle = class {
   constructor(parentEl, callbacks) {
     this.toggleEl = null;
     this.labelEl = null;
-    this.onPlanModeToggle = null;
     this.callbacks = callbacks;
     this.container = parentEl.createDiv({ cls: "ocop-permission-toggle" });
     this.render();
@@ -10321,26 +10222,9 @@ var PermissionToggle = class {
       void this.toggle();
     });
   }
-  setOnPlanModeToggle(callback) {
-    this.onPlanModeToggle = callback;
-  }
-  setPlanModeActive(_active) {
-    this.updateDisplay();
-  }
-  isPlanModeActive() {
-    return this.isPlanModeLocked() || this.isPlanModeRequested();
-  }
-  isPlanModeLocked() {
-    return this.callbacks.getSettings().permissionMode === "plan";
-  }
-  isPlanModeRequested() {
-    var _a, _b, _c;
-    return (_c = (_b = (_a = this.callbacks).isPlanModeRequested) == null ? void 0 : _b.call(_a)) != null ? _c : false;
-  }
   updateDisplay() {
     var _a, _b, _c, _d, _e;
     if (!this.toggleEl || !this.labelEl) return;
-    this.container.removeClass("plan-mode");
     this.container.removeClass("is-unavailable");
     this.labelEl.empty();
     if (!supportsReadOnlyMode(this.callbacks.getSettings().selectedProvider)) {
@@ -10412,15 +10296,6 @@ var PermissionToggle = class {
     const applied = this.callbacks.onPermissionModeChange(next);
     this.updateDisplay();
     await applied;
-    this.updateDisplay();
-  }
-  async togglePlanMode() {
-    var _a;
-    if (this.isPlanModeLocked()) {
-      new import_obsidian7.Notice("Plan mode is active until the plan is approved.");
-      return;
-    }
-    (_a = this.onPlanModeToggle) == null ? void 0 : _a.call(this, !this.isPlanModeRequested());
     this.updateDisplay();
   }
 };
@@ -10852,405 +10727,10 @@ var InstructionModeManager = class {
   }
 };
 
-// src/ui/components/PlanApprovalPanel.ts
-function findInputElements2(containerEl) {
-  const inputContainer = containerEl.querySelector(".ocop-input-container");
-  const inputWrapper = containerEl.querySelector(".ocop-input-wrapper");
-  return { inputContainer, inputWrapper };
-}
-var APPROVAL_OPTIONS = [
-  { label: "Approve", isRevise: false },
-  { label: "Approve && New Session", isRevise: false },
-  { label: "Type here to tell Copilot what to change", isRevise: true }
-];
-var PlanApprovalPanel = class {
-  constructor(_app, options) {
-    this.isDestroyed = false;
-    this.reviseInputEl = null;
-    this.currentOptionIndex = 0;
-    this.optionsEl = null;
-    // Input area references (for hiding/showing)
-    this.inputContainer = null;
-    this.inputWrapper = null;
-    this.containerEl = options.containerEl;
-    this.onApprove = options.onApprove;
-    this.onApproveNewSession = options.onApproveNewSession;
-    this.onRevise = options.onRevise;
-    this.onCancel = options.onCancel;
-    const { inputContainer, inputWrapper } = findInputElements2(this.containerEl);
-    this.inputContainer = inputContainer;
-    this.inputWrapper = inputWrapper;
-    if (this.inputWrapper) {
-      this.inputWrapper.style.display = "none";
-    }
-    this.panelEl = this.createPanel();
-    if (this.inputContainer) {
-      this.inputContainer.appendChild(this.panelEl);
-    } else {
-      this.containerEl.appendChild(this.panelEl);
-    }
-    this.panelEl.focus();
-  }
-  /** Create the panel DOM structure. */
-  createPanel() {
-    const panel = document.createElement("div");
-    panel.className = "ocop-plan-approval-panel";
-    panel.setAttribute("tabindex", "0");
-    panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-label", "Review implementation plan");
-    panel.addEventListener("keydown", this.handleKeyDown.bind(this));
-    const headerEl = document.createElement("div");
-    headerEl.className = "ocop-plan-approval-header";
-    headerEl.textContent = "Would you like to proceed?";
-    panel.appendChild(headerEl);
-    this.optionsEl = document.createElement("div");
-    this.optionsEl.className = "ocop-plan-approval-options";
-    this.renderOptions();
-    panel.appendChild(this.optionsEl);
-    return panel;
-  }
-  /** Render the option rows. */
-  renderOptions() {
-    if (!this.optionsEl) return;
-    this.optionsEl.innerHTML = "";
-    APPROVAL_OPTIONS.forEach((option, index) => {
-      const optionEl = document.createElement("div");
-      optionEl.className = "ocop-plan-approval-option";
-      optionEl.setAttribute("data-option-index", String(index));
-      const caretEl = document.createElement("span");
-      caretEl.className = "ocop-plan-approval-caret";
-      caretEl.textContent = index === this.currentOptionIndex ? ">" : " ";
-      optionEl.appendChild(caretEl);
-      const numberEl = document.createElement("span");
-      numberEl.className = "ocop-plan-approval-number";
-      numberEl.textContent = `${index + 1}.`;
-      optionEl.appendChild(numberEl);
-      if (option.isRevise) {
-        this.reviseInputEl = document.createElement("input");
-        this.reviseInputEl.type = "text";
-        this.reviseInputEl.className = "ocop-plan-approval-revise-inline";
-        this.reviseInputEl.placeholder = option.label;
-        this.reviseInputEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.currentOptionIndex = index;
-          this.updateOptionFocus();
-        });
-        this.reviseInputEl.addEventListener("keydown", (e) => {
-          var _a;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            this.handleReviseSubmit();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            if ((_a = this.reviseInputEl) == null ? void 0 : _a.value) {
-              this.reviseInputEl.value = "";
-            } else {
-              this.handleCancel();
-            }
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            this.currentOptionIndex = Math.max(0, this.currentOptionIndex - 1);
-            this.updateOptionFocus();
-            this.panelEl.focus();
-          }
-          e.stopPropagation();
-        });
-        this.reviseInputEl.addEventListener("focus", () => {
-          this.currentOptionIndex = index;
-          this.updateOptionFocus();
-        });
-        optionEl.appendChild(this.reviseInputEl);
-      } else {
-        const labelEl = document.createElement("span");
-        labelEl.className = "ocop-plan-approval-option-label";
-        labelEl.textContent = option.label;
-        optionEl.appendChild(labelEl);
-      }
-      optionEl.addEventListener("click", () => {
-        var _a;
-        this.currentOptionIndex = index;
-        this.updateOptionFocus();
-        if (!option.isRevise) {
-          this.selectCurrentOption();
-        } else {
-          (_a = this.reviseInputEl) == null ? void 0 : _a.focus();
-        }
-      });
-      optionEl.addEventListener("mouseenter", () => {
-        this.currentOptionIndex = index;
-        this.updateOptionFocus();
-      });
-      if (index === this.currentOptionIndex) {
-        optionEl.classList.add("focused");
-      }
-      this.optionsEl.appendChild(optionEl);
-    });
-  }
-  /** Update the visual focus indicator on options. */
-  updateOptionFocus() {
-    if (!this.optionsEl) return;
-    const options = this.optionsEl.querySelectorAll(".ocop-plan-approval-option");
-    options.forEach((opt, i) => {
-      const caret = opt.querySelector(".ocop-plan-approval-caret");
-      const isFocused = i === this.currentOptionIndex;
-      opt.classList.toggle("focused", isFocused);
-      if (caret) {
-        caret.textContent = isFocused ? ">" : " ";
-      }
-    });
-    if (this.currentOptionIndex !== 2 && this.reviseInputEl && document.activeElement === this.reviseInputEl) {
-      this.reviseInputEl.blur();
-      this.panelEl.focus();
-    }
-    if (this.currentOptionIndex === 2 && this.reviseInputEl) {
-      this.reviseInputEl.focus();
-    }
-  }
-  /** Select the currently focused option. */
-  selectCurrentOption() {
-    var _a;
-    switch (this.currentOptionIndex) {
-      case 0:
-        this.handleApprove();
-        break;
-      case 1:
-        this.handleApproveNewSession();
-        break;
-      case 2:
-        (_a = this.reviseInputEl) == null ? void 0 : _a.focus();
-        break;
-    }
-  }
-  /** Handle keyboard events. */
-  handleKeyDown(e) {
-    var _a;
-    if (this.isDestroyed) return;
-    if (document.activeElement === this.reviseInputEl) {
-      return;
-    }
-    switch (e.key) {
-      case "ArrowUp":
-        e.preventDefault();
-        this.currentOptionIndex = Math.max(0, this.currentOptionIndex - 1);
-        this.updateOptionFocus();
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        this.currentOptionIndex = Math.min(APPROVAL_OPTIONS.length - 1, this.currentOptionIndex + 1);
-        this.updateOptionFocus();
-        break;
-      case "Enter":
-        e.preventDefault();
-        this.selectCurrentOption();
-        break;
-      case "Escape":
-        e.preventDefault();
-        this.handleCancel();
-        break;
-      case "1":
-        e.preventDefault();
-        this.currentOptionIndex = 0;
-        this.updateOptionFocus();
-        this.selectCurrentOption();
-        break;
-      case "2":
-        e.preventDefault();
-        this.currentOptionIndex = 1;
-        this.updateOptionFocus();
-        this.selectCurrentOption();
-        break;
-      case "3":
-        e.preventDefault();
-        this.currentOptionIndex = 2;
-        this.updateOptionFocus();
-        (_a = this.reviseInputEl) == null ? void 0 : _a.focus();
-        break;
-      default:
-        if (this.currentOptionIndex === 2 && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          e.preventDefault();
-          if (this.reviseInputEl) {
-            this.reviseInputEl.focus();
-            this.reviseInputEl.value = e.key;
-            this.reviseInputEl.setSelectionRange(1, 1);
-          }
-        }
-        break;
-    }
-  }
-  /** Handle approve action. */
-  handleApprove() {
-    if (this.isDestroyed) return;
-    this.destroy();
-    this.onApprove();
-  }
-  /** Handle approve with new session action. */
-  handleApproveNewSession() {
-    if (this.isDestroyed) return;
-    this.destroy();
-    this.onApproveNewSession();
-  }
-  /** Handle cancel action (Esc). */
-  handleCancel() {
-    if (this.isDestroyed) return;
-    this.destroy();
-    this.onCancel();
-  }
-  /** Handle revise submission. */
-  handleReviseSubmit() {
-    var _a;
-    if (this.isDestroyed) return;
-    const feedback = (_a = this.reviseInputEl) == null ? void 0 : _a.value.trim();
-    if (!feedback) return;
-    this.destroy();
-    this.onRevise(feedback);
-  }
-  /** Destroy the panel and restore input area. */
-  destroy() {
-    if (this.isDestroyed) return;
-    this.isDestroyed = true;
-    this.panelEl.remove();
-    if (this.inputWrapper) {
-      this.inputWrapper.style.display = "";
-    }
-  }
-};
-function showPlanApprovalPanel(app, containerEl, planContent, component) {
-  return new Promise((resolve6) => {
-    new PlanApprovalPanel(app, {
-      containerEl,
-      planContent,
-      component,
-      onApprove: () => resolve6({ decision: "approve" }),
-      onApproveNewSession: () => resolve6({ decision: "approve_new_session" }),
-      onRevise: (feedback) => resolve6({ decision: "revise", feedback }),
-      onCancel: () => resolve6({ decision: "cancel" })
-    });
-  });
-}
-
-// src/ui/components/PlanBanner.ts
-var import_obsidian8 = require("obsidian");
-var PlanBanner = class {
-  constructor(options) {
-    this.containerEl = null;
-    this.bannerEl = null;
-    this.contentEl = null;
-    this.isExpanded = false;
-    this.planContent = "";
-    this.app = options.app;
-    this.component = options.component;
-  }
-  /**
-   * Mount the banner into the container.
-   * Should be called after the container is created, inserts between header and messages.
-   */
-  mount(containerEl) {
-    this.containerEl = containerEl;
-  }
-  /**
-   * Show the banner with the given plan content.
-   */
-  async show(planContent) {
-    if (!this.containerEl) return;
-    if (this.bannerEl) {
-      this.bannerEl.remove();
-      this.bannerEl = null;
-      this.contentEl = null;
-    }
-    this.planContent = planContent;
-    this.isExpanded = false;
-    this.bannerEl = document.createElement("div");
-    this.bannerEl.className = "ocop-plan-banner";
-    const headerEl = document.createElement("div");
-    headerEl.className = "ocop-plan-banner-header";
-    headerEl.addEventListener("click", () => this.toggle());
-    const chevronEl = document.createElement("span");
-    chevronEl.className = "ocop-plan-banner-chevron";
-    chevronEl.textContent = "\u25B6";
-    headerEl.appendChild(chevronEl);
-    const titleEl = document.createElement("span");
-    titleEl.className = "ocop-plan-banner-title";
-    titleEl.textContent = "Approved Plan";
-    headerEl.appendChild(titleEl);
-    this.bannerEl.appendChild(headerEl);
-    this.contentEl = document.createElement("div");
-    this.contentEl.className = "ocop-plan-banner-content";
-    this.contentEl.style.display = "none";
-    await this.renderContent();
-    this.bannerEl.appendChild(this.contentEl);
-    const messagesEl = this.containerEl.querySelector(".ocop-messages");
-    if (messagesEl) {
-      this.containerEl.insertBefore(this.bannerEl, messagesEl);
-    } else {
-      this.containerEl.appendChild(this.bannerEl);
-    }
-  }
-  /**
-   * Hide and remove the banner.
-   */
-  hide() {
-    if (this.bannerEl) {
-      this.bannerEl.remove();
-      this.bannerEl = null;
-      this.contentEl = null;
-    }
-    this.isExpanded = false;
-    this.planContent = "";
-  }
-  /**
-   * Toggle the banner's expanded/collapsed state.
-   */
-  toggle() {
-    this.isExpanded = !this.isExpanded;
-    this.updateDisplay();
-  }
-  /**
-   * Update the display based on expanded state.
-   */
-  updateDisplay() {
-    if (!this.bannerEl || !this.contentEl) return;
-    const chevron = this.bannerEl.querySelector(".ocop-plan-banner-chevron");
-    if (chevron) {
-      chevron.textContent = this.isExpanded ? "\u25BC" : "\u25B6";
-    }
-    this.contentEl.style.display = this.isExpanded ? "block" : "none";
-    this.bannerEl.classList.toggle("expanded", this.isExpanded);
-  }
-  /**
-   * Render the plan content as markdown.
-   */
-  async renderContent() {
-    if (!this.contentEl) return;
-    try {
-      await import_obsidian8.MarkdownRenderer.render(
-        this.app,
-        this.planContent,
-        this.contentEl,
-        "",
-        this.component
-      );
-    } catch (e) {
-      this.contentEl.textContent = this.planContent;
-    }
-  }
-  /**
-   * Check if the banner is currently visible.
-   */
-  isVisible() {
-    return this.bannerEl !== null;
-  }
-  /**
-   * Get the current plan content.
-   */
-  getPlanContent() {
-    return this.planContent;
-  }
-};
-
 // src/ui/components/QuizAnswerPanel.ts
 var QUIZ_PANEL_DISMISS_KEY = "__ocopDismissQuizAnswerPanel__";
 var QUIZ_STUCK_ANSWER = "\uBAA8\uB974\uACA0\uC5B4\uC694. \uC815\uB2F5\uACFC \uD575\uC2EC \uAC1C\uB150\uC744 \uC54C\uB824\uC8FC\uC138\uC694.";
-function findInputElements3(containerEl) {
+function findInputElements2(containerEl) {
   const inputContainer = containerEl.querySelector(".ocop-input-container");
   const inputWrapper = containerEl.querySelector(".ocop-input-wrapper");
   return { inputContainer, inputWrapper };
@@ -11268,7 +10748,7 @@ var QuizAnswerPanel = class {
     this.onAnswer = options.onAnswer;
     this.onCancel = options.onCancel;
     this.onHint = options.onHint;
-    const { inputContainer, inputWrapper } = findInputElements3(options.containerEl);
+    const { inputContainer, inputWrapper } = findInputElements2(options.containerEl);
     this.inputContainer = inputContainer;
     this.inputWrapper = inputWrapper;
     if (this.inputWrapper) {
@@ -12004,7 +11484,7 @@ var SocraticBanner = class {
 };
 
 // src/ui/components/TodoPanel.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var TodoPanel = class {
   constructor() {
     this.containerEl = null;
@@ -12111,7 +11591,7 @@ var TodoPanel = class {
     this.todoHeaderEl.empty();
     const icon = document.createElement("span");
     icon.className = "ocop-todo-panel-icon";
-    (0, import_obsidian9.setIcon)(icon, "list-checks");
+    (0, import_obsidian8.setIcon)(icon, "list-checks");
     this.todoHeaderEl.appendChild(icon);
     const label = document.createElement("span");
     label.className = "ocop-todo-panel-label";
@@ -12136,7 +11616,7 @@ var TodoPanel = class {
       const statusIcon = document.createElement("div");
       statusIcon.className = "ocop-todo-status-icon";
       statusIcon.setAttribute("aria-hidden", "true");
-      (0, import_obsidian9.setIcon)(statusIcon, this.getStatusIcon(todo.status));
+      (0, import_obsidian8.setIcon)(statusIcon, this.getStatusIcon(todo.status));
       itemEl.appendChild(statusIcon);
       const text = document.createElement("div");
       text.className = "ocop-todo-text";
@@ -12228,7 +11708,7 @@ var TodoPanel = class {
 };
 
 // src/ui/modals/ApprovalModal.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/core/tools/toolIcons.ts
 var TOOL_ICONS = {
@@ -12262,7 +11742,7 @@ function getToolIcon(toolName) {
 }
 
 // src/ui/modals/ApprovalModal.ts
-var ApprovalModal = class extends import_obsidian10.Modal {
+var ApprovalModal = class extends import_obsidian9.Modal {
   constructor(app, toolName, _input, description, resolve6, options = {}) {
     super(app);
     this.resolved = false;
@@ -12283,7 +11763,7 @@ var ApprovalModal = class extends import_obsidian10.Modal {
     const toolEl = infoEl.createDiv({ cls: "ocop-approval-tool" });
     const iconEl = toolEl.createSpan({ cls: "ocop-approval-icon" });
     iconEl.setAttribute("aria-hidden", "true");
-    (0, import_obsidian10.setIcon)(iconEl, getToolIcon(this.toolName));
+    (0, import_obsidian9.setIcon)(iconEl, getToolIcon(this.toolName));
     toolEl.createSpan({ text: this.toolName, cls: "ocop-approval-tool-name" });
     const descEl = contentEl.createDiv({ cls: "ocop-approval-desc" });
     descEl.setText(this.description);
@@ -12382,9 +11862,9 @@ var ApprovalModal = class extends import_obsidian10.Modal {
 };
 
 // src/ui/modals/BlanketWriteConsentModal.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 init_providerRegistry();
-var BlanketWriteConsentModal = class extends import_obsidian11.Modal {
+var BlanketWriteConsentModal = class extends import_obsidian10.Modal {
   constructor(app, provider, onResolve) {
     super(app);
     this.answered = false;
@@ -12411,7 +11891,7 @@ var BlanketWriteConsentModal = class extends import_obsidian11.Modal {
       text: "Ask\uB85C \uB450\uBA74 \uC0C8\uB85C \uD30C\uC77C\uC744 \uACE0\uCE58\uAC70\uB098 \uBA85\uB839\uC744 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD5C8\uC6A9\uD55C \uB4A4\uC5D0\uB3C4 \uD1A0\uAE00\uC744 Ask\uB85C \uB418\uB3CC\uB9AC\uBA74 \uB2E4\uC2DC \uC77D\uAE30 \uC804\uC6A9\uC774 \uB429\uB2C8\uB2E4. \uB2E4\uB9CC Agent\uB85C \uC788\uB294 \uB3D9\uC548 \uC2DC\uC791\uB41C \uD504\uB85C\uADF8\uB7A8\uC740 Ask\uB85C \uB418\uB3CC\uB824\uB3C4 \uB0A8\uC544 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4 \u2014 Windows\uC5D0\uC11C\uB294 \uD2B9\uD788 \uADF8\uB807\uC2B5\uB2C8\uB2E4.",
       cls: "setting-item-description"
     });
-    new import_obsidian11.Setting(contentEl).addButton((button) => button.setButtonText("Ask\uB85C \uB450\uAE30").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC4F0\uAE30 \uD5C8\uC6A9").setCta().onClick(() => this.finish(true)));
+    new import_obsidian10.Setting(contentEl).addButton((button) => button.setButtonText("Ask\uB85C \uB450\uAE30").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC4F0\uAE30 \uD5C8\uC6A9").setCta().onClick(() => this.finish(true)));
   }
   finish(accepted) {
     this.answered = true;
@@ -12425,7 +11905,7 @@ var BlanketWriteConsentModal = class extends import_obsidian11.Modal {
 };
 
 // src/ui/modals/InlineEditModal.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var path14 = __toESM(require("path"));
 
 // src/core/prompts/inlineEdit.ts
@@ -12940,7 +12420,7 @@ var InlineEditModal = class {
       activeController.reject();
       return { decision: "reject" };
     }
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian12.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
     if (!view) return { decision: "reject" };
     const editor = view.editor;
     const editorView = editor.cm;
@@ -13183,7 +12663,7 @@ var InlineEditController = class {
               userMessage = expansion.expandedPrompt;
               this.conversationAllowedTools = requestAllowedTools;
               if (expansion.errors.length > 0) {
-                new import_obsidian12.Notice(formatSlashCommandWarnings(expansion.errors));
+                new import_obsidian11.Notice(formatSlashCommandWarnings(expansion.errors));
               }
             } finally {
               this.plugin.setBashExpansionActive(false);
@@ -13417,15 +12897,15 @@ var InlineEditController = class {
       return normalizedRaw.replace(/\\/g, "/");
     } catch (error) {
       console.error("[InlineEditModal] normalizePathForVault error:", error);
-      new import_obsidian12.Notice("Failed to attach file: invalid path");
+      new import_obsidian11.Notice("Failed to attach file: invalid path");
       return null;
     }
   }
 };
 
 // src/ui/modals/InstructionConfirmModal.ts
-var import_obsidian13 = require("obsidian");
-var InstructionModal = class extends import_obsidian13.Modal {
+var import_obsidian12 = require("obsidian");
+var InstructionModal = class extends import_obsidian12.Modal {
   constructor(app, rawInstruction, callbacks) {
     super(app);
     this.state = "loading";
@@ -13469,7 +12949,7 @@ var InstructionModal = class extends import_obsidian13.Modal {
     const responseSection = this.clarificationEl.createDiv({ cls: "ocop-instruction-section" });
     const responseLabel = responseSection.createDiv({ cls: "ocop-instruction-label" });
     responseLabel.setText("Your response:");
-    this.responseTextarea = new import_obsidian13.TextAreaComponent(responseSection);
+    this.responseTextarea = new import_obsidian12.TextAreaComponent(responseSection);
     this.responseTextarea.inputEl.addClass("ocop-instruction-response-textarea");
     this.responseTextarea.inputEl.rows = 3;
     this.responseTextarea.inputEl.placeholder = "Provide more details...";
@@ -13487,7 +12967,7 @@ var InstructionModal = class extends import_obsidian13.Modal {
     this.refinedDisplayEl = refinedSection.createDiv({ cls: "ocop-instruction-refined" });
     this.editContainerEl = refinedSection.createDiv({ cls: "ocop-instruction-edit-container" });
     this.editContainerEl.style.display = "none";
-    this.editTextarea = new import_obsidian13.TextAreaComponent(this.editContainerEl);
+    this.editTextarea = new import_obsidian12.TextAreaComponent(this.editContainerEl);
     this.editTextarea.inputEl.addClass("ocop-instruction-edit-textarea");
     this.editTextarea.inputEl.rows = 4;
     this.buttonsEl = contentEl.createDiv({ cls: "ocop-instruction-buttons" });
@@ -13633,7 +13113,7 @@ var InstructionModal = class extends import_obsidian13.Modal {
 };
 
 // src/ui/modals/LearningSetupModal.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/core/learning/parsing.ts
 function parseSocraticMeta(content) {
@@ -14048,7 +13528,7 @@ All output must be in Korean.`;
 // src/ui/modals/LearningSetupModal.ts
 var EMPTY_NOTE_READ_CONCURRENCY = 16;
 var NO_EVIDENCE = "No eligible course notes selected.";
-var LearningSetupModal = class extends import_obsidian14.Modal {
+var LearningSetupModal = class extends import_obsidian13.Modal {
   constructor(app, activeFilePath, initialMode, initialFocusText = "") {
     super(app);
     this.activeFilePath = activeFilePath;
@@ -14104,7 +13584,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     const renderDetails = () => {
       detailsEl.empty();
       if (subjectRoot) {
-        new import_obsidian14.Setting(detailsEl).setName("\uBC94\uC704 \uC120\uD0DD").setDesc(this.useFullVault ? "\uBCF4\uAD00\uD568 \uC804\uCCB4\uC5D0\uC11C \uB178\uD2B8\uB97C \uCC3E\uC2B5\uB2C8\uB2E4." : `${subjectRoot} \uC544\uB798\uC758 \uB178\uD2B8\uB97C \uD45C\uC2DC\uD569\uB2C8\uB2E4.`).addToggle((toggle) => {
+        new import_obsidian13.Setting(detailsEl).setName("\uBC94\uC704 \uC120\uD0DD").setDesc(this.useFullVault ? "\uBCF4\uAD00\uD568 \uC804\uCCB4\uC5D0\uC11C \uB178\uD2B8\uB97C \uCC3E\uC2B5\uB2C8\uB2E4." : `${subjectRoot} \uC544\uB798\uC758 \uB178\uD2B8\uB97C \uD45C\uC2DC\uD569\uB2C8\uB2E4.`).addToggle((toggle) => {
           toggle.setValue(this.useFullVault).onChange((value) => {
             this.useFullVault = value;
             this.selectedNotePaths.clear();
@@ -14165,7 +13645,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
         });
       }
     };
-    new import_obsidian14.Setting(this.contentEl).setName("\uD559\uC2B5 \uC790\uB8CC").setDesc("\uD559\uC2B5\uC5D0 \uC0AC\uC6A9\uD560 \uB178\uD2B8\uB97C \uACE0\uB985\uB2C8\uB2E4. \uC900\uBE44 \uBC29\uBC95\uC744 \uC801\uC740 \uB178\uD2B8(Brief\xB7\uAC1C\uC694 \uB4F1)\uB97C \uD568\uAED8 \uACE0\uB974\uBA74 \uADF8 \uC9C0\uC2DC\uC5D0 \uB9DE\uCDB0 \uC9C4\uD589\uD569\uB2C8\uB2E4.").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("\uD559\uC2B5 \uC790\uB8CC").setDesc("\uD559\uC2B5\uC5D0 \uC0AC\uC6A9\uD560 \uB178\uD2B8\uB97C \uACE0\uB985\uB2C8\uB2E4. \uC900\uBE44 \uBC29\uBC95\uC744 \uC801\uC740 \uB178\uD2B8(Brief\xB7\uAC1C\uC694 \uB4F1)\uB97C \uD568\uAED8 \uACE0\uB974\uBA74 \uADF8 \uC9C0\uC2DC\uC5D0 \uB9DE\uCDB0 \uC9C4\uD589\uD569\uB2C8\uB2E4.").addDropdown((dropdown) => {
       if (this.activeFilePath) {
         dropdown.addOption("current-note", "\uD604\uC7AC \uB178\uD2B8");
       }
@@ -14186,7 +13666,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
         text: "\uC120\uC218 \uC9C0\uC2DD\uC774 \uBE44\uC5B4 \uC788\uAC70\uB098 \uC790\uB8CC\uC758 \uC124\uBA85\uC774 \uBD80\uC871\uD558\uBA74, \uC774\uD574\uC5D0 \uD544\uC694\uD55C \uB9CC\uD07C \uC26C\uC6B4 \uC608\uC2DC\uB85C \uC124\uBA85\uD55C \uB4A4 \uD559\uC2B5 \uC8FC\uC81C\uC640 \uC5F0\uACB0\uD569\uB2C8\uB2E4."
       });
     }
-    new import_obsidian14.Setting(this.contentEl).setName("\uC9D1\uC911\uD560 \uC8FC\uC81C (\uC120\uD0DD)").setDesc("\uC608: \uC815\uADDC\uD654, \uC870\uAC74\uBD80\uD655\uB960, \uC2E0\uB8B0\uAD6C\uAC04").addText((text) => {
+    new import_obsidian13.Setting(this.contentEl).setName("\uC9D1\uC911\uD560 \uC8FC\uC81C (\uC120\uD0DD)").setDesc("\uC608: \uC815\uADDC\uD654, \uC870\uAC74\uBD80\uD655\uB960, \uC2E0\uB8B0\uAD6C\uAC04").addText((text) => {
       text.setPlaceholder("\uBE44\uC6B0\uBA74 \uC120\uD0DD\uD55C \uBC94\uC704 \uC804\uCCB4\uC5D0\uC11C \uC2DC\uC791\uD569\uB2C8\uB2E4").setValue(this.focusText).onChange((value) => {
         this.focusText = value.trim();
       });
@@ -14209,7 +13689,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
       for (const path17 of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path17);
       const checked = new Set(paths);
       if (this.buildScope().paths.some((path17) => !checked.has(path17))) {
-        new import_obsidian14.Notice("\uC790\uB8CC\uB97C \uD655\uC778\uD558\uB294 \uB3D9\uC548 \uC120\uD0DD\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+        new import_obsidian13.Notice("\uC790\uB8CC\uB97C \uD655\uC778\uD558\uB294 \uB3D9\uC548 \uC120\uD0DD\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
         return;
       }
       const result = this.buildResult();
@@ -14224,7 +13704,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     const isEmpty = async (path17) => {
       var _a, _b;
       const file = (_b = (_a = this.app.vault).getAbstractFileByPath) == null ? void 0 : _b.call(_a, path17);
-      if (!(file instanceof import_obsidian14.TFile)) return true;
+      if (!(file instanceof import_obsidian13.TFile)) return true;
       try {
         return !stripFrontmatter(await this.app.vault.cachedRead(file)).trim();
       } catch (e) {
@@ -14244,7 +13724,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
   }
   canStart(result) {
     if (!result.hasSourceNotes) {
-      new import_obsidian14.Notice("\uD559\uC2B5\uC5D0 \uC4F8 \uB178\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uB0B4\uC6A9\uC774 \uC788\uB294 \uB178\uD2B8\uB97C \uC120\uD0DD\uD558\uC138\uC694.");
+      new import_obsidian13.Notice("\uD559\uC2B5\uC5D0 \uC4F8 \uB178\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uB0B4\uC6A9\uC774 \uC788\uB294 \uB178\uD2B8\uB97C \uC120\uD0DD\uD558\uC138\uC694.");
       return false;
     }
     return true;
@@ -14269,7 +13749,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
     });
   }
   renderQuizSettings() {
-    new import_obsidian14.Setting(this.contentEl).setName("\uBB38\uC81C \uC218").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("\uBB38\uC81C \uC218").addDropdown((dropdown) => {
       for (const count of ["3", "4", "5", "6", "7", "8", "9", "10"]) {
         dropdown.addOption(count, `${count}\uBB38\uC81C`);
       }
@@ -14277,7 +13757,7 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
         this.questionCount = value;
       });
     });
-    new import_obsidian14.Setting(this.contentEl).setName("\uB09C\uC774\uB3C4").addDropdown((dropdown) => {
+    new import_obsidian13.Setting(this.contentEl).setName("\uB09C\uC774\uB3C4").addDropdown((dropdown) => {
       dropdown.addOption("\uD558", "\uD558 \u2014 \uAE30\uBCF8 \uAC1C\uB150 \uD655\uC778");
       dropdown.addOption("\uC911", "\uC911 \u2014 \uC885\uD569 \uC774\uD574 (\uAE30\uBCF8\uAC12)");
       dropdown.addOption("\uC0C1", "\uC0C1 \u2014 \uC2EC\uD654 (\uC6F9 \uAC80\uC0C9 \uC790\uB3D9 \uD65C\uC131\uD654)");
@@ -14403,8 +13883,8 @@ var LearningSetupModal = class extends import_obsidian14.Modal {
 };
 
 // src/ui/modals/UnsafeAgyAgentConsentModal.ts
-var import_obsidian15 = require("obsidian");
-var UnsafeAgyAgentConsentModal = class extends import_obsidian15.Modal {
+var import_obsidian14 = require("obsidian");
+var UnsafeAgyAgentConsentModal = class extends import_obsidian14.Modal {
   constructor(app, onResolve) {
     super(app);
     this.onResolve = onResolve;
@@ -14420,7 +13900,7 @@ var UnsafeAgyAgentConsentModal = class extends import_obsidian15.Modal {
       text: "\uC124\uC815\uC744 \uCF1C\uB3C4 Agent\uB85C \uBC14\uAFC0 \uB54C\uB9C8\uB2E4 \uB2E4\uC2DC \uD655\uC778\uD569\uB2C8\uB2E4. \uCDE8\uC18C\uD558\uAC70\uB098 \uCC3D\uC744 \uB2EB\uC73C\uBA74 \uAEBC\uC9C4 \uC0C1\uD0DC\uB97C \uC720\uC9C0\uD569\uB2C8\uB2E4.",
       cls: "setting-item-description"
     });
-    new import_obsidian15.Setting(this.contentEl).addButton((button) => button.setButtonText("\uCDE8\uC18C").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC704\uD5D8\uC744 \uC774\uD574\uD558\uACE0 \uD5C8\uC6A9").setWarning().onClick(() => this.finish(true)));
+    new import_obsidian14.Setting(this.contentEl).addButton((button) => button.setButtonText("\uCDE8\uC18C").onClick(() => this.finish(false))).addButton((button) => button.setButtonText("\uC704\uD5D8\uC744 \uC774\uD574\uD558\uACE0 \uD5C8\uC6A9").setWarning().onClick(() => this.finish(true)));
   }
   finish(accepted) {
     this.answered = true;
@@ -14434,7 +13914,7 @@ var UnsafeAgyAgentConsentModal = class extends import_obsidian15.Modal {
 };
 
 // src/ui/renderers/AskUserQuestionRenderer.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 function parseAskUserQuestionInput(input) {
   if (!input || typeof input !== "object") return null;
   const questions = input.questions;
@@ -14494,16 +13974,16 @@ function finalizeAskUserQuestionBlock(state, answers, isError, questions) {
   state.headerEl.setAttribute("aria-expanded", "false");
   const iconEl = state.headerEl.createDiv({ cls: "ocop-ask-question-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "help-circle");
+  (0, import_obsidian15.setIcon)(iconEl, "help-circle");
   const labelEl = state.headerEl.createDiv({ cls: "ocop-ask-question-label" });
   labelEl.setText("Clarification");
   const countEl = state.headerEl.createDiv({ cls: "ocop-ask-question-count" });
   countEl.setText(questionCount === 1 ? "1 question" : `${questionCount} questions`);
   const statusEl = state.headerEl.createDiv({ cls: `ocop-ask-question-status status-${isError ? "error" : "completed"}` });
   if (isError) {
-    (0, import_obsidian16.setIcon)(statusEl, "x");
+    (0, import_obsidian15.setIcon)(statusEl, "x");
   } else {
-    (0, import_obsidian16.setIcon)(statusEl, "check");
+    (0, import_obsidian15.setIcon)(statusEl, "check");
   }
   state.contentEl.empty();
   state.contentEl.style.display = "none";
@@ -14554,7 +14034,7 @@ function renderStoredAskUserQuestion(parentEl, toolCall) {
   headerEl.setAttribute("aria-label", `Clarification - ${toolCall.status}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-ask-question-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian16.setIcon)(iconEl, "help-circle");
+  (0, import_obsidian15.setIcon)(iconEl, "help-circle");
   const labelEl = headerEl.createDiv({ cls: "ocop-ask-question-label" });
   labelEl.setText("Clarification");
   const countEl = headerEl.createDiv({ cls: "ocop-ask-question-count" });
@@ -14562,9 +14042,9 @@ function renderStoredAskUserQuestion(parentEl, toolCall) {
   const statusEl = headerEl.createDiv({ cls: `ocop-ask-question-status status-${toolCall.status}` });
   statusEl.setAttribute("aria-label", `Status: ${toolCall.status}`);
   if (isCompleted) {
-    (0, import_obsidian16.setIcon)(statusEl, "check");
+    (0, import_obsidian15.setIcon)(statusEl, "check");
   } else if (isError) {
-    (0, import_obsidian16.setIcon)(statusEl, "x");
+    (0, import_obsidian15.setIcon)(statusEl, "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-ask-question-content" });
   contentEl.style.display = "none";
@@ -14727,7 +14207,7 @@ function isBinaryContent(content) {
 }
 
 // src/ui/renderers/SubagentRenderer.ts
-var import_obsidian18 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 
 // src/ui/utils/collapsible.ts
 function setupCollapsible(wrapperEl, headerEl, contentEl, state, options = {}) {
@@ -14778,7 +14258,7 @@ function collapseElement(wrapperEl, headerEl, contentEl, state) {
 }
 
 // src/ui/renderers/ToolCallRenderer.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 
 // src/features/chat/constants.ts
 var MCP_ICON_SVG = `<svg fill="currentColor" fill-rule="evenodd" height="1em" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>MCP</title><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"></path><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"></path></svg>`;
@@ -14796,7 +14276,7 @@ function setToolIcon(el, name) {
   if (icon === MCP_ICON_MARKER) {
     el.innerHTML = MCP_ICON_SVG;
   } else {
-    (0, import_obsidian17.setIcon)(el, icon);
+    (0, import_obsidian16.setIcon)(el, icon);
   }
 }
 function parseMcpToolName(name) {
@@ -14991,11 +14471,11 @@ function createToolCallDOM(parentEl, toolCall) {
 }
 function setStatusIcon(statusEl, status) {
   if (status === "completed") {
-    (0, import_obsidian17.setIcon)(statusEl, "check");
+    (0, import_obsidian16.setIcon)(statusEl, "check");
   } else if (status === "error") {
-    (0, import_obsidian17.setIcon)(statusEl, "x");
+    (0, import_obsidian16.setIcon)(statusEl, "x");
   } else if (status === "blocked") {
-    (0, import_obsidian17.setIcon)(statusEl, "shield-off");
+    (0, import_obsidian16.setIcon)(statusEl, "shield-off");
   }
 }
 function renderToolCall(parentEl, toolCall, toolCallElements) {
@@ -15082,7 +14562,7 @@ function createSubagentBlock(parentEl, taskToolId, taskInput) {
   headerEl.setAttribute("aria-label", `Subagent task: ${truncateDescription(description)} - click to expand`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian18.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(description));
   const countEl = headerEl.createDiv({ cls: "ocop-subagent-count" });
@@ -15153,9 +14633,9 @@ function finalizeSubagentBlock(state, result, isError) {
   state.statusEl.addClass(`status-${state.info.status}`);
   state.statusEl.empty();
   if (state.info.status === "completed") {
-    (0, import_obsidian18.setIcon)(state.statusEl, "check");
+    (0, import_obsidian17.setIcon)(state.statusEl, "check");
   } else {
-    (0, import_obsidian18.setIcon)(state.statusEl, "x");
+    (0, import_obsidian17.setIcon)(state.statusEl, "x");
   }
   if (state.info.status === "completed") {
     state.wrapperEl.addClass("done");
@@ -15186,7 +14666,7 @@ function renderStoredSubagent(parentEl, subagent) {
   headerEl.setAttribute("aria-label", `Subagent task: ${truncateDescription(subagent.description)} - ${toolCount} tool uses - Status: ${subagent.status}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian18.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(subagent.description));
   const countEl = headerEl.createDiv({ cls: "ocop-subagent-count" });
@@ -15194,9 +14674,9 @@ function renderStoredSubagent(parentEl, subagent) {
   const statusEl = headerEl.createDiv({ cls: `ocop-subagent-status status-${subagent.status}` });
   statusEl.setAttribute("aria-label", `Status: ${subagent.status}`);
   if (subagent.status === "completed") {
-    (0, import_obsidian18.setIcon)(statusEl, "check");
+    (0, import_obsidian17.setIcon)(statusEl, "check");
   } else if (subagent.status === "error") {
-    (0, import_obsidian18.setIcon)(statusEl, "x");
+    (0, import_obsidian17.setIcon)(statusEl, "x");
   } else {
     statusEl.createSpan({ cls: "ocop-spinner" });
   }
@@ -15275,7 +14755,7 @@ function createAsyncSubagentBlock(parentEl, taskToolId, taskInput) {
   headerEl.setAttribute("aria-label", `Background task: ${description} - Status: \uBC31\uADF8\uB77C\uC6B4\uB4DC \uC791\uC5C5 \uC911`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian18.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(description));
   const statusTextEl = headerEl.createDiv({ cls: "ocop-subagent-status-text" });
@@ -15324,9 +14804,9 @@ function finalizeAsyncSubagent(state, result, isError) {
   state.statusEl.addClass(`status-${isError ? "error" : "completed"}`);
   state.statusEl.empty();
   if (isError) {
-    (0, import_obsidian18.setIcon)(state.statusEl, "x");
+    (0, import_obsidian17.setIcon)(state.statusEl, "x");
   } else {
-    (0, import_obsidian18.setIcon)(state.statusEl, "check");
+    (0, import_obsidian17.setIcon)(state.statusEl, "check");
   }
   if (isError) {
     state.wrapperEl.addClass("error");
@@ -15354,7 +14834,7 @@ function markAsyncSubagentOrphaned(state) {
   state.statusTextEl.setText("Orphaned");
   state.statusEl.className = "ocop-subagent-status status-error";
   state.statusEl.empty();
-  (0, import_obsidian18.setIcon)(state.statusEl, "alert-circle");
+  (0, import_obsidian17.setIcon)(state.statusEl, "alert-circle");
   state.wrapperEl.addClass("error");
   state.wrapperEl.addClass("orphaned");
   state.contentEl.empty();
@@ -15382,7 +14862,7 @@ function renderStoredAsyncSubagent(parentEl, subagent) {
   headerEl.setAttribute("aria-label", `Background task: ${subagent.description} - Status: ${statusText}`);
   const iconEl = headerEl.createDiv({ cls: "ocop-subagent-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian18.setIcon)(iconEl, "bot");
+  (0, import_obsidian17.setIcon)(iconEl, "bot");
   const labelEl = headerEl.createDiv({ cls: "ocop-subagent-label" });
   labelEl.setText(truncateDescription(subagent.description));
   const statusTextEl = headerEl.createDiv({ cls: "ocop-subagent-status-text" });
@@ -15391,9 +14871,9 @@ function renderStoredAsyncSubagent(parentEl, subagent) {
   const statusEl = headerEl.createDiv({ cls: `ocop-subagent-status ${statusIconClass}` });
   statusEl.setAttribute("aria-label", `Status: ${statusText}`);
   if (subagent.asyncStatus === "completed") {
-    (0, import_obsidian18.setIcon)(statusEl, "check");
+    (0, import_obsidian17.setIcon)(statusEl, "check");
   } else if (subagent.asyncStatus === "error" || subagent.asyncStatus === "orphaned") {
-    (0, import_obsidian18.setIcon)(statusEl, subagent.asyncStatus === "orphaned" ? "alert-circle" : "x");
+    (0, import_obsidian17.setIcon)(statusEl, subagent.asyncStatus === "orphaned" ? "alert-circle" : "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-subagent-content" });
   const statusRow = contentEl.createDiv({ cls: "ocop-subagent-done" });
@@ -15535,7 +15015,7 @@ function extractLastTodosFromMessages(messages) {
 }
 
 // src/ui/renderers/WriteEditRenderer.ts
-var import_obsidian19 = require("obsidian");
+var import_obsidian18 = require("obsidian");
 function shortenPath2(filePath, maxLength = 40) {
   if (!filePath) return "file";
   const normalized = filePath.replace(/\\/g, "/");
@@ -15571,7 +15051,7 @@ function createWriteEditBlock(parentEl, toolCall) {
   headerEl.setAttribute("aria-label", `${toolName}: ${shortenPath2(filePath)} - click to expand`);
   const iconEl = headerEl.createDiv({ cls: "ocop-write-edit-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian19.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
+  (0, import_obsidian18.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
   const labelEl = headerEl.createDiv({ cls: "ocop-write-edit-label" });
   labelEl.setText(`${toolName}: ${shortenPath2(filePath)}`);
   const statsEl = headerEl.createDiv({ cls: "ocop-write-edit-stats" });
@@ -15639,7 +15119,7 @@ function finalizeWriteEditBlock(state, isError) {
   state.statusEl.empty();
   if (isError) {
     state.statusEl.addClass("status-error");
-    (0, import_obsidian19.setIcon)(state.statusEl, "x");
+    (0, import_obsidian18.setIcon)(state.statusEl, "x");
     state.statusEl.setAttribute("aria-label", "Status: error");
     if (!state.diffLines) {
       state.contentEl.empty();
@@ -15670,7 +15150,7 @@ function renderStoredWriteEdit(parentEl, toolCall) {
   headerEl.setAttribute("role", "button");
   const iconEl = headerEl.createDiv({ cls: "ocop-write-edit-icon" });
   iconEl.setAttribute("aria-hidden", "true");
-  (0, import_obsidian19.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
+  (0, import_obsidian18.setIcon)(iconEl, toolName === TOOL_EDIT ? "file-pen" : "file-plus");
   const labelEl = headerEl.createDiv({ cls: "ocop-write-edit-label" });
   labelEl.setText(`${toolName}: ${shortenPath2(filePath)}`);
   const statsEl = headerEl.createDiv({ cls: "ocop-write-edit-stats" });
@@ -15692,7 +15172,7 @@ function renderStoredWriteEdit(parentEl, toolCall) {
   const statusEl = headerEl.createDiv({ cls: "ocop-write-edit-status" });
   if (isError) {
     statusEl.addClass("status-error");
-    (0, import_obsidian19.setIcon)(statusEl, "x");
+    (0, import_obsidian18.setIcon)(statusEl, "x");
   }
   const contentEl = wrapperEl.createDiv({ cls: "ocop-write-edit-content" });
   const row = contentEl.createDiv({ cls: "ocop-write-edit-diff-row" });
@@ -15721,8 +15201,8 @@ function renderStoredWriteEdit(parentEl, toolCall) {
 }
 
 // src/ui/settings/EnvSnippetManager.ts
-var import_obsidian20 = require("obsidian");
-var EnvSnippetModal = class extends import_obsidian20.Modal {
+var import_obsidian19 = require("obsidian");
+var EnvSnippetModal = class extends import_obsidian19.Modal {
   constructor(app, plugin, snippet, onSave) {
     super(app);
     this.plugin = plugin;
@@ -15749,7 +15229,7 @@ var EnvSnippetModal = class extends import_obsidian20.Modal {
       var _a;
       const name = nameEl.value.trim();
       if (!name) {
-        new import_obsidian20.Notice("Please enter a name for the snippet");
+        new import_obsidian19.Notice("Please enter a name for the snippet");
         return;
       }
       const snippet = {
@@ -15761,19 +15241,19 @@ var EnvSnippetModal = class extends import_obsidian20.Modal {
       this.onSave(snippet);
       this.close();
     };
-    new import_obsidian20.Setting(contentEl).setName("Name").setDesc("A descriptive name for this environment configuration").addText((text) => {
+    new import_obsidian19.Setting(contentEl).setName("Name").setDesc("A descriptive name for this environment configuration").addText((text) => {
       var _a;
       nameEl = text.inputEl;
       text.setValue(((_a = this.snippet) == null ? void 0 : _a.name) || "");
       text.inputEl.addEventListener("keydown", handleKeyDown);
     });
-    new import_obsidian20.Setting(contentEl).setName("Description").setDesc("Optional description").addText((text) => {
+    new import_obsidian19.Setting(contentEl).setName("Description").setDesc("Optional description").addText((text) => {
       var _a;
       descEl = text.inputEl;
       text.setValue(((_a = this.snippet) == null ? void 0 : _a.description) || "");
       text.inputEl.addEventListener("keydown", handleKeyDown);
     });
-    const envVarsSetting = new import_obsidian20.Setting(contentEl).setName("Environment variables").setDesc("KEY=VALUE format, one per line").addTextArea((text) => {
+    const envVarsSetting = new import_obsidian19.Setting(contentEl).setName("Environment variables").setDesc("KEY=VALUE format, one per line").addTextArea((text) => {
       var _a, _b;
       envVarsEl = text.inputEl;
       const envVarsToShow = (_b = (_a = this.snippet) == null ? void 0 : _a.envVars) != null ? _b : this.plugin.settings.environmentVariables;
@@ -15814,7 +15294,7 @@ var EnvSnippetManager = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Save current" }
     });
-    (0, import_obsidian20.setIcon)(saveBtn, "plus");
+    (0, import_obsidian19.setIcon)(saveBtn, "plus");
     saveBtn.addEventListener("click", () => this.saveCurrentEnv());
     const snippets = this.plugin.settings.envSnippets;
     if (snippets.length === 0) {
@@ -15838,7 +15318,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn",
         attr: { "aria-label": "Insert" }
       });
-      (0, import_obsidian20.setIcon)(restoreBtn, "clipboard-paste");
+      (0, import_obsidian19.setIcon)(restoreBtn, "clipboard-paste");
       restoreBtn.addEventListener("click", async () => {
         await this.insertSnippet(snippet);
       });
@@ -15846,7 +15326,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn",
         attr: { "aria-label": "Edit" }
       });
-      (0, import_obsidian20.setIcon)(editBtn, "pencil");
+      (0, import_obsidian19.setIcon)(editBtn, "pencil");
       editBtn.addEventListener("click", () => {
         this.editSnippet(snippet);
       });
@@ -15854,7 +15334,7 @@ var EnvSnippetManager = class {
         cls: "ocop-settings-action-btn ocop-settings-delete-btn",
         attr: { "aria-label": "Delete" }
       });
-      (0, import_obsidian20.setIcon)(deleteBtn, "trash-2");
+      (0, import_obsidian19.setIcon)(deleteBtn, "trash-2");
       deleteBtn.addEventListener("click", async () => {
         if (confirm(`Delete environment snippet "${snippet.name}"?`)) {
           await this.deleteSnippet(snippet);
@@ -15871,7 +15351,7 @@ var EnvSnippetManager = class {
         this.plugin.settings.envSnippets.push(snippet);
         await this.plugin.saveSettings();
         this.render();
-        new import_obsidian20.Notice(`Environment snippet "${snippet.name}" saved`);
+        new import_obsidian19.Notice(`Environment snippet "${snippet.name}" saved`);
       }
     );
     modal.open();
@@ -15909,7 +15389,7 @@ var EnvSnippetManager = class {
           this.plugin.settings.envSnippets[index] = updatedSnippet;
           await this.plugin.saveSettings();
           this.render();
-          new import_obsidian20.Notice(`Environment snippet "${updatedSnippet.name}" updated`);
+          new import_obsidian19.Notice(`Environment snippet "${updatedSnippet.name}" updated`);
         }
       }
     );
@@ -15919,7 +15399,7 @@ var EnvSnippetManager = class {
     this.plugin.settings.envSnippets = this.plugin.settings.envSnippets.filter((s) => s.id !== snippet.id);
     await this.plugin.saveSettings();
     this.render();
-    new import_obsidian20.Notice(`Environment snippet "${snippet.name}" deleted`);
+    new import_obsidian19.Notice(`Environment snippet "${snippet.name}" deleted`);
   }
   refresh() {
     this.render();
@@ -15927,8 +15407,8 @@ var EnvSnippetManager = class {
 };
 
 // src/ui/settings/SlashCommandSettings.ts
-var import_obsidian21 = require("obsidian");
-var SlashCommandModal = class extends import_obsidian21.Modal {
+var import_obsidian20 = require("obsidian");
+var SlashCommandModal = class extends import_obsidian20.Modal {
   constructor(app, plugin, existingCmd, onSave) {
     super(app);
     this.plugin = plugin;
@@ -15944,34 +15424,34 @@ var SlashCommandModal = class extends import_obsidian21.Modal {
     let hintInput;
     let modelInput;
     let toolsInput;
-    new import_obsidian21.Setting(contentEl).setName("Command name").setDesc('The name used after / (e.g., "review" for /review)').addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Command name").setDesc('The name used after / (e.g., "review" for /review)').addText((text) => {
       var _a;
       nameInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.name) || "").setPlaceholder("review-code");
     });
-    new import_obsidian21.Setting(contentEl).setName("Description").setDesc("Optional description shown in dropdown").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Description").setDesc("Optional description shown in dropdown").addText((text) => {
       var _a;
       descInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.description) || "");
     });
-    new import_obsidian21.Setting(contentEl).setName("Argument hint").setDesc('Placeholder text for arguments (e.g., "[file] [focus]")').addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Argument hint").setDesc('Placeholder text for arguments (e.g., "[file] [focus]")').addText((text) => {
       var _a;
       hintInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.argumentHint) || "");
     });
-    new import_obsidian21.Setting(contentEl).setName("Model override").setDesc("Optional model to use for this command").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Model override").setDesc("Optional model to use for this command").addText((text) => {
       var _a;
       modelInput = text.inputEl;
       text.setValue(((_a = this.existingCmd) == null ? void 0 : _a.model) || "").setPlaceholder("claude-sonnet-4-5");
     });
-    new import_obsidian21.Setting(contentEl).setName("Allowed tools").setDesc("Comma-separated tools to allow. Leave blank for unrestricted. Zero-tool mode is not supported by the current CLI contract.").addText((text) => {
+    new import_obsidian20.Setting(contentEl).setName("Allowed tools").setDesc("Comma-separated tools to allow. Leave blank for unrestricted. Zero-tool mode is not supported by the current CLI contract.").addText((text) => {
       var _a;
       toolsInput = text.inputEl;
       text.setValue(
         ((_a = this.existingCmd) == null ? void 0 : _a.allowedTools) === void 0 ? "" : this.existingCmd.allowedTools.length === 0 ? "none" : this.existingCmd.allowedTools.join(", ")
       );
     });
-    new import_obsidian21.Setting(contentEl).setName("Prompt template").setDesc("Use $ARGUMENTS, $1, $2, @file, !`bash`");
+    new import_obsidian20.Setting(contentEl).setName("Prompt template").setDesc("Use $ARGUMENTS, $1, $2, @file, !`bash`");
     const contentArea = contentEl.createEl("textarea", {
       cls: "ocop-slash-content-area",
       attr: {
@@ -15995,16 +15475,16 @@ var SlashCommandModal = class extends import_obsidian21.Modal {
       var _a;
       const name = nameInput.value.trim();
       if (!name) {
-        new import_obsidian21.Notice("Command name is required");
+        new import_obsidian20.Notice("Command name is required");
         return;
       }
       const content = contentArea.value;
       if (!content.trim()) {
-        new import_obsidian21.Notice("Prompt template is required");
+        new import_obsidian20.Notice("Prompt template is required");
         return;
       }
       if (!/^[a-zA-Z0-9_/-]+$/.test(name)) {
-        new import_obsidian21.Notice("Command name can only contain letters, numbers, hyphens, underscores, and slashes");
+        new import_obsidian20.Notice("Command name can only contain letters, numbers, hyphens, underscores, and slashes");
         return;
       }
       const existing = this.plugin.settings.slashCommands.find(
@@ -16014,13 +15494,13 @@ var SlashCommandModal = class extends import_obsidian21.Modal {
         }
       );
       if (existing) {
-        new import_obsidian21.Notice(`A command named "/${name}" already exists`);
+        new import_obsidian20.Notice(`A command named "/${name}" already exists`);
         return;
       }
       const parsed = parseSlashCommandContent(content);
       const promptContent = parsed.promptContent;
       if (toolsInput.value.trim().toLowerCase() === "none") {
-        new import_obsidian21.Notice("Zero-tool mode is not supported. Specify at least one tool or leave Allowed tools blank.");
+        new import_obsidian20.Notice("Zero-tool mode is not supported. Specify at least one tool or leave Allowed tools blank.");
         return;
       }
       const cmd = {
@@ -16062,19 +15542,19 @@ var SlashCommandSettings = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Import" }
     });
-    (0, import_obsidian21.setIcon)(importBtn, "download");
+    (0, import_obsidian20.setIcon)(importBtn, "download");
     importBtn.addEventListener("click", () => this.importCommands());
     const exportBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Export" }
     });
-    (0, import_obsidian21.setIcon)(exportBtn, "upload");
+    (0, import_obsidian20.setIcon)(exportBtn, "upload");
     exportBtn.addEventListener("click", () => this.exportCommands());
     const addBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Add" }
     });
-    (0, import_obsidian21.setIcon)(addBtn, "plus");
+    (0, import_obsidian20.setIcon)(addBtn, "plus");
     addBtn.addEventListener("click", () => this.openCommandModal(null));
     const commands = this.plugin.settings.slashCommands;
     if (commands.length === 0) {
@@ -16106,13 +15586,13 @@ var SlashCommandSettings = class {
       cls: "ocop-settings-action-btn",
       attr: { "aria-label": "Edit" }
     });
-    (0, import_obsidian21.setIcon)(editBtn, "pencil");
+    (0, import_obsidian20.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", () => this.openCommandModal(cmd));
     const deleteBtn = actionsEl.createEl("button", {
       cls: "ocop-settings-action-btn ocop-settings-delete-btn",
       attr: { "aria-label": "Delete" }
     });
-    (0, import_obsidian21.setIcon)(deleteBtn, "trash-2");
+    (0, import_obsidian20.setIcon)(deleteBtn, "trash-2");
     deleteBtn.addEventListener("click", async () => {
       await this.deleteCommand(cmd);
     });
@@ -16135,13 +15615,13 @@ var SlashCommandSettings = class {
     }
     await this.reloadCommands();
     this.render();
-    new import_obsidian21.Notice(`Slash command "/${cmd.name}" ${existing ? "updated" : "created"}`);
+    new import_obsidian20.Notice(`Slash command "/${cmd.name}" ${existing ? "updated" : "created"}`);
   }
   async deleteCommand(cmd) {
     await this.plugin.storage.commands.delete(cmd.id);
     await this.reloadCommands();
     this.render();
-    new import_obsidian21.Notice(`Slash command "/${cmd.name}" deleted`);
+    new import_obsidian20.Notice(`Slash command "/${cmd.name}" deleted`);
   }
   /** Reload commands from storage and update in-memory settings. */
   async reloadCommands() {
@@ -16151,7 +15631,7 @@ var SlashCommandSettings = class {
   exportCommands() {
     const commands = this.plugin.settings.slashCommands;
     if (commands.length === 0) {
-      new import_obsidian21.Notice("No slash commands to export");
+      new import_obsidian20.Notice("No slash commands to export");
       return;
     }
     const json = JSON.stringify(commands, null, 2);
@@ -16162,7 +15642,7 @@ var SlashCommandSettings = class {
     a.download = "ocop-slash-commands.json";
     a.click();
     URL.revokeObjectURL(url);
-    new import_obsidian21.Notice(`Exported ${commands.length} slash command(s)`);
+    new import_obsidian20.Notice(`Exported ${commands.length} slash command(s)`);
   }
   importCommands() {
     const input = document.createElement("input");
@@ -16222,9 +15702,9 @@ var SlashCommandSettings = class {
         }
         await this.reloadCommands();
         this.render();
-        new import_obsidian21.Notice(`Imported ${imported} slash command(s)`);
+        new import_obsidian20.Notice(`Imported ${imported} slash command(s)`);
       } catch (e2) {
-        new import_obsidian21.Notice("Failed to import slash commands. Check file format.");
+        new import_obsidian20.Notice("Failed to import slash commands. Check file format.");
       }
     });
     input.click();
@@ -16303,7 +15783,7 @@ var MentionHighlighter = class {
 init_path();
 
 // src/features/chat/controllers/ConversationController.ts
-var import_obsidian22 = require("obsidian");
+var import_obsidian21 = require("obsidian");
 var ConversationController = class {
   constructor(deps, callbacks = {}) {
     this.deps = deps;
@@ -16338,10 +15818,6 @@ var ConversationController = class {
     state.clearMessages();
     state.usage = null;
     state.currentTodos = null;
-    this.deps.setApprovedPlan(null);
-    this.deps.hidePlanBanner();
-    state.pendingPlanContent = null;
-    this.restorePlanModeState();
     const messagesEl = this.deps.getMessagesEl();
     messagesEl.empty();
     (_b = this.deps.getTodoPanel()) == null ? void 0 : _b.remount();
@@ -16365,7 +15841,7 @@ var ConversationController = class {
   }
   /** Loads the active conversation or creates a new one. */
   async loadActive() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e;
     const { plugin, state, renderer } = this.deps;
     let conversation = plugin.getActiveConversation();
     const isNewConversation = !conversation;
@@ -16376,17 +15852,8 @@ var ConversationController = class {
     state.messages = [...conversation.messages];
     state.usage = (_a = conversation.usage) != null ? _a : null;
     plugin.agentService.setSessionId(conversation.sessionId);
-    if (conversation.approvedPlan) {
-      this.deps.setApprovedPlan(conversation.approvedPlan);
-      this.deps.showPlanBanner(conversation.approvedPlan);
-    } else {
-      this.deps.setApprovedPlan(null);
-      this.deps.hidePlanBanner();
-    }
-    state.pendingPlanContent = (_b = conversation.pendingPlanContent) != null ? _b : null;
-    this.restorePlanModeState();
-    state.quizSession = (_c = conversation.quizSession) != null ? _c : null;
-    state.socraticSession = (_d = conversation.socraticSession) != null ? _d : null;
+    state.quizSession = (_b = conversation.quizSession) != null ? _b : null;
+    state.socraticSession = (_c = conversation.socraticSession) != null ? _c : null;
     this.dismissActiveQuizAnswerPanel();
     const hasMessages = state.messages.length > 0;
     const fileCtx = this.deps.getFileContextManager();
@@ -16409,14 +15876,11 @@ var ConversationController = class {
     this.deps.setWelcomeEl(welcomeEl);
     this.updateWelcomeVisibility();
     state.currentTodos = extractLastTodosFromMessages(state.messages);
-    (_f = (_e = this.callbacks).onConversationLoaded) == null ? void 0 : _f.call(_e);
-    if (conversation.pendingPlanContent && !conversation.approvedPlan) {
-      this.deps.triggerPendingPlanApproval(conversation.pendingPlanContent);
-    }
+    (_e = (_d = this.callbacks).onConversationLoaded) == null ? void 0 : _e.call(_d);
   }
   /** Switches to a different conversation. */
   async switchTo(id) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f;
     const { plugin, state, renderer, asyncSubagentManager } = this.deps;
     if (id === state.currentConversationId) return;
     if (state.isStreaming) return;
@@ -16428,17 +15892,8 @@ var ConversationController = class {
     state.currentConversationId = conversation.id;
     state.messages = [...conversation.messages];
     state.usage = (_a = conversation.usage) != null ? _a : null;
-    if (conversation.approvedPlan) {
-      this.deps.setApprovedPlan(conversation.approvedPlan);
-      this.deps.showPlanBanner(conversation.approvedPlan);
-    } else {
-      this.deps.setApprovedPlan(null);
-      this.deps.hidePlanBanner();
-    }
-    state.pendingPlanContent = (_b = conversation.pendingPlanContent) != null ? _b : null;
-    this.restorePlanModeState();
-    state.quizSession = (_c = conversation.quizSession) != null ? _c : null;
-    state.socraticSession = (_d = conversation.socraticSession) != null ? _d : null;
+    state.quizSession = (_b = conversation.quizSession) != null ? _b : null;
+    state.socraticSession = (_c = conversation.socraticSession) != null ? _c : null;
     this.dismissActiveQuizAnswerPanel();
     this.deps.getInputEl().value = "";
     this.deps.clearQueuedMessage();
@@ -16459,16 +15914,13 @@ var ConversationController = class {
     );
     this.deps.setWelcomeEl(welcomeEl);
     state.currentTodos = extractLastTodosFromMessages(state.messages);
-    (_e = this.deps.getHistoryDropdown()) == null ? void 0 : _e.removeClass("visible");
+    (_d = this.deps.getHistoryDropdown()) == null ? void 0 : _d.removeClass("visible");
     this.updateWelcomeVisibility();
-    (_g = (_f = this.callbacks).onConversationSwitched) == null ? void 0 : _g.call(_f);
-    if (conversation.pendingPlanContent && !conversation.approvedPlan) {
-      this.deps.triggerPendingPlanApproval(conversation.pendingPlanContent);
-    }
+    (_f = (_e = this.callbacks).onConversationSwitched) == null ? void 0 : _f.call(_e);
   }
   /** Saves the current conversation. */
   async save(updateLastResponse = false) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d;
     const { plugin, state } = this.deps;
     if (!state.currentConversationId) return;
     const sessionId = plugin.agentService.getSessionId();
@@ -16476,47 +15928,19 @@ var ConversationController = class {
     const currentNote = (fileCtx == null ? void 0 : fileCtx.getCurrentNotePath()) || void 0;
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = (_a = externalContextSelector == null ? void 0 : externalContextSelector.getExternalContexts()) != null ? _a : [];
-    const approvedPlan = this.deps.getApprovedPlan();
     const updates = {
       messages: state.getPersistedMessages(),
       sessionId,
       currentNote,
       externalContextPaths: externalContextPaths.length > 0 ? externalContextPaths : void 0,
       usage: (_b = state.usage) != null ? _b : void 0,
-      approvedPlan: approvedPlan != null ? approvedPlan : void 0,
-      pendingPlanContent: (_c = state.pendingPlanContent) != null ? _c : void 0,
-      isInPlanMode: (_e = (_d = state.planModeState) == null ? void 0 : _d.isActive) != null ? _e : void 0,
-      quizSession: (_f = state.quizSession) != null ? _f : void 0,
-      socraticSession: (_g = state.socraticSession) != null ? _g : void 0
+      quizSession: (_c = state.quizSession) != null ? _c : void 0,
+      socraticSession: (_d = state.socraticSession) != null ? _d : void 0
     };
     if (updateLastResponse) {
       updates.lastResponseAt = Date.now();
     }
     await plugin.updateConversation(state.currentConversationId, updates);
-  }
-  /**
-   * Restores plan mode state based on current permission mode.
-   * Resets transient flags and sets up planModeState appropriately.
-   */
-  restorePlanModeState() {
-    var _a, _b;
-    const { plugin, state } = this.deps;
-    state.planModeRequested = false;
-    state.planModeActivationPending = false;
-    const isPlanMode = plugin.settings.permissionMode === "plan";
-    if (isPlanMode) {
-      const wasAgentInitiated = (_b = (_a = state.planModeState) == null ? void 0 : _a.agentInitiated) != null ? _b : false;
-      state.planModeState = {
-        isActive: true,
-        planFilePath: null,
-        planContent: null,
-        originalQuery: null,
-        agentInitiated: wasAgentInitiated
-      };
-    } else {
-      state.resetPlanModeState();
-    }
-    this.deps.setPlanModeActive(isPlanMode);
   }
   // ============================================
   // History Dropdown
@@ -16558,7 +15982,7 @@ var ConversationController = class {
         cls: `ocop-history-item${isCurrent ? " active" : ""}`
       });
       const iconEl = item.createDiv({ cls: "ocop-history-item-icon" });
-      (0, import_obsidian22.setIcon)(iconEl, isCurrent ? "message-square-dot" : "message-square");
+      (0, import_obsidian21.setIcon)(iconEl, isCurrent ? "message-square-dot" : "message-square");
       const content = item.createDiv({ cls: "ocop-history-item-content" });
       const titleEl = content.createDiv({ cls: "ocop-history-item-title", text: conv.title });
       titleEl.setAttribute("title", conv.title);
@@ -16575,11 +15999,11 @@ var ConversationController = class {
       const actions = item.createDiv({ cls: "ocop-history-item-actions" });
       if (conv.titleGenerationStatus === "pending") {
         const loadingEl = actions.createEl("span", { cls: "ocop-action-btn ocop-action-loading" });
-        (0, import_obsidian22.setIcon)(loadingEl, "loader-2");
+        (0, import_obsidian21.setIcon)(loadingEl, "loader-2");
         loadingEl.setAttribute("aria-label", "Generating title...");
       } else if (conv.titleGenerationStatus === "failed") {
         const regenerateBtn = actions.createEl("button", { cls: "ocop-action-btn" });
-        (0, import_obsidian22.setIcon)(regenerateBtn, "refresh-cw");
+        (0, import_obsidian21.setIcon)(regenerateBtn, "refresh-cw");
         regenerateBtn.setAttribute("aria-label", "Regenerate title");
         regenerateBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
@@ -16591,14 +16015,14 @@ var ConversationController = class {
         });
       }
       const renameBtn = actions.createEl("button", { cls: "ocop-action-btn" });
-      (0, import_obsidian22.setIcon)(renameBtn, "pencil");
+      (0, import_obsidian21.setIcon)(renameBtn, "pencil");
       renameBtn.setAttribute("aria-label", "Rename");
       renameBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.showRenameInput(item, conv.id, conv.title);
       });
       const deleteBtn = actions.createEl("button", { cls: "ocop-action-btn ocop-delete-btn" });
-      (0, import_obsidian22.setIcon)(deleteBtn, "trash-2");
+      (0, import_obsidian21.setIcon)(deleteBtn, "trash-2");
       deleteBtn.setAttribute("aria-label", "Delete");
       deleteBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -16681,7 +16105,6 @@ var ConversationController = class {
     const userContent = firstUserMsg.displayContent || firstUserMsg.content;
     const assistantText = firstAssistantMsg.content || ((_a = firstAssistantMsg.contentBlocks) == null ? void 0 : _a.filter((b) => b.type === "text").map((b) => b.content).join("\n")) || "";
     if (!assistantText) return;
-    const isPlan = fullConv.title.startsWith("[Plan]");
     const expectedTitle = fullConv.title;
     await plugin.updateConversation(conversationId, { titleGenerationStatus: "pending" });
     this.updateHistoryDropdown();
@@ -16694,8 +16117,7 @@ var ConversationController = class {
         if (!currentConv) return;
         const userManuallyRenamed = currentConv.title !== expectedTitle;
         if (result.success && result.title && !userManuallyRenamed) {
-          const newTitle = isPlan ? `[Plan] ${result.title}` : result.title;
-          await plugin.renameConversation(convId, newTitle);
+          await plugin.renameConversation(convId, result.title);
           await plugin.updateConversation(convId, { titleGenerationStatus: "success" });
         } else if (!userManuallyRenamed) {
           await plugin.updateConversation(convId, { titleGenerationStatus: "failed" });
@@ -16718,7 +16140,7 @@ var ConversationController = class {
 };
 
 // src/features/chat/controllers/InputController.ts
-var import_obsidian24 = require("obsidian");
+var import_obsidian23 = require("obsidian");
 init_providerRegistry();
 
 // src/core/security/BlocklistChecker.ts
@@ -16815,7 +16237,7 @@ function appendMarkdownSnippet(existingPrompt, snippet) {
 }
 
 // src/features/chat/rendering/MessageRenderer.ts
-var import_obsidian23 = require("obsidian");
+var import_obsidian22 = require("obsidian");
 
 // src/core/images/imageLoader.ts
 var fs11 = __toESM(require("fs"));
@@ -17039,12 +16461,6 @@ var MessageRenderer = class {
       const lastChild = this.messagesEl.lastElementChild;
       return lastChild != null ? lastChild : this.messagesEl;
     }
-    if (msg.approvalIndicator) {
-      const indicatorEl = this.renderApprovalIndicator(msg.approvalIndicator);
-      this.ensureTodoPanelAtBottom();
-      this.scrollToBottom();
-      return indicatorEl;
-    }
     if (msg.role === "user" && msg.images && msg.images.length > 0) {
       this.renderMessageImages(this.messagesEl, msg.images);
     }
@@ -17120,10 +16536,6 @@ var MessageRenderer = class {
     if (msg.hidden) {
       return;
     }
-    if (msg.approvalIndicator) {
-      this.renderApprovalIndicator(msg.approvalIndicator);
-      return;
-    }
     if (msg.role === "user" && msg.images && msg.images.length > 0) {
       this.renderMessageImages(this.messagesEl, msg.images);
     }
@@ -17136,9 +16548,6 @@ var MessageRenderer = class {
     const msgEl = this.messagesEl.createDiv({
       cls: `ocop-message ocop-message-${msg.role}`
     });
-    if (msg.isPlanMessage) {
-      msgEl.classList.add("ocop-message-plan");
-    }
     const contentEl = msgEl.createDiv({ cls: "ocop-message-content" });
     if (msg.role === "assistant") {
       this.createCopyButton(msgEl, msg);
@@ -17152,34 +16561,6 @@ var MessageRenderer = class {
     } else if (msg.role === "assistant") {
       this.renderAssistantContent(msg, contentEl);
     }
-  }
-  /**
-   * Renders an approval indicator for plan mode decisions.
-   */
-  renderApprovalIndicator(indicator) {
-    const indicatorEl = this.messagesEl.createDiv({
-      cls: "ocop-approval-indicator"
-    });
-    const iconEl = indicatorEl.createSpan({ cls: "ocop-approval-indicator-icon" });
-    const textEl = indicatorEl.createSpan({ cls: "ocop-approval-indicator-text" });
-    switch (indicator.type) {
-      case "approve":
-        indicatorEl.classList.add("ocop-approval-indicator-approve");
-        (0, import_obsidian23.setIcon)(iconEl, "check");
-        textEl.textContent = "User approved plan.";
-        break;
-      case "approve_new_session":
-        indicatorEl.classList.add("ocop-approval-indicator-approve");
-        (0, import_obsidian23.setIcon)(iconEl, "check");
-        textEl.textContent = "User approved plan, implement in new session.";
-        break;
-      case "revise":
-        indicatorEl.classList.add("ocop-approval-indicator-revise");
-        (0, import_obsidian23.setIcon)(iconEl, "x");
-        textEl.textContent = indicator.feedback || "User requested revision.";
-        break;
-    }
-    return indicatorEl;
   }
   /**
    * Renders assistant message content (content blocks or fallback).
@@ -17427,7 +16808,7 @@ var MessageRenderer = class {
    */
   async renderContent(el, markdown) {
     el.empty();
-    await import_obsidian23.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
+    await import_obsidian22.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
     el.querySelectorAll("pre").forEach((pre) => {
       var _a, _b;
       if ((_a = pre.parentElement) == null ? void 0 : _a.classList.contains("ocop-code-wrapper")) return;
@@ -17467,13 +16848,13 @@ var MessageRenderer = class {
       cls: "ocop-msg-copy-btn",
       attr: { "aria-label": "Copy message", type: "button" }
     });
-    (0, import_obsidian23.setIcon)(btn, "copy");
+    (0, import_obsidian22.setIcon)(btn, "copy");
     btn.addEventListener("click", () => {
       void navigator.clipboard.writeText(msg.content).then(() => {
-        (0, import_obsidian23.setIcon)(btn, "check");
+        (0, import_obsidian22.setIcon)(btn, "check");
         btn.classList.add("is-copied");
         setTimeout(() => {
-          (0, import_obsidian23.setIcon)(btn, "copy");
+          (0, import_obsidian22.setIcon)(btn, "copy");
           btn.classList.remove("is-copied");
         }, 1500);
       });
@@ -17503,7 +16884,6 @@ var MessageRenderer = class {
 };
 
 // src/features/chat/controllers/InputController.ts
-var PLAN_MODE_REQUEST_PREFIX = "User requested plan mode. Call EnterPlanMode before responding.";
 var CURRENT_NOTE_ONLY_PATTERNS = [
   /현재\s*노트/u,
   /이\s*노트/u,
@@ -17523,6 +16903,9 @@ function parseMentionedLearningCommand(content, fileContextManager) {
 }
 var InputController = class {
   constructor(deps) {
+    /** True while a finished stream is being finalized and saved: the switch lock is held, but nothing is left to cancel. */
+    this.finalizingTurn = false;
+    this.restoredQueuedSend = null;
     this.deps = deps;
   }
   dismissActiveQuizAnswerPanel() {
@@ -17552,12 +16935,12 @@ var InputController = class {
     var _a;
     const { state } = this.deps;
     if (state.isStreaming || state.quizSession || state.socraticSession) {
-      new import_obsidian24.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian23.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
       return false;
     }
     const finalTurn = state.messages.find((message) => message.id === messageId && message.quizReviewAvailable);
     if (!finalTurn) {
-      new import_obsidian24.Notice("\uC774 Quiz\uC758 \uBCF5\uC2B5\uC740 \uC774\uBBF8 \uC2DC\uC791\uD588\uAC70\uB098 \uB354 \uC774\uC0C1 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian23.Notice("\uC774 Quiz\uC758 \uBCF5\uC2B5\uC740 \uC774\uBBF8 \uC2DC\uC791\uD588\uAC70\uB098 \uB354 \uC774\uC0C1 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return true;
     }
     const conversationId = state.currentConversationId;
@@ -17666,7 +17049,6 @@ var InputController = class {
       content: result.prompt,
       displayContentOverride: result.displayContent,
       promptPrefix: options.promptPrefix,
-      hidden: options.hidden,
       editorContextOverride: options.editorContextOverride
     };
     if (result.mode === "quiz") {
@@ -17694,7 +17076,7 @@ var InputController = class {
     });
   }
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
@@ -17706,25 +17088,34 @@ var InputController = class {
     let content = (contentOverride != null ? contentOverride : inputEl.value).trim();
     const hasImages = (_a = imageContextManager == null ? void 0 : imageContextManager.hasImages()) != null ? _a : false;
     if (!content && !hasImages) return;
-    const quizSessionInit = (_b = options == null ? void 0 : options.quizSessionInit) != null ? _b : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
+    const restored = shouldUseInput ? this.takeRestoredQueuedSend(content) : null;
+    if (restored) {
+      options = {
+        ...options,
+        editorContextOverride: (options == null ? void 0 : options.editorContextOverride) !== void 0 ? options.editorContextOverride : restored.editorContext,
+        promptPrefix: (_b = options == null ? void 0 : options.promptPrefix) != null ? _b : restored.promptPrefix,
+        skipLearningCommand: true
+      };
+    }
+    const quizSessionInit = (_c = options == null ? void 0 : options.quizSessionInit) != null ? _c : this.inferQuizSessionInit(options == null ? void 0 : options.displayContentOverride);
     const socraticSessionInit = options == null ? void 0 : options.socraticSessionInit;
     const learningRequest = Boolean(
       quizSessionInit || state.quizSession || socraticSessionInit || state.socraticSession
     );
     const quizRequest = Boolean(quizSessionInit || !socraticSessionInit && state.quizSession);
-    const quizWebSearchEnabled = quizRequest ? (_h = (_d = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _d : (_c = state.quizSession) == null ? void 0 : _c.enableWebSearch) != null ? _h : shouldEnableQuizWebSearch((_g = (_f = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _f : (_e = state.quizSession) == null ? void 0 : _e.difficulty) != null ? _g : "\uC911") : void 0;
+    const quizWebSearchEnabled = quizRequest ? (_i = (_e = quizSessionInit == null ? void 0 : quizSessionInit.enableWebSearch) != null ? _e : (_d = state.quizSession) == null ? void 0 : _d.enableWebSearch) != null ? _i : shouldEnableQuizWebSearch((_h = (_g = quizSessionInit == null ? void 0 : quizSessionInit.difficulty) != null ? _g : (_f = state.quizSession) == null ? void 0 : _f.difficulty) != null ? _h : "\uC911") : void 0;
     const mentionedLearningCommand = (options == null ? void 0 : options.skipLearningCommand) ? null : parseMentionedLearningCommand(
       content,
       fileContextManager
     );
     const isLearningCommand = !(options == null ? void 0 : options.skipLearningCommand) && (mentionedLearningCommand !== null || content === "/quiz" || content.startsWith("/quiz ") || content === "/socratic" || content.startsWith("/socratic "));
     if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
-      new import_obsidian24.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian23.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
       return;
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "quiz" || content === "/quiz" || content.startsWith("/quiz "))) {
       const quizFocusText = mentionedLearningCommand ? "" : content === "/quiz" ? "" : content.slice("/quiz".length).trim();
-      const quizModal = new LearningSetupModal(plugin.app, (_j = (_i = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _i : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _j : null, "quiz", quizFocusText);
+      const quizModal = new LearningSetupModal(plugin.app, (_k = (_j = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _j : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _k : null, "quiz", quizFocusText);
       const learningResult = await quizModal.openAndWait();
       if (!learningResult) {
         return;
@@ -17734,14 +17125,13 @@ var InputController = class {
       }
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options == null ? void 0 : options.promptPrefix,
-        hidden: options == null ? void 0 : options.hidden,
         editorContextOverride: options == null ? void 0 : options.editorContextOverride
       });
       return;
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "socratic" || content === "/socratic" || content.startsWith("/socratic "))) {
       const socraticFocusText = mentionedLearningCommand ? "" : content === "/socratic" ? "" : content.slice("/socratic".length).trim();
-      const socraticModal = new LearningSetupModal(plugin.app, (_l = (_k = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _k : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _l : null, "socratic", socraticFocusText);
+      const socraticModal = new LearningSetupModal(plugin.app, (_m = (_l = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _l : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _m : null, "socratic", socraticFocusText);
       const learningResult = await socraticModal.openAndWait();
       if (!learningResult) {
         return;
@@ -17751,7 +17141,6 @@ var InputController = class {
       }
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options == null ? void 0 : options.promptPrefix,
-        hidden: options == null ? void 0 : options.hidden,
         editorContextOverride: options == null ? void 0 : options.editorContextOverride
       });
       return;
@@ -17766,9 +17155,8 @@ var InputController = class {
           state.queuedMessage.images = [...state.queuedMessage.images || [], ...images2];
         }
         state.queuedMessage.editorContext = editorContext2;
-        state.queuedMessage.hidden = state.queuedMessage.hidden || (options == null ? void 0 : options.hidden);
         if (promptPrefix) {
-          state.queuedMessage.promptPrefix = (_m = state.queuedMessage.promptPrefix) != null ? _m : promptPrefix;
+          state.queuedMessage.promptPrefix = (_n = state.queuedMessage.promptPrefix) != null ? _n : promptPrefix;
         }
         state.queuedMessage.skipLearningCommand = true;
       } else {
@@ -17776,7 +17164,6 @@ var InputController = class {
           content,
           images: images2,
           editorContext: editorContext2,
-          hidden: options == null ? void 0 : options.hidden,
           promptPrefix,
           skipLearningCommand: true
         };
@@ -17819,8 +17206,8 @@ var InputController = class {
         isSummaryPhase: false,
         ...socraticSessionInit.quizReview ? { quizReview: true } : {}
       };
-      (_o = (_n = this.deps).showSocraticBanner) == null ? void 0 : _o.call(
-        _n,
+      (_p = (_o = this.deps).showSocraticBanner) == null ? void 0 : _p.call(
+        _o,
         socraticSessionInit.scopeLabel,
         socraticSessionInit.focusText,
         () => this.sendSocraticShortcut("\uD78C\uD2B8 \uC8FC\uC138\uC694"),
@@ -17844,13 +17231,10 @@ var InputController = class {
       content,
       displayContent: options == null ? void 0 : options.displayContentOverride,
       timestamp: Date.now(),
-      images: imagesForMessage,
-      hidden: options == null ? void 0 : options.hidden
+      images: imagesForMessage
     };
     state.addMessage(userMsg);
-    if (!(options == null ? void 0 : options.hidden)) {
-      renderer.addMessage(userMsg);
-    }
+    renderer.addMessage(userMsg);
     const assistantMsg = {
       id: this.deps.generateId(),
       role: "assistant",
@@ -17868,7 +17252,7 @@ var InputController = class {
     state.currentTextContent = "";
     streamController.showThinkingIndicator(contentEl);
     const currentNotePath = (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null;
-    const shouldSendCurrentNote = !((_p = state.socraticSession) == null ? void 0 : _p.quizReview) && ((_q = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _q : false);
+    const shouldSendCurrentNote = !((_q = state.socraticSession) == null ? void 0 : _q.quizReview) && ((_r = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _r : false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     let slashTemplateCurrentNoteScope = false;
     const displayContent = content;
@@ -17894,7 +17278,7 @@ var InputController = class {
             try {
               const result = await slashCommandManager.expandCommand(cmd, detected.args, {
                 bash: {
-                  // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                  // ASK mode is read-only: inline bash never executes and never prompts
                   // for approval there, it is replaced with the same placeholder used when
                   // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
                   // The raw setting is not enough: a provider still awaiting blanket-write
@@ -17914,7 +17298,7 @@ var InputController = class {
               });
               content = result.expandedPrompt;
               if (result.errors.length > 0) {
-                new import_obsidian24.Notice(formatSlashCommandWarnings(result.errors));
+                new import_obsidian23.Notice(formatSlashCommandWarnings(result.errors));
               }
               if (result.allowedTools !== void 0 || result.model) {
                 slashAllowedToolsRequested = result.allowedTools !== void 0;
@@ -17942,7 +17326,7 @@ var InputController = class {
       imageContextManager == null ? void 0 : imageContextManager.clearImages();
     }
     const editorContextOverride = options == null ? void 0 : options.editorContextOverride;
-    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : ((_r = state.socraticSession) == null ? void 0 : _r.quizReview) ? null : selectionController.getContext();
+    const editorContext = editorContextOverride !== void 0 ? editorContextOverride : ((_s = state.socraticSession) == null ? void 0 : _s.quizReview) ? null : selectionController.getContext();
     let promptToSend = `<query>
 ${content}
 </query>`;
@@ -17973,7 +17357,7 @@ ${content}
       }
       currentNoteForMessage = currentNotePath;
     }
-    userMsg.displayContent = (_s = options == null ? void 0 : options.displayContentOverride) != null ? _s : displayContent !== content ? displayContent : void 0;
+    userMsg.displayContent = (_t = options == null ? void 0 : options.displayContentOverride) != null ? _t : displayContent !== content ? displayContent : void 0;
     userMsg.currentNote = currentNoteForMessage;
     if (options == null ? void 0 : options.promptPrefix) {
       promptToSend = `${options.promptPrefix}
@@ -18030,8 +17414,8 @@ ${promptToSend}`;
         externalContextPaths
       };
     }
-    const webSearchEnabled = (_u = (_t = this.deps.getWebSearchToggle()) == null ? void 0 : _t.isEnabled()) != null ? _u : false;
-    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_w = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _w : (_v = state.socraticSession) == null ? void 0 : _v.enableWebSearch;
+    const webSearchEnabled = (_v = (_u = this.deps.getWebSearchToggle()) == null ? void 0 : _u.isEnabled()) != null ? _v : false;
+    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_x = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _x : (_w = state.socraticSession) == null ? void 0 : _w.enableWebSearch;
     const requestWebSearchEnabled = sessionWebSearchEnabled != null ? sessionWebSearchEnabled : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
@@ -18048,6 +17432,7 @@ ${promptToSend}`;
       }
     } finally {
       let cleanupSettled = false;
+      this.finalizingTurn = true;
       try {
         if (streamOutcome === "interrupted") {
           await streamController.appendText('\n\n<span class="ocop-interrupted">Interrupted</span> <span class="ocop-interrupted-hint">\xB7 What should Copilot do instead?</span>');
@@ -18078,7 +17463,7 @@ ${promptToSend}`;
         }
         if (streamOutcome !== "completed" && socraticSessionInit) {
           state.socraticSession = null;
-          (_y = (_x = this.deps).hideSocraticBanner) == null ? void 0 : _y.call(_x);
+          (_z = (_y = this.deps).hideSocraticBanner) == null ? void 0 : _z.call(_y);
         }
         if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
           if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
@@ -18093,9 +17478,9 @@ ${promptToSend}`;
         if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
           const s = state.socraticSession;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-          if ((_z = assistantMsg.socraticTurn) == null ? void 0 : _z.isSummary) {
+          if ((_A = assistantMsg.socraticTurn) == null ? void 0 : _A.isSummary) {
             state.socraticSession = null;
-            (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
+            (_C = (_B = this.deps).hideSocraticBanner) == null ? void 0 : _C.call(_B);
           } else if (updatedSession.isSummaryPhase) {
             state.socraticSession = updatedSession;
           } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
@@ -18108,7 +17493,7 @@ ${promptToSend}`;
           for (const message of state.messages) {
             if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
           }
-          const reviewButtons = (_D = (_C = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _D.call(_C, ".ocop-quiz-review-btn");
+          const reviewButtons = (_E = (_D = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _E.call(_D, ".ocop-quiz-review-btn");
           reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
             button.disabled = true;
           });
@@ -18116,6 +17501,7 @@ ${promptToSend}`;
         await conversationController.save(true);
         cleanupSettled = true;
       } finally {
+        this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
         if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
@@ -18139,7 +17525,6 @@ ${promptToSend}`;
         }
       }
       if (!skipPostCompletionFollowups) {
-        await this.activatePendingPlanMode();
         if (streamOutcome === "completed") {
           await this.triggerTitleGeneration();
         }
@@ -18154,249 +17539,13 @@ ${promptToSend}`;
   }
   async readCurrentNoteContent(notePath) {
     const file = this.deps.plugin.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof import_obsidian24.TFile)) {
+    if (!(file instanceof import_obsidian23.TFile)) {
       return null;
     }
     try {
       return await this.deps.plugin.app.vault.cachedRead(file);
     } catch (e) {
       return null;
-    }
-  }
-  // ============================================
-  // Plan Mode
-  // ============================================
-  setPlanModeRequested(active) {
-    const { state } = this.deps;
-    if (state.planModeRequested === active) {
-      return;
-    }
-    state.planModeRequested = active;
-    this.deps.setPlanModeActive(active);
-  }
-  ensurePlanModeState(agentInitiated) {
-    var _a;
-    const { state, plugin } = this.deps;
-    if (plugin.settings.permissionMode !== "plan") {
-      return;
-    }
-    if ((_a = state.planModeState) == null ? void 0 : _a.isActive) {
-      if (!state.planModeState.agentInitiated && agentInitiated) {
-        state.planModeState.agentInitiated = true;
-      }
-      return;
-    }
-    state.planModeState = {
-      isActive: true,
-      planFilePath: null,
-      planContent: null,
-      originalQuery: null,
-      agentInitiated
-    };
-  }
-  async activatePendingPlanMode() {
-    const { plugin, state } = this.deps;
-    if (!state.planModeActivationPending) {
-      return;
-    }
-    state.planModeActivationPending = false;
-    if (plugin.settings.permissionMode !== "plan") {
-      plugin.settings.lastNonPlanPermissionMode = plugin.settings.permissionMode;
-      plugin.settings.permissionMode = "plan";
-      await plugin.saveSettings();
-    }
-    state.planModeRequested = false;
-    this.ensurePlanModeState(true);
-    plugin.agentService.setCurrentPlanFilePath(null);
-    this.deps.setPlanModeActive(true);
-  }
-  async exitPlanPermissionMode() {
-    var _a;
-    const { plugin, state } = this.deps;
-    if (plugin.settings.permissionMode === "plan") {
-      if (typeof plugin.resetPermissionAuthority === "function") plugin.resetPermissionAuthority();
-      else {
-        plugin.settings.permissionMode = "ask";
-        plugin.settings.lastNonPlanPermissionMode = "ask";
-        plugin.settings.blanketWriteAcknowledged = [];
-        (_a = plugin.recapturePermissionMode) == null ? void 0 : _a.call(plugin);
-      }
-      await plugin.saveSettings();
-    }
-    state.resetPlanModeState();
-    state.planModeRequested = false;
-    state.planModeActivationPending = false;
-    this.deps.setPlanModeActive(false);
-  }
-  /** Sends a message in plan mode (read-only exploration). */
-  async sendPlanModeMessage() {
-    var _a, _b;
-    const { state, plugin } = this.deps;
-    const inputEl = this.deps.getInputEl();
-    const content = inputEl.value.trim();
-    if (!content) return;
-    if (state.isStreaming) {
-      new import_obsidian24.Notice("Cannot request plan mode while agent is working");
-      return;
-    }
-    if (plugin.settings.permissionMode === "plan") {
-      plugin.agentService.setCurrentPlanFilePath(null);
-      const wasAgentInitiated = (_b = (_a = state.planModeState) == null ? void 0 : _a.agentInitiated) != null ? _b : false;
-      this.ensurePlanModeState(wasAgentInitiated);
-      state.planModeState = {
-        isActive: true,
-        planFilePath: null,
-        planContent: null,
-        originalQuery: content,
-        agentInitiated: wasAgentInitiated
-      };
-      inputEl.value = "";
-      await this.sendMessageWithPlanMode({ content });
-      return;
-    }
-    await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
-  }
-  /**
-   * Handles agent-initiated EnterPlanMode tool call.
-   * Sets up state for re-sending with plan mode after current stream ends.
-   */
-  async handleEnterPlanMode() {
-    const { state, plugin } = this.deps;
-    if (plugin.settings.permissionMode === "plan") {
-      this.ensurePlanModeState(true);
-      return;
-    }
-    state.planModeActivationPending = true;
-  }
-  /** Internal: sends message with plan mode options. */
-  async sendMessageWithPlanMode(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
-    const inputEl = this.deps.getInputEl();
-    const imageContextManager = this.deps.getImageContextManager();
-    const fileContextManager = this.deps.getFileContextManager();
-    if (plugin.settings.permissionMode !== "plan") {
-      await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
-      return;
-    }
-    this.ensurePlanModeState((_b = (_a = state.planModeState) == null ? void 0 : _a.agentInitiated) != null ? _b : false);
-    const content = ((_c = options == null ? void 0 : options.content) != null ? _c : inputEl.value).trim();
-    if (!content) return;
-    const skipUserMessage = (_d = options == null ? void 0 : options.skipUserMessage) != null ? _d : false;
-    if ((options == null ? void 0 : options.content) === void 0) {
-      inputEl.value = "";
-    }
-    state.isStreaming = true;
-    state.cancelRequested = false;
-    state.ignoreUsageUpdates = false;
-    state.subagentsSpawnedThisStream = 0;
-    const welcomeEl = this.deps.getWelcomeEl();
-    if (welcomeEl) {
-      welcomeEl.style.display = "none";
-    }
-    fileContextManager == null ? void 0 : fileContextManager.startSession();
-    const images = skipUserMessage ? (_e = options == null ? void 0 : options.images) != null ? _e : [] : (_f = options == null ? void 0 : options.images) != null ? _f : (imageContextManager == null ? void 0 : imageContextManager.getAttachedImages()) || [];
-    const imagesForMessage = images.length > 0 ? [...images] : void 0;
-    if (!skipUserMessage && !(options == null ? void 0 : options.images)) {
-      imageContextManager == null ? void 0 : imageContextManager.clearImages();
-    }
-    let currentNote = null;
-    let shouldSendCurrentNote = false;
-    let currentNoteForMessage;
-    if (skipUserMessage || (options == null ? void 0 : options.currentNote)) {
-      currentNote = (options == null ? void 0 : options.currentNote) || null;
-    } else {
-      currentNote = (fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) || null;
-    }
-    shouldSendCurrentNote = (_g = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNote)) != null ? _g : false;
-    if (shouldSendCurrentNote && currentNote) {
-      currentNoteForMessage = currentNote;
-    }
-    const editorContext = (_h = options == null ? void 0 : options.editorContext) != null ? _h : selectionController.getContext();
-    let promptToSend = `[Plan Mode]
-Explore the codebase and create an implementation plan. Call the ExitPlanMode tool when the plan is ready for user approval.
-
-<query>
-${content}
-</query>`;
-    if (editorContext) {
-      promptToSend = prependEditorContext(promptToSend, editorContext);
-    }
-    if (shouldSendCurrentNote && currentNote) {
-      promptToSend = prependCurrentNote(promptToSend, currentNote);
-      currentNoteForMessage = currentNote;
-    }
-    let userMsg;
-    if (!skipUserMessage) {
-      const displayContent = (_i = options == null ? void 0 : options.displayContent) != null ? _i : content;
-      userMsg = {
-        id: this.deps.generateId(),
-        role: "user",
-        content,
-        displayContent: displayContent !== content ? displayContent : void 0,
-        timestamp: Date.now(),
-        currentNote: currentNoteForMessage,
-        images: imagesForMessage,
-        hidden: options == null ? void 0 : options.hidden
-      };
-      state.addMessage(userMsg);
-      if (!(options == null ? void 0 : options.hidden)) {
-        renderer.addMessage(userMsg);
-      }
-    }
-    const assistantMsg = {
-      id: this.deps.generateId(),
-      role: "assistant",
-      content: "",
-      timestamp: Date.now(),
-      toolCalls: [],
-      contentBlocks: []
-    };
-    state.addMessage(assistantMsg);
-    const msgEl = renderer.addMessage(assistantMsg);
-    const contentEl = msgEl.querySelector(".ocop-message-content");
-    state.toolCallElements.clear();
-    state.currentContentEl = contentEl;
-    state.currentTextEl = null;
-    state.currentTextContent = "";
-    streamController.showThinkingIndicator(contentEl);
-    const queryOptions = {
-      ...options == null ? void 0 : options.queryOptions,
-      planMode: true
-    };
-    let streamOutcome = "completed";
-    try {
-      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
-    } finally {
-      let cleanupSettled = false;
-      try {
-        if (streamOutcome === "interrupted") {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
-          plugin.agentService.setCurrentPlanFilePath(null);
-        }
-        streamController.hideThinkingIndicator();
-        state.currentContentEl = null;
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
-        assistantMsg.requestOutcome = streamOutcome;
-        if (streamOutcome === "completed" && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-            void this.sendMessage({ content: choice });
-          });
-        }
-        state.activeSubagents.clear();
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
-      await this.activatePendingPlanMode();
-      if (streamOutcome === "completed") {
-        await this.triggerTitleGeneration({ isPlanMode: true });
-      }
-      this.processQueuedMessage();
     }
   }
   // ============================================
@@ -18421,6 +17570,11 @@ ${content}
       state.queueIndicatorEl.style.display = "none";
     }
   }
+  /** A conversation change: drops the queue and a restored message's send options with it. */
+  discardQueuedInput() {
+    this.restoredQueuedSend = null;
+    this.clearQueuedMessage();
+  }
   /** Clears the queued message. */
   clearQueuedMessage() {
     const { state } = this.deps;
@@ -18429,16 +17583,23 @@ ${content}
   }
   /**
    * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands a visible queued message back to the input instead of leaving it stranded.
+   * Hands the queued message back to the input instead of leaving it stranded: left queued,
+   * it would fire after some later, unrelated turn.
    */
   recoverFromTurnCleanupFailure() {
     const { state } = this.deps;
     const queued = state.queuedMessage;
-    if (!queued || queued.hidden) {
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    if (!queued) {
+      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       return;
     }
     this.clearQueuedMessage();
+    this.restoredQueuedSend = {
+      conversationId: state.currentConversationId,
+      content: queued.content.trim(),
+      editorContext: queued.editorContext,
+      promptPrefix: queued.promptPrefix
+    };
     try {
       const inputEl = this.deps.getInputEl();
       inputEl.value = inputEl.value ? `${queued.content}
@@ -18452,34 +17613,36 @@ ${inputEl.value}` : queued.content;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
-      new import_obsidian24.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
     }
+  }
+  /**
+   * Claims the restored queued message's send options if the input still carries its text
+   * in the same conversation. Any send from the input consumes the record either way.
+   */
+  takeRestoredQueuedSend(content) {
+    const restored = this.restoredQueuedSend;
+    this.restoredQueuedSend = null;
+    if (!restored || restored.conversationId !== this.deps.state.currentConversationId) return null;
+    return content.includes(restored.content) ? restored : null;
   }
   /** Processes the queued message. */
   processQueuedMessage() {
     var _a;
     const { state } = this.deps;
     if (!state.queuedMessage) return;
-    const { content, images, editorContext, hidden, promptPrefix, skipLearningCommand } = state.queuedMessage;
+    const { content, images, editorContext, promptPrefix, skipLearningCommand } = state.queuedMessage;
     state.queuedMessage = null;
     this.updateQueueIndicator();
-    const isPlanMode = this.deps.plugin.settings.permissionMode === "plan";
-    if (isPlanMode) {
-      setTimeout(
-        () => this.sendMessageWithPlanMode({ content, images, editorContext, hidden }),
-        0
-      );
-      return;
-    }
     const inputEl = this.deps.getInputEl();
     inputEl.value = content;
     if (images && images.length > 0) {
       (_a = this.deps.getImageContextManager()) == null ? void 0 : _a.setImages(images);
     }
-    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, hidden, promptPrefix, skipLearningCommand }), 0);
+    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, promptPrefix, skipLearningCommand }), 0);
   }
   // ============================================
   // Title Generation
@@ -18488,10 +17651,9 @@ ${inputEl.value}` : queued.content;
    * Triggers AI title generation after first exchange.
    * Handles setting fallback title, firing async generation, and updating UI.
    */
-  async triggerTitleGeneration(options = {}) {
+  async triggerTitleGeneration() {
     var _a;
     const { plugin, state, conversationController } = this.deps;
-    const { isPlanMode = false } = options;
     if (state.messages.length !== 2 || !state.currentConversationId) {
       return;
     }
@@ -18503,8 +17665,7 @@ ${inputEl.value}` : queued.content;
     const userContent = firstUserMsg.displayContent || firstUserMsg.content;
     const assistantText = firstAssistantMsg.content || ((_a = firstAssistantMsg.contentBlocks) == null ? void 0 : _a.filter((b) => b.type === "text").map((b) => b.content).join("\n")) || "";
     const fallbackTitle = conversationController.generateFallbackTitle(userContent);
-    const displayTitle = isPlanMode ? `[Plan] ${fallbackTitle}` : fallbackTitle;
-    await plugin.renameConversation(state.currentConversationId, displayTitle);
+    await plugin.renameConversation(state.currentConversationId, fallbackTitle);
     if (!plugin.settings.enableAutoTitleGeneration) {
       return;
     }
@@ -18518,7 +17679,7 @@ ${inputEl.value}` : queued.content;
     await plugin.updateConversation(state.currentConversationId, { titleGenerationStatus: "pending" });
     conversationController.updateHistoryDropdown();
     const convId = state.currentConversationId;
-    const expectedTitle = displayTitle;
+    const expectedTitle = fallbackTitle;
     titleService.generateTitle(
       convId,
       userContent,
@@ -18528,8 +17689,7 @@ ${inputEl.value}` : queued.content;
         if (!currentConv) return;
         const userManuallyRenamed = currentConv.title !== expectedTitle;
         if (result.success && !userManuallyRenamed) {
-          const newTitle = isPlanMode ? `[Plan] ${result.title}` : result.title;
-          await plugin.renameConversation(conversationId, newTitle);
+          await plugin.renameConversation(conversationId, result.title);
           await plugin.updateConversation(conversationId, { titleGenerationStatus: "success" });
         } else if (!userManuallyRenamed) {
           await plugin.updateConversation(conversationId, { titleGenerationStatus: "failed" });
@@ -18540,7 +17700,7 @@ ${inputEl.value}` : queued.content;
       }
     ).catch((error) => {
       console.error("[InputController] Title generation failed:", error instanceof Error ? error.message : error);
-      new import_obsidian24.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
+      new import_obsidian23.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
     });
   }
   // ============================================
@@ -18585,7 +17745,7 @@ ${inputEl.value}` : queued.content;
   /** Cancels the current streaming operation. */
   cancelStreaming() {
     const { plugin, state, streamController } = this.deps;
-    if (!state.isStreaming) return;
+    if (!state.isStreaming || this.finalizingTurn) return;
     state.cancelRequested = true;
     this.clearQueuedMessage();
     plugin.agentService.cancel();
@@ -18612,7 +17772,7 @@ ${inputEl.value}` : queued.content;
             const currentPrompt = plugin.settings.systemPrompt;
             plugin.settings.systemPrompt = appendMarkdownSnippet(currentPrompt, finalInstruction);
             await plugin.saveSettings();
-            new import_obsidian24.Notice("Instruction added to custom system prompt");
+            new import_obsidian23.Notice("Instruction added to custom system prompt");
             instructionModeManager == null ? void 0 : instructionModeManager.clear();
           },
           onReject: () => {
@@ -18629,7 +17789,7 @@ ${inputEl.value}` : queued.content;
               if (result2.error === "Cancelled") {
                 return;
               }
-              new import_obsidian24.Notice(result2.error || "Failed to process response");
+              new import_obsidian23.Notice(result2.error || "Failed to process response");
               modal == null ? void 0 : modal.showError(result2.error || "Failed to process response");
               return;
             }
@@ -18655,7 +17815,7 @@ ${inputEl.value}` : queued.content;
           instructionModeManager == null ? void 0 : instructionModeManager.clear();
           return;
         }
-        new import_obsidian24.Notice(result.error || "Failed to refine instruction");
+        new import_obsidian23.Notice(result.error || "Failed to refine instruction");
         modal.showError(result.error || "Failed to refine instruction");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
         return;
@@ -18665,13 +17825,13 @@ ${inputEl.value}` : queued.content;
       } else if (result.refinedInstruction) {
         modal.showConfirmation(result.refinedInstruction);
       } else {
-        new import_obsidian24.Notice("No instruction received");
+        new import_obsidian23.Notice("No instruction received");
         modal.showError("No instruction received");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian24.Notice(`Error: ${errorMsg}`);
+      new import_obsidian23.Notice(`Error: ${errorMsg}`);
       modal == null ? void 0 : modal.showError(errorMsg);
       instructionModeManager == null ? void 0 : instructionModeManager.clear();
     }
@@ -18696,135 +17856,6 @@ ${inputEl.value}` : queued.content;
       return null;
     }
     return showAskUserQuestionPanel(plugin.app, containerEl, input);
-  }
-  // ============================================
-  // Plan Mode Approval
-  // ============================================
-  /** Handles ExitPlanMode tool by showing plan approval panel. */
-  async handleExitPlanMode(planContent) {
-    const { state, renderer, conversationController, streamController } = this.deps;
-    const messagesEl = this.deps.getMessagesEl();
-    const containerEl = messagesEl.parentElement;
-    if (!containerEl) {
-      return { decision: "cancel" };
-    }
-    if (state.planModeState) {
-      state.planModeState.planContent = planContent;
-    }
-    streamController.hideThinkingIndicator();
-    const assistantMsg = state.messages[state.messages.length - 1];
-    if (assistantMsg) {
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.isPlanMessage = true;
-    }
-    const lastMsgEl = messagesEl.lastElementChild;
-    if (lastMsgEl) {
-      lastMsgEl.classList.add("ocop-message-plan");
-    }
-    state.currentTextEl = null;
-    state.currentTextContent = "";
-    state.currentThinkingState = null;
-    renderer.scrollToBottom();
-    state.pendingPlanContent = planContent;
-    await conversationController.save();
-    return this.showApprovalPanelAndHandleDecision(planContent, containerEl);
-  }
-  /**
-   * Restores pending plan approval panel when loading a conversation.
-   * Called when a conversation with pendingPlanContent is loaded.
-   */
-  restorePendingPlanApproval(planContent) {
-    const messagesEl = this.deps.getMessagesEl();
-    const containerEl = messagesEl.parentElement;
-    if (!containerEl) {
-      return;
-    }
-    void this.showApprovalPanelAndHandleDecision(planContent, containerEl);
-  }
-  /** Shows approval panel and handles the decision. */
-  async showApprovalPanelAndHandleDecision(planContent, containerEl) {
-    const { plugin, state, conversationController } = this.deps;
-    const result = await showPlanApprovalPanel(
-      plugin.app,
-      containerEl,
-      planContent,
-      this.deps.getComponent()
-    );
-    state.pendingPlanContent = null;
-    if (result.decision === "approve") {
-      this.addApprovalIndicator("approve");
-      plugin.agentService.setApprovedPlanContent(planContent);
-      const planBanner = this.deps.getPlanBanner();
-      if (planBanner) {
-        void planBanner.show(planContent);
-      }
-      await this.exitPlanPermissionMode();
-      plugin.agentService.setCurrentPlanFilePath(null);
-      await conversationController.save();
-      setTimeout(
-        () => this.sendMessage({ hidden: true, content: "Please implement the approved plan." }),
-        100
-      );
-      return { decision: "approve" };
-    } else if (result.decision === "approve_new_session") {
-      this.addApprovalIndicator("approve_new_session");
-      const planBanner = this.deps.getPlanBanner();
-      if (planBanner) {
-        void planBanner.show(planContent);
-      }
-      await this.exitPlanPermissionMode();
-      plugin.agentService.setCurrentPlanFilePath(null);
-      plugin.agentService.resetSession();
-      plugin.agentService.setApprovedPlanContent(planContent);
-      state.ignoreUsageUpdates = true;
-      state.usage = null;
-      this.deps.resetContextMeter();
-      await conversationController.save();
-      setTimeout(
-        () => this.sendMessage({ hidden: true, content: "Please implement the approved plan." }),
-        100
-      );
-      return { decision: "approve_new_session" };
-    } else if (result.decision === "revise") {
-      this.addApprovalIndicator("revise", result.feedback);
-      await conversationController.save();
-      plugin.agentService.setCurrentPlanFilePath(null);
-      setTimeout(
-        () => this.sendMessageWithPlanMode({ content: result.feedback, hidden: true, images: [] }),
-        100
-      );
-      return { decision: "revise", feedback: result.feedback };
-    } else {
-      plugin.agentService.setCurrentPlanFilePath(null);
-      await conversationController.save();
-      return { decision: "cancel" };
-    }
-  }
-  /** Hides the plan banner. */
-  hidePlanBanner() {
-    const planBanner = this.deps.getPlanBanner();
-    if (planBanner) {
-      planBanner.hide();
-    }
-  }
-  /** Adds an approval indicator message to the chat. */
-  addApprovalIndicator(type, feedback) {
-    const { state, renderer } = this.deps;
-    const indicatorMsg = {
-      id: `indicator-${Date.now()}`,
-      role: "user",
-      content: "",
-      // Empty content, rendered via approvalIndicator
-      timestamp: Date.now(),
-      approvalIndicator: {
-        type,
-        feedback
-      }
-    };
-    state.addMessage(indicatorMsg);
-    renderer.addMessage(indicatorMsg);
-    renderer.scrollToBottom();
   }
 };
 
@@ -18961,7 +17992,7 @@ var NavigationController = class {
 };
 
 // src/features/chat/controllers/SelectionController.ts
-var import_obsidian25 = require("obsidian");
+var import_obsidian24 = require("obsidian");
 var SELECTION_POLL_INTERVAL = 250;
 var SelectionController = class {
   constructor(app, indicatorEl, inputEl) {
@@ -18997,7 +18028,7 @@ var SelectionController = class {
   /** Polls editor selection and updates stored selection. */
   poll() {
     var _a, _b, _c, _d;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian25.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian24.MarkdownView);
     if (!view) return;
     const editor = view.editor;
     const editorView = editor.cm;
@@ -19193,11 +18224,7 @@ var StreamController = class {
   // ============================================
   /** Handles regular tool_use chunks. */
   handleRegularToolUse(chunk, msg) {
-    const { plugin, state } = this.deps;
-    const isPlanMode = plugin.settings.permissionMode === "plan";
-    if (isPlanMode && isWriteEditTool(chunk.name)) {
-      return;
-    }
+    const { state } = this.deps;
     const toolCall = {
       id: chunk.id,
       name: chunk.name,
@@ -20309,10 +19336,6 @@ function createInitialState() {
     usage: null,
     ignoreUsageUpdates: false,
     subagentsSpawnedThisStream: 0,
-    planModeState: null,
-    planModeRequested: false,
-    planModeActivationPending: false,
-    pendingPlanContent: null,
     currentTodos: null,
     quizSession: null,
     socraticSession: null
@@ -20462,40 +19485,6 @@ var ChatState = class {
     this.state.subagentsSpawnedThisStream = value;
   }
   // ============================================
-  // Plan Mode State
-  // ============================================
-  get planModeState() {
-    return this.state.planModeState;
-  }
-  set planModeState(value) {
-    this.state.planModeState = value;
-  }
-  /** Resets plan mode state. */
-  resetPlanModeState() {
-    this.state.planModeState = null;
-  }
-  get planModeRequested() {
-    return this.state.planModeRequested;
-  }
-  set planModeRequested(value) {
-    this.state.planModeRequested = value;
-  }
-  get planModeActivationPending() {
-    return this.state.planModeActivationPending;
-  }
-  set planModeActivationPending(value) {
-    this.state.planModeActivationPending = value;
-  }
-  // ============================================
-  // Pending Plan Content (for approval persistence)
-  // ============================================
-  get pendingPlanContent() {
-    return this.state.pendingPlanContent;
-  }
-  set pendingPlanContent(value) {
-    this.state.pendingPlanContent = value;
-  }
-  // ============================================
   // Current Todos (for persistent bottom panel)
   // ============================================
   get currentTodos() {
@@ -20545,8 +19534,6 @@ var ChatState = class {
     this.resetStreamingState();
     this.clearMaps();
     this.state.queuedMessage = null;
-    this.state.planModeRequested = false;
-    this.state.planModeActivationPending = false;
     this.usage = null;
     this.currentTodos = null;
     this.quizSession = null;
@@ -20571,7 +19558,7 @@ var ChatState = class {
 async function dispatchLearningSetup(inputController, mode) {
   await (inputController == null ? void 0 : inputController.sendMessage({ content: `/${mode}` }));
 }
-var ObsidianCopilotView = class extends import_obsidian26.ItemView {
+var ObsidianCopilotView = class extends import_obsidian25.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.selectionController = null;
@@ -20602,7 +19589,6 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     this.slashCommandDropdown = null;
     this.instructionModeManager = null;
     this.contextUsageMeter = null;
-    this.planBanner = null;
     this.socraticBanner = null;
     this.todoPanel = null;
     this.plugin = plugin;
@@ -20640,11 +19626,6 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     container.addClass("ocop-container");
     const header = container.createDiv({ cls: "ocop-header" });
     this.buildHeader(header);
-    this.planBanner = new PlanBanner({
-      app: this.plugin.app,
-      component: this
-    });
-    this.planBanner.mount(container);
     this.socraticBanner = new SocraticBanner();
     this.socraticBanner.mount(container);
     this.messagesEl = container.createDiv({ cls: "ocop-messages" });
@@ -20692,7 +19673,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     const headerActions = header.createDiv({ cls: "ocop-header-actions" });
     const historyContainer = headerActions.createDiv({ cls: "ocop-history-container" });
     const trigger = historyContainer.createDiv({ cls: "ocop-header-btn" });
-    (0, import_obsidian26.setIcon)(trigger, "history");
+    (0, import_obsidian25.setIcon)(trigger, "history");
     trigger.setAttribute("aria-label", "Chat history");
     this.historyDropdown = historyContainer.createDiv({ cls: "ocop-history-menu" });
     trigger.addEventListener("click", (e) => {
@@ -20701,7 +19682,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       (_a = this.conversationController) == null ? void 0 : _a.toggleHistoryDropdown();
     });
     const newBtn = headerActions.createDiv({ cls: "ocop-header-btn" });
-    (0, import_obsidian26.setIcon)(newBtn, "plus");
+    (0, import_obsidian25.setIcon)(newBtn, "plus");
     newBtn.setAttribute("aria-label", "New conversation");
     newBtn.addEventListener("click", () => {
       var _a;
@@ -20785,11 +19766,6 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
       getSettings: () => toToolbarSettings(this.plugin.settings),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
-      isAgentInitiatedPlanMode: () => {
-        var _a, _b;
-        return (_b = (_a = this.state.planModeState) == null ? void 0 : _a.agentInitiated) != null ? _b : false;
-      },
-      isPlanModeRequested: () => this.state.planModeRequested,
       isBashExpansionInFlight: () => this.plugin.isBashExpansionInFlight(),
       getCapturedPermissionMode: () => this.plugin.getCapturedPermissionMode(),
       getPermissionAuthorityEpoch: () => this.plugin.getPermissionAuthorityEpoch(),
@@ -20800,7 +19776,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         });
         if (!accepted) return false;
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian26.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian25.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           return false;
         }
         if (this.plugin.getPermissionAuthorityEpoch() !== authorityEpoch || this.plugin.settings.selectedProvider !== provider) return false;
@@ -20845,32 +19821,9 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         await this.plugin.saveSettings();
       },
       onPermissionModeChange: async (mode) => {
-        var _a;
-        const current = this.plugin.settings.permissionMode;
-        if (mode === "plan") {
-          if (current !== "plan") {
-            this.plugin.settings.lastNonPlanPermissionMode = current;
-          }
-        } else {
-          this.plugin.settings.lastNonPlanPermissionMode = mode;
-        }
-        if (mode === "ask") this.plugin.resetPermissionAuthority();
+        if (mode === "ask") this.plugin.returnToAsk();
         else this.plugin.settings.permissionMode = mode;
         await this.plugin.saveSettings();
-        if (mode === "plan") {
-          if (!((_a = this.state.planModeState) == null ? void 0 : _a.isActive)) {
-            this.state.planModeState = {
-              isActive: true,
-              planFilePath: null,
-              planContent: null,
-              originalQuery: null,
-              agentInitiated: false
-            };
-          }
-        } else {
-          this.state.resetPlanModeState();
-        }
-        this.updatePlanModeUiState();
       },
       onOpenLearning: () => launchLearningSetup("quiz")
     });
@@ -20887,11 +19840,10 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       cls: "ocop-send-btn",
       attr: { type: "button", "aria-label": "Send message", title: "Send message" }
     });
-    (0, import_obsidian26.setIcon)(sendButton, "arrow-up");
+    (0, import_obsidian25.setIcon)(sendButton, "arrow-up");
     sendButton.addEventListener("click", () => {
-      var _a, _b, _c;
-      if ((_a = this.permissionToggle) == null ? void 0 : _a.isPlanModeActive()) void ((_b = this.inputController) == null ? void 0 : _b.sendPlanModeMessage());
-      else void ((_c = this.inputController) == null ? void 0 : _c.sendMessage());
+      var _a;
+      void ((_a = this.inputController) == null ? void 0 : _a.sendMessage());
     });
     this.modelSelector = toolbarComponents.modelSelector;
     this.thinkingBudgetSelector = toolbarComponents.thinkingBudgetSelector;
@@ -20920,7 +19872,6 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     }, this.providerSelectorHandle);
   }
   initializeControllers() {
-    var _a;
     this.selectionController = new SelectionController(
       this.plugin.app,
       this.selectionIndicatorEl,
@@ -20934,11 +19885,8 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       getMessagesEl: () => this.messagesEl,
       getFileContextManager: () => this.fileContextManager,
       updateQueueIndicator: () => {
-        var _a2;
-        return (_a2 = this.inputController) == null ? void 0 : _a2.updateQueueIndicator();
-      },
-      setPlanModeActive: () => {
-        this.updatePlanModeUiState();
+        var _a;
+        return (_a = this.inputController) == null ? void 0 : _a.updateQueueIndicator();
       }
     });
     this.conversationController = new ConversationController(
@@ -20958,33 +19906,16 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
         getImageContextManager: () => this.imageContextManager,
         getExternalContextSelector: () => this.externalContextSelector,
         clearQueuedMessage: () => {
-          var _a2;
-          return (_a2 = this.inputController) == null ? void 0 : _a2.clearQueuedMessage();
-        },
-        getApprovedPlan: () => this.plugin.agentService.getApprovedPlanContent(),
-        setApprovedPlan: (plan) => this.plugin.agentService.setApprovedPlanContent(plan),
-        showPlanBanner: (content) => {
-          var _a2;
-          void ((_a2 = this.planBanner) == null ? void 0 : _a2.show(content));
-        },
-        hidePlanBanner: () => {
-          var _a2;
-          return (_a2 = this.planBanner) == null ? void 0 : _a2.hide();
-        },
-        triggerPendingPlanApproval: (content) => {
-          var _a2;
-          return (_a2 = this.inputController) == null ? void 0 : _a2.restorePendingPlanApproval(content);
+          var _a;
+          return (_a = this.inputController) == null ? void 0 : _a.discardQueuedInput();
         },
         getTitleGenerationService: () => this.titleGenerationService,
-        setPlanModeActive: () => {
-          this.updatePlanModeUiState();
-        },
         getTodoPanel: () => this.todoPanel
       },
       {
         onNewConversation: () => {
-          var _a2;
-          (_a2 = this.socraticBanner) == null ? void 0 : _a2.hide();
+          var _a;
+          (_a = this.socraticBanner) == null ? void 0 : _a.hide();
         }
       }
     );
@@ -21007,40 +19938,29 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       getInstructionRefineService: () => this.instructionRefineService,
       getTitleGenerationService: () => this.titleGenerationService,
       getComponent: () => this,
-      setPlanModeActive: () => {
-        this.updatePlanModeUiState();
-      },
       setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
-      getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
-        var _a2;
-        (_a2 = this.socraticBanner) == null ? void 0 : _a2.show(scopeLabel, focusText, onHint, onStuck);
+        var _a;
+        (_a = this.socraticBanner) == null ? void 0 : _a.show(scopeLabel, focusText, onHint, onStuck);
       },
       hideSocraticBanner: () => {
-        var _a2;
-        (_a2 = this.socraticBanner) == null ? void 0 : _a2.hide();
+        var _a;
+        (_a = this.socraticBanner) == null ? void 0 : _a.hide();
       },
       generateId: () => this.generateId(),
       resetContextMeter: () => {
-        var _a2;
-        return (_a2 = this.contextUsageMeter) == null ? void 0 : _a2.update(null);
+        var _a;
+        return (_a = this.contextUsageMeter) == null ? void 0 : _a.update(null);
       }
     });
-    (_a = this.permissionToggle) == null ? void 0 : _a.setOnPlanModeToggle((active) => {
-      var _a2;
-      (_a2 = this.inputController) == null ? void 0 : _a2.setPlanModeRequested(active);
-    });
-    this.plugin.agentService.setExitPlanModeCallback(
-      (planContent) => this.inputController.handleExitPlanMode(planContent)
-    );
     this.navigationController = new NavigationController({
       getMessagesEl: () => this.messagesEl,
       getInputEl: () => this.inputEl,
       getSettings: () => this.plugin.settings.keyboardNavigation,
       isStreaming: () => this.state.isStreaming,
       shouldSkipEscapeHandling: () => {
-        var _a2, _b, _c;
-        if ((_a2 = this.instructionModeManager) == null ? void 0 : _a2.isActive()) return true;
+        var _a, _b, _c;
+        if ((_a = this.instructionModeManager) == null ? void 0 : _a.isActive()) return true;
         if ((_b = this.slashCommandDropdown) == null ? void 0 : _b.isVisible()) return true;
         if ((_c = this.fileContextManager) == null ? void 0 : _c.isMentionDropdownVisible()) return true;
         return false;
@@ -21155,15 +20075,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     const inputEl = this.inputEl;
     if (!inputEl) return;
     this.registerDomEvent(inputEl, "keydown", (e) => {
-      var _a;
-      if (e.key === "Tab" && e.shiftKey && !this.state.isStreaming) {
-        e.preventDefault();
-        e.stopPropagation();
-        (_a = this.permissionToggle) == null ? void 0 : _a.togglePlanMode();
-      }
-    }, { capture: true });
-    this.registerDomEvent(inputEl, "keydown", (e) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h;
+      var _a, _b, _c, _d, _e, _f;
       if ((_a = this.instructionModeManager) == null ? void 0 : _a.handleTriggerKey(e)) {
         return;
       }
@@ -21183,11 +20095,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       }
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        if ((_f = this.permissionToggle) == null ? void 0 : _f.isPlanModeActive()) {
-          void ((_g = this.inputController) == null ? void 0 : _g.sendPlanModeMessage());
-        } else {
-          void ((_h = this.inputController) == null ? void 0 : _h.sendMessage());
-        }
+        void ((_f = this.inputController) == null ? void 0 : _f.sendMessage());
       }
     });
     this.registerDomEvent(inputEl, "input", () => {
@@ -21222,7 +20130,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     }
     if (attached > 0) (_a = this.renderer) == null ? void 0 : _a.scrollToBottomIfNeeded();
     if (unresolved.length > 0) {
-      new import_obsidian26.Notice(`\uBCF4\uAD00\uD568\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uB294 \uD30C\uC77C\uC785\uB2C8\uB2E4: ${unresolved.join(", ")}`, 5e3);
+      new import_obsidian25.Notice(`\uBCF4\uAD00\uD568\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uB294 \uD30C\uC77C\uC785\uB2C8\uB2E4: ${unresolved.join(", ")}`, 5e3);
     }
   }
   generateId() {
@@ -21235,12 +20143,6 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
     var _a, _b, _c;
     (_a = this.permissionToggle) == null ? void 0 : _a.updateDisplay();
     (_c = (_b = this.providerSelectorHandle).refresh) == null ? void 0 : _c.call(_b);
-  }
-  updatePlanModeUiState() {
-    var _a;
-    const isPlanMode = this.plugin.settings.permissionMode === "plan";
-    const isPlanModeRequested = this.state.planModeRequested;
-    (_a = this.permissionToggle) == null ? void 0 : _a.setPlanModeActive(isPlanMode || isPlanModeRequested);
   }
 };
 async function openProviderSetupWizard(plugin, target) {
@@ -21316,7 +20218,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
         var _a2;
         event.stopPropagation();
         if (isBusy()) {
-          new import_obsidian26.Notice(PROVIDER_BUSY_NOTICE);
+          new import_obsidian25.Notice(PROVIDER_BUSY_NOTICE);
           return;
         }
         if (ready) {
@@ -21342,7 +20244,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     if (isBusy()) {
-      new import_obsidian26.Notice(PROVIDER_BUSY_NOTICE);
+      new import_obsidian25.Notice(PROVIDER_BUSY_NOTICE);
       return;
     }
     if (popover.hasClass("is-visible")) close();
@@ -21360,7 +20262,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
 
 // src/features/settings/ObsidianCopilotSettings.ts
 var fs13 = __toESM(require("fs"));
-var import_obsidian29 = require("obsidian");
+var import_obsidian28 = require("obsidian");
 init_providerRegistry();
 init_providerConnection();
 init_ErrorLog();
@@ -21370,7 +20272,7 @@ init_path();
 init_ObsidianSkillsInstaller();
 
 // src/features/settings/errorLogCopy.ts
-var import_obsidian28 = require("obsidian");
+var import_obsidian27 = require("obsidian");
 init_ErrorLog();
 init_FailureReport();
 async function copyRecentErrors(adapter, host, clipboard = typeof navigator === "undefined" ? void 0 : navigator.clipboard) {
@@ -21387,7 +20289,7 @@ async function copyRecentErrors(adapter, host, clipboard = typeof navigator === 
     });
     return;
   }
-  new import_obsidian28.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  new import_obsidian27.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
 }
 
 // src/features/settings/keyboardNavigation.ts
@@ -21468,7 +20370,7 @@ function getHotkeyForCommand(app, commandId) {
   if (!hotkeys || hotkeys.length === 0) return null;
   return hotkeys.map(formatHotkey).join(", ");
 }
-var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab {
+var ObsidianCopilotSettingTab = class extends import_obsidian28.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     /**
@@ -21490,13 +20392,13 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     var _a, _b;
     const descriptor = getProviderDescriptor(providerId);
     const stored = (_b = (_a = this.plugin.providerConnections) == null ? void 0 : _a[providerId]) == null ? void 0 : _b.state;
-    const row = new import_obsidian29.Setting(containerEl).setName(descriptor.label).setDesc(connectionLabel(stored));
+    const row = new import_obsidian28.Setting(containerEl).setName(descriptor.label).setDesc(connectionLabel(stored));
     row.addButton((button) => {
       const label = (state) => state === "connected" ? "\uB2E4\uC2DC \uC5F0\uACB0" : "\uC5F0\uACB0";
       button.setButtonText(label(stored));
       button.onClick(async () => {
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian29.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian28.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           return;
         }
         const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
@@ -21534,7 +20436,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       await this.plugin.saveSettings();
     };
     if (defaultModelSource(provider) === "copilot-catalog") {
-      new import_obsidian29.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc("\uCC44\uD305\uACFC \uC778\uB77C\uC778 \uD3B8\uC9D1\uC5D0 \uC4F8 GitHub Copilot \uBAA8\uB378\uC785\uB2C8\uB2E4.").addDropdown((dropdown) => {
+      new import_obsidian28.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc("\uCC44\uD305\uACFC \uC778\uB77C\uC778 \uD3B8\uC9D1\uC5D0 \uC4F8 GitHub Copilot \uBAA8\uB378\uC785\uB2C8\uB2E4.").addDropdown((dropdown) => {
         for (const model of COPILOT_MODELS) {
           dropdown.addOption(model.value, `${model.label} - ${model.costLabel}`);
         }
@@ -21543,7 +20445,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       return;
     }
     const stored = ((_b = (_a = this.plugin.settings.providerModels) == null ? void 0 : _a[provider]) == null ? void 0 : _b.trim()) || "";
-    const row = new import_obsidian29.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc(`${descriptor.label}\uC5D0 \uBCF4\uB0BC \uBAA8\uB378\uC785\uB2C8\uB2E4. \uBE44\uC6CC \uB450\uBA74 CLI \uAE30\uBCF8\uAC12\uC744 \uC501\uB2C8\uB2E4.`);
+    const row = new import_obsidian28.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc(`${descriptor.label}\uC5D0 \uBCF4\uB0BC \uBAA8\uB378\uC785\uB2C8\uB2E4. \uBE44\uC6CC \uB450\uBA74 CLI \uAE30\uBCF8\uAC12\uC744 \uC501\uB2C8\uB2E4.`);
     const showList = (options) => {
       row.controlEl.empty();
       row.addDropdown((dropdown) => {
@@ -21614,7 +20516,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       });
     }
     const skillsInstalled = isObsidianSkillsInstalled(this.app, skillProvider);
-    new import_obsidian29.Setting(skillsContentEl).setName("Obsidian context skills").setDesc(
+    new import_obsidian28.Setting(skillsContentEl).setName("Obsidian context skills").setDesc(
       skillsInstalled ? `\uC124\uCE58\uB428 - ${getProviderDescriptor(skillProvider).label}\uAC00 Obsidian \uBB38\uBC95\uC744 \uC774\uD574\uD569\uB2C8\uB2E4.` : "\uC124\uCE58 \uC548 \uB428 - \uB300\uBD80\uBD84\uC758 \uD559\uC0DD\uC5D0\uAC8C \uAD8C\uC7A5\uD569\uB2C8\uB2E4."
     ).addButton((button) => {
       if (skillsInstalled) {
@@ -21638,7 +20540,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     });
     let skillUrl = "";
     let textInput = null;
-    new import_obsidian29.Setting(skillsContentEl).setName("Install custom skill from GitHub").setDesc(`${getProviderDescriptor(skillProvider).label}\uC758 \uC2A4\uD0AC \uD3F4\uB354\uB85C \uBC1B\uC2B5\uB2C8\uB2E4. \uC2A4\uD0AC \uD3F4\uB354 \uC8FC\uC18C(.../tree/main/skills/docx)\uB97C \uB123\uC73C\uBA74 \uB538\uB9B0 \uC2A4\uD06C\uB9BD\uD2B8\uAE4C\uC9C0 \uBC1B\uACE0, \uC800\uC7A5\uC18C\uB098 SKILL.md \uC8FC\uC18C\uB294 \uADF8 \uD30C\uC77C \uD55C \uC7A5\uB9CC \uBC1B\uC2B5\uB2C8\uB2E4.`).addText((text) => {
+    new import_obsidian28.Setting(skillsContentEl).setName("Install custom skill from GitHub").setDesc(`${getProviderDescriptor(skillProvider).label}\uC758 \uC2A4\uD0AC \uD3F4\uB354\uB85C \uBC1B\uC2B5\uB2C8\uB2E4. \uC2A4\uD0AC \uD3F4\uB354 \uC8FC\uC18C(.../tree/main/skills/docx)\uB97C \uB123\uC73C\uBA74 \uB538\uB9B0 \uC2A4\uD06C\uB9BD\uD2B8\uAE4C\uC9C0 \uBC1B\uACE0, \uC800\uC7A5\uC18C\uB098 SKILL.md \uC8FC\uC18C\uB294 \uADF8 \uD30C\uC77C \uD55C \uC7A5\uB9CC \uBC1B\uC2B5\uB2C8\uB2E4.`).addText((text) => {
       textInput = text.inputEl;
       text.setPlaceholder("https://github.com/username/repo").onChange(async (value) => {
         skillUrl = value;
@@ -21646,7 +20548,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     }).addButton((button) => {
       button.setButtonText("Install").setCta().onClick(async () => {
         if (!skillUrl) {
-          new import_obsidian29.Notice("Please enter a URL");
+          new import_obsidian28.Notice("Please enter a URL");
           return;
         }
         button.setButtonText("Installing...").setDisabled(true);
@@ -21687,7 +20589,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     for (const suggestion of SKILL_SUGGESTIONS) {
       const chipEl = suggestionsEl.createDiv({ cls: "ocop-skill-chip" });
       const iconEl = chipEl.createSpan({ cls: "ocop-skill-chip-icon" });
-      (0, import_obsidian29.setIcon)(iconEl, suggestion.icon);
+      (0, import_obsidian28.setIcon)(iconEl, suggestion.icon);
       chipEl.createSpan({ text: suggestion.label });
       chipEl.addEventListener("click", () => {
         if (textInput) {
@@ -21739,23 +20641,23 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     this.probes = new AbortController();
     containerEl.empty();
     containerEl.addClass("ocop-settings");
-    new import_obsidian29.Setting(containerEl).setName("Quick Start").setHeading();
+    new import_obsidian28.Setting(containerEl).setName("Quick Start").setHeading();
     containerEl.createDiv({
       cls: "setting-item-description",
       text: "Start here: choose your default model and install Obsidian context support."
     });
-    new import_obsidian29.Setting(containerEl).setName("What should Obsidian AI Tutor call you?").setDesc("Your name for personalized greetings (leave empty for generic greetings)").addText(
+    new import_obsidian28.Setting(containerEl).setName("What should Obsidian AI Tutor call you?").setDesc("Your name for personalized greetings (leave empty for generic greetings)").addText(
       (text) => text.setPlaceholder("Enter your name").setValue(this.plugin.settings.userName).onChange(async (value) => {
         this.plugin.settings.userName = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(containerEl).setName("AI provider").setDesc("Choose one official CLI; only the selected provider is used for requests.").addDropdown((dropdown) => {
+    new import_obsidian28.Setting(containerEl).setName("AI provider").setDesc("Choose one official CLI; only the selected provider is used for requests.").addDropdown((dropdown) => {
       for (const provider of PROVIDERS) dropdown.addOption(provider.id, provider.label);
       dropdown.setValue(this.plugin.settings.selectedProvider).onChange(async (value) => {
         var _a;
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian29.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian28.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           dropdown.setValue(this.plugin.settings.selectedProvider);
           return;
         }
@@ -21770,7 +20672,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     for (const provider of PROVIDERS) {
       this.renderProviderConnectionRow(containerEl, provider.id);
     }
-    new import_obsidian29.Setting(containerEl).setName("\uC124\uCE58 \uB9C8\uBC95\uC0AC").setDesc("\uC5EC\uB7EC AI\uB97C \uD55C \uBC88\uC5D0 \uC124\uCE58\uD558\uACE0 \uB85C\uADF8\uC778\uD569\uB2C8\uB2E4. \uAE30\uBCF8\uC73C\uB85C \uC4F8 AI\uB294 \uB9C8\uC9C0\uB9C9\uC5D0 \uACE0\uB985\uB2C8\uB2E4.").addButton((button) => {
+    new import_obsidian28.Setting(containerEl).setName("\uC124\uCE58 \uB9C8\uBC95\uC0AC").setDesc("\uC5EC\uB7EC AI\uB97C \uD55C \uBC88\uC5D0 \uC124\uCE58\uD558\uACE0 \uB85C\uADF8\uC778\uD569\uB2C8\uB2E4. \uAE30\uBCF8\uC73C\uB85C \uC4F8 AI\uB294 \uB9C8\uC9C0\uB9C9\uC5D0 \uACE0\uB985\uB2C8\uB2E4.").addButton((button) => {
       button.setButtonText("\uC5F4\uAE30");
       button.onClick(async () => {
         const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
@@ -21787,7 +20689,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     const pathProvider = this.plugin.settings.selectedProvider;
     const pathDescriptor = getProviderDescriptor(pathProvider);
     const storedCliPath = getConfiguredProviderCliPath(this.plugin.settings, pathProvider);
-    const cliPathSetting = new import_obsidian29.Setting(containerEl).setName(`${pathDescriptor.label} \uC2E4\uD589 \uACBD\uB85C`).setDesc(`\uC790\uB3D9\uC73C\uB85C \uCC3E\uC73C\uBA74 \uBE44\uC6CC \uB450\uC138\uC694. \uBABB \uCC3E\uC744 \uB54C\uB9CC "which ${pathDescriptor.command}" \uACB0\uACFC\uB97C \uBD99\uC5EC \uB123\uC2B5\uB2C8\uB2E4.`);
+    const cliPathSetting = new import_obsidian28.Setting(containerEl).setName(`${pathDescriptor.label} \uC2E4\uD589 \uACBD\uB85C`).setDesc(`\uC790\uB3D9\uC73C\uB85C \uCC3E\uC73C\uBA74 \uBE44\uC6CC \uB450\uC138\uC694. \uBABB \uCC3E\uC744 \uB54C\uB9CC "which ${pathDescriptor.command}" \uACB0\uACFC\uB97C \uBD99\uC5EC \uB123\uC2B5\uB2C8\uB2E4.`);
     const cliPathValidationEl = containerEl.createDiv({ cls: "ocop-cli-path-validation" });
     cliPathValidationEl.style.color = "var(--text-error)";
     cliPathValidationEl.style.fontSize = "0.85em";
@@ -21851,7 +20753,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       cls: "setting-item-description",
       text: "Control how chat behaves day to day without touching advanced system settings."
     });
-    new import_obsidian29.Setting(chatContentEl).setName("Excluded tags").setDesc("Notes with these tags will not auto-load as context (one per line, without #)").addTextArea((text) => {
+    new import_obsidian28.Setting(chatContentEl).setName("Excluded tags").setDesc("Notes with these tags will not auto-load as context (one per line, without #)").addTextArea((text) => {
       text.setPlaceholder("system\nprivate\ndraft").setValue(this.plugin.settings.excludedTags.join("\n")).onChange(async (value) => {
         this.plugin.settings.excludedTags = value.split(/\r?\n/).map((entry) => entry.trim().replace(/^#/, "")).filter((entry) => entry.length > 0);
         await this.plugin.saveSettings();
@@ -21859,20 +20761,20 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       text.inputEl.rows = 4;
       text.inputEl.cols = 30;
     });
-    new import_obsidian29.Setting(chatContentEl).setName("Media folder").setDesc("Folder containing attachments/images. Leave empty for vault root.").addText((text) => {
+    new import_obsidian28.Setting(chatContentEl).setName("Media folder").setDesc("Folder containing attachments/images. Leave empty for vault root.").addText((text) => {
       text.setPlaceholder("attachments").setValue(this.plugin.settings.mediaFolder).onChange(async (value) => {
         this.plugin.settings.mediaFolder = value.trim();
         await this.plugin.saveSettings();
       });
       text.inputEl.addClass("ocop-settings-media-input");
     });
-    new import_obsidian29.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy receives an instruction not to search when Web is off, but its CLI may still search; the first affected request shows a notice.").addToggle(
+    new import_obsidian28.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy receives an instruction not to search when Web is off, but its CLI may still search; the first affected request shows a notice.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableWebSearch).onChange(async (value) => {
         this.plugin.settings.enableWebSearch = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(chatContentEl).setName("Auto-generate conversation titles").setDesc("Automatically generate conversation titles after the first exchange.").addToggle(
+    new import_obsidian28.Setting(chatContentEl).setName("Auto-generate conversation titles").setDesc("Automatically generate conversation titles after the first exchange.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableAutoTitleGeneration).onChange(async (value) => {
         this.plugin.settings.enableAutoTitleGeneration = value;
         await this.plugin.saveSettings();
@@ -21880,7 +20782,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       })
     );
     if (this.plugin.settings.enableAutoTitleGeneration && this.plugin.settings.selectedProvider === "copilot") {
-      new import_obsidian29.Setting(chatContentEl).setName("Title generation model").setDesc("Model used for auto-generating conversation titles.").addDropdown((dropdown) => {
+      new import_obsidian28.Setting(chatContentEl).setName("Title generation model").setDesc("Model used for auto-generating conversation titles.").addDropdown((dropdown) => {
         dropdown.addOption("", "Auto");
         for (const model of COPILOT_MODELS) {
           dropdown.addOption(model.value, model.label);
@@ -21905,18 +20807,18 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       },
       baseAriaLabel: "Advanced settings"
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("Workflows & Shortcuts").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("Workflows & Shortcuts").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "Configure optional workflow presets and keyboard shortcuts once you are comfortable with the basics."
     });
     const inlineEditCommandId = "obsidian-ai-tutor:inline-edit";
     const inlineEditHotkey = getHotkeyForCommand(this.app, inlineEditCommandId);
-    new import_obsidian29.Setting(advancedContentEl).setName("Inline edit hotkey").setDesc(inlineEditHotkey ? `Current: ${inlineEditHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(inlineEditHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
+    new import_obsidian28.Setting(advancedContentEl).setName("Inline edit hotkey").setDesc(inlineEditHotkey ? `Current: ${inlineEditHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(inlineEditHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
     const openChatCommandId = "obsidian-ai-tutor:open-view";
     const openChatHotkey = getHotkeyForCommand(this.app, openChatCommandId);
-    new import_obsidian29.Setting(advancedContentEl).setName("Open chat hotkey").setDesc(openChatHotkey ? `Current: ${openChatHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(openChatHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
-    new import_obsidian29.Setting(advancedContentEl).setName("Workflow Presets").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("Open chat hotkey").setDesc(openChatHotkey ? `Current: ${openChatHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(openChatHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
+    new import_obsidian28.Setting(advancedContentEl).setName("Workflow Presets").setHeading();
     const slashCommandsDesc = advancedContentEl.createDiv({ cls: "ocop-slash-settings-desc" });
     slashCommandsDesc.createEl("p", {
       text: "Create custom prompt templates triggered by /command. Use $ARGUMENTS for all arguments, $1/$2 for positional args, @file for file content, and !`bash` for command output.",
@@ -21924,24 +20826,24 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     });
     const slashCommandsContainer = advancedContentEl.createDiv({ cls: "ocop-slash-commands-container" });
     new SlashCommandSettings(slashCommandsContainer, this.plugin);
-    new import_obsidian29.Setting(advancedContentEl).setName("Safety & Permissions").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("Safety & Permissions").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "The toggle below is the main safety control for beginners. Detailed allow/block rules are in Advanced."
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("\uC778\uB77C\uC778 Bash \uBA85\uB839 \uCC28\uB2E8").setDesc("\uC2AC\uB798\uC2DC \uBA85\uB839 \uC548\uC758 !`\uBA85\uB839` \uC2E4\uD589\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. AI\uAC00 \uC2A4\uC2A4\uB85C \uC2E4\uD589\uD558\uB294 \uBA85\uB839\uC740 \uB9C9\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 AI\uC758 \uAD8C\uD55C\uC740 Ask/Agent \uD1A0\uAE00\uB85C \uC870\uC808\uD558\uC138\uC694.").addToggle(
+    new import_obsidian28.Setting(advancedContentEl).setName("\uC778\uB77C\uC778 Bash \uBA85\uB839 \uCC28\uB2E8").setDesc("\uC2AC\uB798\uC2DC \uBA85\uB839 \uC548\uC758 !`\uBA85\uB839` \uC2E4\uD589\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. AI\uAC00 \uC2A4\uC2A4\uB85C \uC2E4\uD589\uD558\uB294 \uBA85\uB839\uC740 \uB9C9\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 AI\uC758 \uAD8C\uD55C\uC740 Ask/Agent \uD1A0\uAE00\uB85C \uC870\uC808\uD558\uC138\uC694.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableBlocklist).onChange(async (value) => {
         this.plugin.settings.enableBlocklist = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(advancedContentEl).setName("Enable inline bash in slash commands").setDesc("Allow !`command` syntax in workflow presets to execute shell commands. Disabled by default for security \u2014 enable only if you trust your slash command sources.").addToggle(
+    new import_obsidian28.Setting(advancedContentEl).setName("Enable inline bash in slash commands").setDesc("Allow !`command` syntax in workflow presets to execute shell commands. Disabled by default for security \u2014 enable only if you trust your slash command sources.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableInlineBash).onChange(async (value) => {
         this.plugin.settings.enableInlineBash = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uCC44\uD305\uC5D0\uC11C Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C \uB728\uB294 \uD655\uC778 \uCC3D\uC5D0\uC11C \uD5C8\uC6A9\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCF1C\uC9D1\uB2C8\uB2E4. \uB044\uBA74 Agy\uB294 Ask(\uC77D\uAE30 \uC804\uC6A9)\uB85C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
+    new import_obsidian28.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uCC44\uD305\uC5D0\uC11C Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C \uB728\uB294 \uD655\uC778 \uCC3D\uC5D0\uC11C \uD5C8\uC6A9\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCF1C\uC9D1\uB2C8\uB2E4. \uB044\uBA74 Agy\uB294 Ask(\uC77D\uAE30 \uC804\uC6A9)\uB85C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
       var _a;
       return toggle.setValue((_a = this.plugin.settings.allowUnsafeAgyAgent) != null ? _a : false).onChange(async (value) => {
         if (!value) {
@@ -21962,7 +20864,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     const platformKey = getCurrentPlatformKey();
     const isWindows4 = platformKey === "windows";
     const platformLabel = isWindows4 ? "Windows" : "Unix";
-    new import_obsidian29.Setting(advancedContentEl).setName(`Blocked commands (${platformLabel})`).setDesc(`Patterns to block on ${platformLabel} (one per line). Supports regex.`).addTextArea((text) => {
+    new import_obsidian28.Setting(advancedContentEl).setName(`Blocked commands (${platformLabel})`).setDesc(`Patterns to block on ${platformLabel} (one per line). Supports regex.`).addTextArea((text) => {
       const placeholder = isWindows4 ? "del /s /q\nrd /s /q\nRemove-Item -Recurse -Force" : "rm -rf\nchmod 777\nmkfs";
       text.setPlaceholder(placeholder).setValue(this.plugin.settings.blockedCommands[platformKey].join("\n")).onChange(async (value) => {
         this.plugin.settings.blockedCommands[platformKey] = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
@@ -21972,7 +20874,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       text.inputEl.cols = 40;
     });
     if (isWindows4) {
-      new import_obsidian29.Setting(advancedContentEl).setName("Blocked commands (Unix/Git Bash)").setDesc("Unix patterns also blocked on Windows because Git Bash can invoke them.").addTextArea((text) => {
+      new import_obsidian28.Setting(advancedContentEl).setName("Blocked commands (Unix/Git Bash)").setDesc("Unix patterns also blocked on Windows because Git Bash can invoke them.").addTextArea((text) => {
         text.setPlaceholder("rm -rf\nchmod 777\nmkfs").setValue(this.plugin.settings.blockedCommands.unix.join("\n")).onChange(async (value) => {
           this.plugin.settings.blockedCommands.unix = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
           await this.plugin.saveSettings();
@@ -21981,7 +20883,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
         text.inputEl.cols = 40;
       });
     }
-    new import_obsidian29.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin \u2014 the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.").addTextArea((text) => {
+    new import_obsidian28.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin \u2014 the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.").addTextArea((text) => {
       const placeholder = process.platform === "win32" ? "~/Desktop\n~/Downloads\n%TEMP%" : "~/Desktop\n~/Downloads\n/tmp";
       text.setPlaceholder(placeholder).setValue(this.plugin.settings.allowedExportPaths.join("\n")).onChange(async (value) => {
         this.plugin.settings.allowedExportPaths = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
@@ -22015,7 +20917,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
           this.display();
         });
       }
-      new import_obsidian29.Setting(advancedContentEl).setName("Clear all approved actions").setDesc("Remove all permanently approved actions").addButton(
+      new import_obsidian28.Setting(advancedContentEl).setName("Clear all approved actions").setDesc("Remove all permanently approved actions").addButton(
         (button) => button.setButtonText("Clear all").setWarning().onClick(async () => {
           this.plugin.settings.permissions = [];
           await this.plugin.saveSettings();
@@ -22023,18 +20925,18 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
         })
       );
     }
-    new import_obsidian29.Setting(advancedContentEl).setName("Authentication & Environment").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("Authentication & Environment").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: `\uB300\uBD80\uBD84\uC758 \uD559\uC0DD\uC740 \uADF8\uB300\uB85C \uB450\uBA74 \uB429\uB2C8\uB2E4. ${getProviderDescriptor(this.plugin.settings.selectedProvider).label} \uB85C\uADF8\uC778\uC774 \uC774\uBBF8 \uB05D\uB0AC\uB2E4\uBA74 \uC190\uB308 \uD544\uC694\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("GitHub token").setDesc("\uC120\uD0DD \uC0AC\uD56D\uC785\uB2C8\uB2E4. \uC785\uB825\uD558\uBA74 Copilot \uC2E4\uD589 \uC2DC COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN\uC73C\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4. \uD1A0\uD070\uC740 \uAE08\uACE0\uAC00 \uC544\uB2C8\uB77C \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uC800\uC7A5\uB418\uBBC0\uB85C, \uAE08\uACE0\uB97C \uACF5\uC720\uD558\uAC70\uB098 \uD074\uB77C\uC6B0\uB4DC\uC5D0 \uC62C\uB824\uB3C4 \uD568\uAED8 \uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C\uB294 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.").addText(
+    new import_obsidian28.Setting(advancedContentEl).setName("GitHub token").setDesc("\uC120\uD0DD \uC0AC\uD56D\uC785\uB2C8\uB2E4. \uC785\uB825\uD558\uBA74 Copilot \uC2E4\uD589 \uC2DC COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN\uC73C\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4. \uD1A0\uD070\uC740 \uAE08\uACE0\uAC00 \uC544\uB2C8\uB77C \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uC800\uC7A5\uB418\uBBC0\uB85C, \uAE08\uACE0\uB97C \uACF5\uC720\uD558\uAC70\uB098 \uD074\uB77C\uC6B0\uB4DC\uC5D0 \uC62C\uB824\uB3C4 \uD568\uAED8 \uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C\uB294 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.").addText(
       (text) => text.setPlaceholder("github_pat_...").setValue(this.plugin.settings.githubToken).onChange(async (value) => {
         this.plugin.settings.githubToken = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian29.Setting(advancedContentEl).setName("Custom variables").setDesc("\uC120\uD0DD\uD55C provider\uC758 CLI\uC5D0 \uB118\uAE38 \uD658\uACBD \uBCC0\uC218\uC785\uB2C8\uB2E4 (KEY=VALUE, \uD55C \uC904\uC5D0 \uD558\uB098).").addTextArea((text) => {
+    new import_obsidian28.Setting(advancedContentEl).setName("Custom variables").setDesc("\uC120\uD0DD\uD55C provider\uC758 CLI\uC5D0 \uB118\uAE38 \uD658\uACBD \uBCC0\uC218\uC785\uB2C8\uB2E4 (KEY=VALUE, \uD55C \uC904\uC5D0 \uD558\uB098).").addTextArea((text) => {
       text.setPlaceholder("HTTPS_PROXY=http://proxy.school.ac.kr:8080\nLANG=ko_KR.UTF-8").setValue(this.plugin.settings.environmentVariables).onChange(async (value) => {
         await this.plugin.applyEnvironmentVariables(value);
       });
@@ -22044,24 +20946,24 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
     });
     const envSnippetsContainer = advancedContentEl.createDiv({ cls: "ocop-env-snippets-container" });
     new EnvSnippetManager(envSnippetsContainer, this.plugin);
-    new import_obsidian29.Setting(advancedContentEl).setName("\uBB38\uC81C \uAE30\uB85D").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("\uBB38\uC81C \uAE30\uB85D").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       // The failures that matter most are on machines nobody here can reach, and
       // a student cannot be asked to open a terminal to retrieve them.
       text: `\uC624\uB958\uAC00 \uC0DD\uAE30\uBA74 \uC790\uB3D9\uC73C\uB85C \uBCF4\uAD00\uD568\uC758 ${ERROR_LOG_PATH} \uC5D0 \uAE30\uB85D\uB429\uB2C8\uB2E4. \uC778\uC99D \uD1A0\uD070 \uAC19\uC740 \uBE44\uBC00 \uAC12\uC740 \uAC00\uB824\uC11C \uC800\uC7A5\uD569\uB2C8\uB2E4.`
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
+    new import_obsidian28.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
       (button) => button.setButtonText("\uBCF5\uC0AC").onClick(async () => {
         await copyRecentErrors(this.plugin.storage.getAdapter(), this.plugin);
       })
     );
-    new import_obsidian29.Setting(advancedContentEl).setName("Advanced & Developer").setHeading();
+    new import_obsidian28.Setting(advancedContentEl).setName("Advanced & Developer").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "Only change these if you know why you need them. They are preserved here for power users and debugging."
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("Custom system prompt").setDesc("\uC120\uD0DD\uD55C provider\uC758 \uAE30\uBCF8 \uD504\uB86C\uD504\uD2B8 \uB4A4\uC5D0 \uBD99\uB294 \uCD94\uAC00 \uC9C0\uC2DC\uC785\uB2C8\uB2E4.").addTextArea((text) => {
+    new import_obsidian28.Setting(advancedContentEl).setName("Custom system prompt").setDesc("\uC120\uD0DD\uD55C provider\uC758 \uAE30\uBCF8 \uD504\uB86C\uD504\uD2B8 \uB4A4\uC5D0 \uBD99\uB294 \uCD94\uAC00 \uC9C0\uC2DC\uC785\uB2C8\uB2E4.").addTextArea((text) => {
       text.setPlaceholder("Add custom instructions here...").setValue(this.plugin.settings.systemPrompt).onChange(async (value) => {
         this.plugin.settings.systemPrompt = value;
         await this.plugin.saveSettings();
@@ -22069,7 +20971,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
       text.inputEl.rows = 6;
       text.inputEl.cols = 50;
     });
-    new import_obsidian29.Setting(advancedContentEl).setName("Vim-style navigation mappings").setDesc('One mapping per line. Format: "map <key> <action>" (actions: scrollUp, scrollDown, focusInput).').addTextArea((text) => {
+    new import_obsidian28.Setting(advancedContentEl).setName("Vim-style navigation mappings").setDesc('One mapping per line. Format: "map <key> <action>" (actions: scrollUp, scrollDown, focusInput).').addTextArea((text) => {
       let pendingValue = buildNavMappingText(this.plugin.settings.keyboardNavigation);
       let saveTimeout = null;
       const commitValue = async (showError) => {
@@ -22080,7 +20982,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
         const result = parseNavMappings(pendingValue);
         if (!result.settings) {
           if (showError) {
-            new import_obsidian29.Notice(`Invalid navigation mappings: ${result.error}`);
+            new import_obsidian28.Notice(`Invalid navigation mappings: ${result.error}`);
             pendingValue = buildNavMappingText(this.plugin.settings.keyboardNavigation);
             text.setValue(pendingValue);
           }
@@ -22114,7 +21016,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian29.PluginSettingTab
 };
 
 // src/main.ts
-var ObsidianCopilotPlugin = class extends import_obsidian31.Plugin {
+var ObsidianCopilotPlugin = class extends import_obsidian30.Plugin {
   constructor() {
     super(...arguments);
     this.conversations = [];
@@ -22173,7 +21075,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       if (next !== this.providerConnections) this.persistProviderConnections(next);
     };
     this.agentService.onPermissionNotice = (message) => {
-      new import_obsidian31.Notice(message);
+      new import_obsidian30.Notice(message);
     };
     void this.agentService.prewarmCapabilities();
     this.app.workspace.onLayoutReady(() => {
@@ -22181,7 +21083,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       void this.installBundledSkillsOnce();
       void this.finishSecretMove();
     });
-    (0, import_obsidian31.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
+    (0, import_obsidian30.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
     this.registerView(
       VIEW_TYPE_OBSIDIAN_COPILOT,
       (leaf) => new ObsidianCopilotView(leaf, this)
@@ -22219,7 +21121,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
         const modal = new InlineEditModal(this.app, this, editContext, notePath);
         const result = await modal.openAndWait();
         if (result.decision === "accept" && result.editedText !== void 0) {
-          new import_obsidian31.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
+          new import_obsidian30.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
         }
       }
     });
@@ -22235,7 +21137,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
           if (chatView == null ? void 0 : chatView.fileContextManager) {
             const normalizedPath = activeFile.path.replace(/\\/g, "/");
             chatView.fileContextManager.attachFileFromCommand(normalizedPath);
-            new import_obsidian31.Notice(`Attached: ${activeFile.name}`);
+            new import_obsidian30.Notice(`Attached: ${activeFile.name}`);
           }
         }).catch((error) => {
           console.error("[ObsidianCopilot] Failed to activate view for file attach:", error);
@@ -22326,7 +21228,6 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     this.settings.environmentVariables = secrets.environmentVariables;
     const trust = readTrust2(this.app);
     this.settings.permissionMode = "ask";
-    this.settings.lastNonPlanPermissionMode = "ask";
     this.settings.blanketWriteAcknowledged = [];
     this.settings.allowUnsafeAgyAgent = trust.allowUnsafeAgyAgent;
     this.settings.permissions = trust.permissions;
@@ -22400,7 +21301,6 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       // Runtime Agent authority never crosses a reload. Only the separate Agy
       // expert preference persists; every actual transition is confirmed again.
       permissionMode: "ask",
-      lastNonPlanPermissionMode: "ask",
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: (_c = this.settings.allowUnsafeAgyAgent) != null ? _c : false,
       permissions: (_d = this.settings.permissions) != null ? _d : [],
@@ -22441,7 +21341,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     await this.saveSettings();
     if (envText !== this.runtimeEnvironmentVariables) {
       if (!this.hasNotifiedEnvChange) {
-        new import_obsidian31.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
+        new import_obsidian30.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
         this.hasNotifiedEnvChange = true;
       }
     } else {
@@ -22641,32 +21541,21 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
   resetPermissionAuthority() {
     this.permissionAuthorityEpoch += 1;
     this.settings.permissionMode = "ask";
-    this.settings.lastNonPlanPermissionMode = "ask";
     this.settings.blanketWriteAcknowledged = [];
+    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
+  }
+  /**
+   * The toggle going back to Ask. Unlike resetPermissionAuthority this keeps the write
+   * consents given this session, so flipping back to Agent does not ask again; a reload,
+   * a new view or a provider switch still clears them. The epoch still moves, so a
+   * consent dialog that is open right now cannot grant Agent after this.
+   */
+  returnToAsk() {
+    this.permissionAuthorityEpoch += 1;
+    this.settings.permissionMode = "ask";
     this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
   getPermissionAuthorityEpoch() {
     return this.permissionAuthorityEpoch;
-  }
-  /**
-   * Refreshes the captured mode from CURRENT settings without waiting for the counter to
-   * drain. The capture above exists to freeze the toggle against a change that would let
-   * it lie about work already running — but not every mid-flight `permissionMode` write is
-   * that kind of change. Some (plan approval restoring the prior mode) are the user
-   * deliberately granting authority right now, and the stale capture, not the write, is
-   * what would be wrong: the toggle would keep showing the read-only mode a plan-mode
-   * region captured, while the approved work is about to run with real authority. Callers
-   * that land a legitimate mid-flight grant call this immediately after the write so the
-   * label catches up to what just became true. A no-op while settled — there is no capture
-   * to correct.
-   */
-  recapturePermissionMode() {
-    if (this.writeAuthorityCount === 0) return;
-    this.capturedPermissionMode = resolveEffectivePermissionMode(
-      this.settings.permissionMode,
-      this.settings.selectedProvider,
-      this.settings.blanketWriteAcknowledged
-    );
-    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 };

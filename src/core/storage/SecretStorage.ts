@@ -19,7 +19,6 @@ import type { App } from 'obsidian';
 import {
   type EnvSnippet,
   getDefaultBlockedCommands,
-  type NonPlanPermissionMode,
   type Permission,
   type PermissionMode,
   type PlatformBlockedCommands,
@@ -137,7 +136,11 @@ export function adoptSecretsFromSettings(app: App, settings: Partial<StoredSecre
 
 const TRUST_STORAGE_KEY = 'obsidian-ai-tutor:trust';
 
-/** Fields whose effective value comes from device-local storage, never the vault. */
+/**
+ * Fields whose effective value comes from device-local storage, never the vault.
+ * `lastNonPlanPermissionMode` is no longer stored anywhere; it stays listed so a vault
+ * settings file written by an older release still has it stripped on load.
+ */
 export const TRUST_FIELDS = [
   'permissionMode', 'lastNonPlanPermissionMode',
   'blanketWriteAcknowledged', 'permissions',
@@ -149,7 +152,6 @@ export const TRUST_FIELDS = [
 
 export interface StoredTrust {
   permissionMode: PermissionMode;
-  lastNonPlanPermissionMode?: NonPlanPermissionMode;
   blanketWriteAcknowledged: string[];
   allowUnsafeAgyAgent: boolean;
   permissions: Permission[];
@@ -185,9 +187,9 @@ export function readTrust(app: App): StoredTrust {
     const defaults = getDefaultTrust();
     return {
       // Agent authority is deliberately runtime-only. Older releases persisted all
-      // three fields; ignore them so an upgrade or reload always starts in Ask.
+      // fields (and a since-removed `lastNonPlanPermissionMode`); ignore them so an
+      // upgrade or reload always starts in Ask.
       permissionMode: 'ask',
-      lastNonPlanPermissionMode: 'ask',
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: typeof raw.allowUnsafeAgyAgent === 'boolean'
         ? raw.allowUnsafeAgyAgent : defaults.allowUnsafeAgyAgent,

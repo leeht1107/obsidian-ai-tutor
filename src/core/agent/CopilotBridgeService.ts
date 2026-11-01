@@ -33,7 +33,6 @@ import { type ErrorDiagnostic, type ErrorLogEntry, recordError } from '../storag
 import { isWriteEditTool } from '../tools/toolNames';
 import type {
   ChatMessage,
-  ExitPlanModeDecision,
   ImageAttachment,
   StreamChunk,
   ToolDiffData,
@@ -46,7 +45,6 @@ export interface QueryOptions {
   allowedTools?: string[];
   model?: string;
   skipResume?: boolean;
-  planMode?: boolean;
   externalContextPaths?: string[];
   enableWebSearch?: boolean;
   /** Force this request to use read-only provider permissions regardless of the toolbar mode. */
@@ -58,9 +56,6 @@ export type ApprovalCallback = (
   input: Record<string, unknown>,
   description: string
 ) => Promise<'allow' | 'allow-always' | 'deny' | 'cancel'>;
-
-export type ExitPlanModeCallback = (planContent: string) => Promise<ExitPlanModeDecision>;
-export type EnterPlanModeCallback = () => Promise<void>;
 
 const ALLOWED_TOOLS = [
   'view',
@@ -112,12 +107,11 @@ interface DiffContentEntry {
 export function resolveCopilotAllowedTools(
   permissionMode: string,
   requestedTools?: string[],
-  planMode?: boolean,
   enableWebSearch = true
 ): string[] {
   const hasRequestedTools = requestedTools !== undefined;
   const requested = requestedTools?.map(normalizeCopilotToolName).filter(Boolean) ?? [];
-  const guardrailTools = planMode || permissionMode !== 'agent'
+  const guardrailTools = permissionMode !== 'agent'
     ? ALLOWED_TOOLS.filter((tool) => enableWebSearch || !isCopilotWebTool(tool))
     : null;
   const guardrailSet = guardrailTools ? new Set<string>(guardrailTools) : null;
@@ -142,9 +136,9 @@ function hasExplicitCopilotAllowedTools(requestedTools?: string[]): boolean {
 export function shouldUseCopilotAllowAllTools(
   permissionMode: string,
   allowAllToolsSupported: boolean,
-  queryOptions: Pick<QueryOptions, 'allowedTools' | 'planMode' | 'readOnly'> | undefined,
+  queryOptions: Pick<QueryOptions, 'allowedTools' | 'readOnly'> | undefined,
 ): boolean {
-  if (!allowAllToolsSupported || queryOptions?.planMode || queryOptions?.readOnly) {
+  if (!allowAllToolsSupported || queryOptions?.readOnly) {
     return false;
   }
   if (hasExplicitCopilotAllowedTools(queryOptions?.allowedTools)) {
@@ -449,11 +443,8 @@ export class CopilotBridgeService {
   private cachedCapabilities = new Map<string, CopilotCliCapabilities>();
   private capabilityProbePromises = new Map<string, Promise<CopilotCliCapabilities>>();
 
-  private exitPlanModeCallback: ExitPlanModeCallback | null = null;
   /** The last permission notice shown per provider, so the same one is not repeated. */
   private readonly shownPermissionNotices = new Set<string>();
-  private currentPlanFilePath: string | null = null;
-  private approvedPlanContent: string | null = null;
   private askUserQuestionAnswers = new Map<string, Record<string, string | string[]>>();
   private isAskUserQuestionSupported = true;
   private originalContents = new Map<string, DiffContentEntry>();
@@ -524,13 +515,10 @@ export class CopilotBridgeService {
       externalContextPaths: queryOptions?.externalContextPaths,
       vaultPath,
       hasEditorContext,
-      planMode: queryOptions?.planMode,
       enableWebSearch: queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch,
-      appendedPlan: this.approvedPlanContent ?? undefined,
       providerId: this.plugin.settings.selectedProvider as ProviderId,
       permissionMode: permissionMode ?? this.effectivePermissionMode(
         this.plugin.settings.selectedProvider as ProviderId,
-        Boolean(queryOptions?.planMode),
       ),
     });
   }
@@ -725,7 +713,6 @@ export class CopilotBridgeService {
     const finalTools = resolveCopilotAllowedTools(
       permissionMode,
       queryOptions?.allowedTools,
-      queryOptions?.planMode,
       enableWebSearch
     );
 
@@ -847,7 +834,7 @@ export class CopilotBridgeService {
       return;
     }
     this.isAskUserQuestionSupported = !capabilities.noAskUser;
-    const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.planMode || queryOptions?.readOnly));
+    const permissionMode = this.effectivePermissionMode('copilot', Boolean(queryOptions?.readOnly));
     const enableWebSearch = queryOptions?.enableWebSearch ?? this.plugin.settings.enableWebSearch;
     if (!enableWebSearch && permissionMode === 'agent' && !capabilities.denyTool) {
       const notice = '이 Copilot CLI는 Agent 모드에서 Web 검색을 차단할 수 없습니다. CLI를 업데이트하기 전까지 Web 검색이 사용될 수 있습니다.';
@@ -883,7 +870,6 @@ export class CopilotBridgeService {
     const finalTools = resolveCopilotAllowedTools(
       permissionMode,
       queryOptions?.allowedTools,
-      queryOptions?.planMode,
       enableWebSearch,
     );
     // A read-only request (learning, inline edit, titles) depends on the CLI enforcing the tool list.
@@ -942,10 +928,6 @@ export class CopilotBridgeService {
     this.abortController = new AbortController();
 
     try {
-      const isPlanMode = queryOptions?.planMode === true;
-      let bufferedPlanText = '';
-      let sawDone = false;
-
       for await (const chunk of this.spawnCopilot(copilotPath, args, this.getCustomEnv(copilotPath))) {
         if (chunk.type === 'error') {
           // Clear before yielding: the UI stops consuming this iterator at an error.
@@ -958,34 +940,7 @@ export class CopilotBridgeService {
           this.finalizeWriteEditDiff(chunk.id, !!chunk.isError);
         }
 
-        if (isPlanMode) {
-          if (chunk.type === 'text') {
-            bufferedPlanText += chunk.content;
-            // No continue — fall through to yield chunk for real-time streaming
-          }
-
-          if (chunk.type === 'done') {
-            sawDone = true;
-            continue;
-          }
-        }
-
         yield chunk;
-      }
-
-      if (isPlanMode) {
-        const trimmedPlan = bufferedPlanText.trim();
-        if (!this.wasInterrupted && trimmedPlan) {
-          if (this.exitPlanModeCallback) {
-            await this.exitPlanModeCallback(trimmedPlan);
-          } else {
-            yield { type: 'text', content: bufferedPlanText };
-          }
-        }
-
-        if (sawDone) {
-          yield { type: 'done' };
-        }
       }
     } catch (error) {
       // Anything thrown on the plugin's own side of the request. Without this the
@@ -1105,11 +1060,10 @@ export class CopilotBridgeService {
     }
 
     const selection = resolveNativeSelection(this.plugin.settings, queryOptions?.model);
-    // Plan mode is a read-only exploration, so it maps to the same restriction as Ask.
     // A provider that cannot be held read-only gets `agent` whatever the toggle says;
     // pretending otherwise would be a guardrail that is not there.
     const mode = this.plugin.settings.permissionMode;
-    const wantsReadOnly = mode === 'ask' || mode === 'plan' || Boolean(queryOptions?.planMode || queryOptions?.readOnly);
+    const wantsReadOnly = mode === 'ask' || Boolean(queryOptions?.readOnly);
     // The consent gate lives here, not on the toggle: Agent is the default mode, so a
     // student who never touched the toggle would otherwise reach a blanket-write CLI
     // simply by selecting it. Until they have confirmed, this provider runs read-only.
@@ -1118,7 +1072,7 @@ export class CopilotBridgeService {
     // The shared predicate so the toolbar, this dispatch, and both inline-bash gates
     // agree on what "Agent" means for this provider right now — see its doc comment
     // in providerRegistry.ts for why `settings.permissionMode` alone is not enough.
-    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions?.planMode || queryOptions?.readOnly));
+    const permissionMode = this.effectivePermissionMode(provider, Boolean(queryOptions?.readOnly));
     const fullPrompt = this.buildPromptWithHistory(
       prompt,
       conversationHistory,
@@ -1690,8 +1644,6 @@ export class CopilotBridgeService {
     this.sessionConfirmedByCli = false;
     this.wasInterrupted = false;
     this.askUserQuestionAnswers.clear();
-    this.approvedPlanContent = null;
-    this.currentPlanFilePath = null;
     this.clearDiffState();
   }
 
@@ -1722,10 +1674,6 @@ export class CopilotBridgeService {
 
   isAskUserQuestionToolSupported(): boolean {
     return this.isAskUserQuestionSupported;
-  }
-
-  setExitPlanModeCallback(callback: ExitPlanModeCallback | null): void {
-    this.exitPlanModeCallback = callback;
   }
 
   private resolveVaultFilePath(filePath: string): string {
@@ -1834,25 +1782,5 @@ export class CopilotBridgeService {
       this.askUserQuestionAnswers.delete(toolUseId);
     }
     return answers;
-  }
-
-  setApprovedPlanContent(content: string | null): void {
-    this.approvedPlanContent = content;
-  }
-
-  getApprovedPlanContent(): string | null {
-    return this.approvedPlanContent;
-  }
-
-  clearApprovedPlanContent(): void {
-    this.approvedPlanContent = null;
-  }
-
-  setCurrentPlanFilePath(planPath: string | null): void {
-    this.currentPlanFilePath = planPath;
-  }
-
-  getCurrentPlanFilePath(): string | null {
-    return this.currentPlanFilePath;
   }
 }

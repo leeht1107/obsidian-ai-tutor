@@ -42,7 +42,6 @@ export {
   getDefaultBlockedCommands,
   type InstructionRefineResult,
   type KeyboardNavigationSettings,
-  type NonPlanPermissionMode,
   type ObsidianCopilotSettings,
   type Permission,
   type PermissionMode,
@@ -54,7 +53,6 @@ export {
 // Tool types
 export {
   type AsyncSubagentStatus,
-  type ExitPlanModeDecision,
   type SubagentInfo,
   type SubagentMode,
   type ToolCallInfo,

@@ -197,8 +197,8 @@ describe('SlashCommandManager', () => {
       expect(bashRunner).not.toHaveBeenCalled();
     });
 
-    it('never executes or requests approval when disabled (ASK/PLAN mode: enabled=false)', async () => {
-      // ASK/PLAN callers (InputController, InlineEditModal) compute `enabled` from
+    it('never executes or requests approval when disabled (ASK mode: enabled=false)', async () => {
+      // ASK callers (InputController, InlineEditModal) compute `enabled` from
       // `permissionMode === 'agent'` and no longer pass `requestApproval` at all — this
       // pins the resulting contract at the SlashCommandManager level: disabled always
       // wins, so a stray approval callback is never reachable.

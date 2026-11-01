@@ -24,8 +24,8 @@ describe('native provider Web dispatch', () => {
   });
 
   it('keeps Copilot Web filtering tied to the toolbar state', () => {
-    expect(resolveCopilotAllowedTools('ask', undefined, false, true)).toContain('web_search');
-    expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toEqual(
+    expect(resolveCopilotAllowedTools('ask', undefined, true)).toContain('web_search');
+    expect(resolveCopilotAllowedTools('ask', undefined, false)).not.toEqual(
       expect.arrayContaining(['web_search', 'web_fetch'])
     );
   });

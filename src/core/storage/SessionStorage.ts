@@ -40,9 +40,6 @@ interface SessionMetaRecord {
   currentNote?: string;
   externalContextPaths?: string[];
   usage?: UsageInfo;
-  approvedPlan?: string;
-  pendingPlanContent?: string;
-  isInPlanMode?: boolean;
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
   quizSession?: QuizSessionState;
   socraticSession?: SocraticSessionState;
@@ -253,9 +250,6 @@ export class SessionStorage {
       currentNote: meta.currentNote,
       externalContextPaths: meta.externalContextPaths,
       usage: meta.usage,
-      approvedPlan: meta.approvedPlan,
-      pendingPlanContent: meta.pendingPlanContent,
-      isInPlanMode: meta.isInPlanMode,
       titleGenerationStatus: meta.titleGenerationStatus,
       quizSession: meta.quizSession,
       socraticSession: meta.socraticSession,
@@ -281,9 +275,6 @@ export class SessionStorage {
       currentNote: conversation.currentNote,
       externalContextPaths: conversation.externalContextPaths,
       usage: conversation.usage,
-      approvedPlan: conversation.approvedPlan,
-      pendingPlanContent: conversation.pendingPlanContent,
-      isInPlanMode: conversation.isInPlanMode,
       titleGenerationStatus: conversation.titleGenerationStatus,
       quizSession: conversation.quizSession,
       socraticSession: conversation.socraticSession,

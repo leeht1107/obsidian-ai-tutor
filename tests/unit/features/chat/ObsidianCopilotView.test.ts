@@ -288,3 +288,4 @@ describe('native tutor icon', () => {
     expect(new Set(Object.values(PROVIDER_MARKS)).size).toBe(4);
   });
 });
+

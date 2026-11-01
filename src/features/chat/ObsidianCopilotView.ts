@@ -23,7 +23,6 @@ import {
   type LearningSetupMode,
   type ModelSelector,
   type PermissionToggle,
-  PlanBanner,
   QUIZ_STUCK_ANSWER,
   SlashCommandDropdown,
   SocraticBanner,
@@ -94,7 +93,6 @@ export class ObsidianCopilotView extends ItemView {
   private slashCommandDropdown: SlashCommandDropdown | null = null;
   private instructionModeManager: InstructionModeManager | null = null;
   private contextUsageMeter: ContextUsageMeter | null = null;
-  private planBanner: PlanBanner | null = null;
   private socraticBanner: SocraticBanner | null = null;
   private todoPanel: TodoPanel | null = null;
 
@@ -132,12 +130,6 @@ export class ObsidianCopilotView extends ItemView {
 
     const header = container.createDiv({ cls: 'ocop-header' });
     this.buildHeader(header);
-
-    this.planBanner = new PlanBanner({
-      app: this.plugin.app,
-      component: this,
-    });
-    this.planBanner.mount(container);
 
     this.socraticBanner = new SocraticBanner();
     this.socraticBanner.mount(container);
@@ -296,8 +288,6 @@ export class ObsidianCopilotView extends ItemView {
     const toolbarComponents = createInputToolbar(inputToolbar, learningGroupEl, {
       getSettings: () => toToolbarSettings(this.plugin.settings),
       getEnvironmentVariables: () => this.plugin.getActiveEnvironmentVariables(),
-      isAgentInitiatedPlanMode: () => this.state.planModeState?.agentInitiated ?? false,
-      isPlanModeRequested: () => this.state.planModeRequested,
       isBashExpansionInFlight: () => this.plugin.isBashExpansionInFlight(),
       getCapturedPermissionMode: () => this.plugin.getCapturedPermissionMode(),
       getPermissionAuthorityEpoch: () => this.plugin.getPermissionAuthorityEpoch(),
@@ -359,34 +349,9 @@ export class ObsidianCopilotView extends ItemView {
         await this.plugin.saveSettings();
       },
       onPermissionModeChange: async (mode: PermissionMode) => {
-        const current = this.plugin.settings.permissionMode;
-        if (mode === 'plan') {
-          if (current !== 'plan') {
-            this.plugin.settings.lastNonPlanPermissionMode = current;
-          }
-        } else {
-          this.plugin.settings.lastNonPlanPermissionMode = mode;
-        }
-
-        if (mode === 'ask') this.plugin.resetPermissionAuthority();
+        if (mode === 'ask') this.plugin.returnToAsk();
         else this.plugin.settings.permissionMode = mode;
         await this.plugin.saveSettings();
-
-        if (mode === 'plan') {
-          if (!this.state.planModeState?.isActive) {
-            this.state.planModeState = {
-              isActive: true,
-              planFilePath: null,
-              planContent: null,
-              originalQuery: null,
-              agentInitiated: false,
-            };
-          }
-        } else {
-          this.state.resetPlanModeState();
-        }
-
-        this.updatePlanModeUiState();
       },
       onOpenLearning: () => launchLearningSetup('quiz'),
     });
@@ -404,8 +369,7 @@ export class ObsidianCopilotView extends ItemView {
     });
     setIcon(sendButton, 'arrow-up');
     sendButton.addEventListener('click', () => {
-      if (this.permissionToggle?.isPlanModeActive()) void this.inputController?.sendPlanModeMessage();
-      else void this.inputController?.sendMessage();
+      void this.inputController?.sendMessage();
     });
     this.modelSelector = toolbarComponents.modelSelector;
     this.thinkingBudgetSelector = toolbarComponents.thinkingBudgetSelector;
@@ -451,9 +415,6 @@ export class ObsidianCopilotView extends ItemView {
       getMessagesEl: () => this.messagesEl!,
       getFileContextManager: () => this.fileContextManager,
       updateQueueIndicator: () => this.inputController?.updateQueueIndicator(),
-      setPlanModeActive: () => {
-        this.updatePlanModeUiState();
-      },
     });
 
     this.conversationController = new ConversationController(
@@ -472,18 +433,8 @@ export class ObsidianCopilotView extends ItemView {
         getFileContextManager: () => this.fileContextManager,
         getImageContextManager: () => this.imageContextManager,
         getExternalContextSelector: () => this.externalContextSelector,
-        clearQueuedMessage: () => this.inputController?.clearQueuedMessage(),
-        getApprovedPlan: () => this.plugin.agentService.getApprovedPlanContent(),
-        setApprovedPlan: (plan) => this.plugin.agentService.setApprovedPlanContent(plan),
-        showPlanBanner: (content) => {
-          void this.planBanner?.show(content);
-        },
-        hidePlanBanner: () => this.planBanner?.hide(),
-        triggerPendingPlanApproval: (content) => this.inputController?.restorePendingPlanApproval(content),
+        clearQueuedMessage: () => this.inputController?.discardQueuedInput(),
         getTitleGenerationService: () => this.titleGenerationService,
-        setPlanModeActive: () => {
-          this.updatePlanModeUiState();
-        },
         getTodoPanel: () => this.todoPanel,
       },
       {
@@ -512,11 +463,7 @@ export class ObsidianCopilotView extends ItemView {
       getInstructionRefineService: () => this.instructionRefineService,
       getTitleGenerationService: () => this.titleGenerationService,
       getComponent: () => this,
-      setPlanModeActive: () => {
-        this.updatePlanModeUiState();
-      },
       setBashExpansionActive: (active) => this.plugin.setBashExpansionActive(active),
-      getPlanBanner: () => this.planBanner,
       showSocraticBanner: (scopeLabel, focusText, onHint, onStuck) => {
         this.socraticBanner?.show(scopeLabel, focusText, onHint, onStuck);
       },
@@ -526,14 +473,6 @@ export class ObsidianCopilotView extends ItemView {
       generateId: () => this.generateId(),
       resetContextMeter: () => this.contextUsageMeter?.update(null),
     });
-
-    this.permissionToggle?.setOnPlanModeToggle((active) => {
-      this.inputController?.setPlanModeRequested(active);
-    });
-
-    this.plugin.agentService.setExitPlanModeCallback(
-      (planContent) => this.inputController!.handleExitPlanMode(planContent)
-    );
 
     this.navigationController = new NavigationController({
       getMessagesEl: () => this.messagesEl!,
@@ -653,14 +592,6 @@ export class ObsidianCopilotView extends ItemView {
     if (!inputEl) return;
 
     this.registerDomEvent(inputEl, 'keydown', (e) => {
-      if (e.key === 'Tab' && e.shiftKey && !this.state.isStreaming) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.permissionToggle?.togglePlanMode();
-      }
-    }, { capture: true });
-
-    this.registerDomEvent(inputEl, 'keydown', (e) => {
       if (this.instructionModeManager?.handleTriggerKey(e)) {
         return;
       }
@@ -685,11 +616,7 @@ export class ObsidianCopilotView extends ItemView {
 
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        if (this.permissionToggle?.isPlanModeActive()) {
-          void this.inputController?.sendPlanModeMessage();
-        } else {
-          void this.inputController?.sendMessage();
-        }
+        void this.inputController?.sendMessage();
       }
     });
 
@@ -735,12 +662,6 @@ export class ObsidianCopilotView extends ItemView {
   refreshPermissionToggle(): void {
     this.permissionToggle?.updateDisplay();
     this.providerSelectorHandle.refresh?.();
-  }
-
-  private updatePlanModeUiState(): void {
-    const isPlanMode = this.plugin.settings.permissionMode === 'plan';
-    const isPlanModeRequested = this.state.planModeRequested;
-    this.permissionToggle?.setPlanModeActive(isPlanMode || isPlanModeRequested);
   }
 }
 

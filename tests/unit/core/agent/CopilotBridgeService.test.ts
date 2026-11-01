@@ -59,7 +59,7 @@ describe('CopilotBridgeService helpers', () => {
   describe('resolveCopilotAllowedTools', () => {
     it('keeps agent mode unrestricted when no explicit tools are requested', () => {
       expect(resolveCopilotAllowedTools('agent')).toEqual([]);
-      expect(resolveCopilotAllowedTools('agent', undefined, false, false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('agent', undefined, false)).toEqual([]);
     });
 
     it('applies safe guardrails in normal mode', () => {
@@ -76,57 +76,43 @@ describe('CopilotBridgeService helpers', () => {
       expect(resolveCopilotAllowedTools('normal', ['view', 'bash', 'task'])).toEqual(['view']);
     });
 
-    it('does not broaden an explicit plan-mode allowlist when none of its tools are supported', () => {
-      expect(resolveCopilotAllowedTools('normal', ['bash', 'write'], true)).toEqual([]);
-    });
-
-    it('uses plan guardrails in agent mode when plan mode has no explicit tools', () => {
-      expect(resolveCopilotAllowedTools('agent', undefined, true)).toEqual([
-        'view',
-        'grep',
-        'glob',
-        'web_fetch',
-        'web_search',
-      ]);
-    });
-
     it('excludes the removed delegation tools from the ASK allowlist', () => {
       expect(resolveCopilotAllowedTools('ask')).not.toContain('task');
       expect(resolveCopilotAllowedTools('ask')).not.toContain('agent_output');
     });
 
     it('drops web tools from the ASK allowlist when web search is disabled, after the rename', () => {
-      expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_search');
-      expect(resolveCopilotAllowedTools('ask', undefined, false, false)).not.toContain('web_fetch');
+      expect(resolveCopilotAllowedTools('ask', undefined, false)).not.toContain('web_search');
+      expect(resolveCopilotAllowedTools('ask', undefined, false)).not.toContain('web_fetch');
     });
 
     it('never restores web tools when a requested allowlist becomes empty with Web off', () => {
-      expect(resolveCopilotAllowedTools('ask', ['web_search'], false, false)).toEqual([]);
-      expect(resolveCopilotAllowedTools('ask', ['web_fetch'], false, false)).toEqual([]);
-      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false, false)).toEqual([]);
-      expect(resolveCopilotAllowedTools('ask', ['view', 'web_search'], false, false)).toEqual(['view']);
+      expect(resolveCopilotAllowedTools('ask', ['web_search'], false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['web_fetch'], false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['view', 'web_search'], false)).toEqual(['view']);
     });
 
     it('keeps an explicit Web allowlist when Web is on', () => {
-      expect(resolveCopilotAllowedTools('ask', ['web_search'], false, true)).toEqual(['web_search']);
+      expect(resolveCopilotAllowedTools('ask', ['web_search'], true)).toEqual(['web_search']);
     });
 
     it('does not broaden an explicit list when all requested tools are filtered in Ask mode', () => {
-      expect(resolveCopilotAllowedTools('ask', ['bash'], false, true)).toEqual([]);
+      expect(resolveCopilotAllowedTools('ask', ['bash'], true)).toEqual([]);
     });
 
     it('preserves an explicitly empty allowlist as no tools in Agent mode', () => {
-      expect(resolveCopilotAllowedTools('agent', [], false, true)).toEqual([]);
+      expect(resolveCopilotAllowedTools('agent', [], true)).toEqual([]);
       expect(shouldUseCopilotAllowAllTools('agent', true, { allowedTools: [] })).toBe(false);
     });
 
     it('maps shared WebSearch and WebFetch names to Copilot tool names', () => {
-      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], false, true)).toEqual(['web_search']);
-      expect(resolveCopilotAllowedTools('ask', ['WebFetch'], false, true)).toEqual(['web_fetch']);
+      expect(resolveCopilotAllowedTools('ask', ['WebSearch'], true)).toEqual(['web_search']);
+      expect(resolveCopilotAllowedTools('ask', ['WebFetch'], true)).toEqual(['web_fetch']);
     });
 
     it('maps shared read-tool aliases to Copilot tool names case-insensitively', () => {
-      expect(resolveCopilotAllowedTools('ask', ['Read', 'Grep', 'Glob'], false, true)).toEqual([
+      expect(resolveCopilotAllowedTools('ask', ['Read', 'Grep', 'Glob'], true)).toEqual([
         'view', 'grep', 'glob',
       ]);
     });
@@ -137,13 +123,9 @@ describe('CopilotBridgeService helpers', () => {
       expect(shouldUseCopilotAllowAllTools('agent', true, undefined)).toBe(true);
     });
 
-    it('does not use allow-all-tools in plan mode with default tool guardrails', () => {
-      expect(shouldUseCopilotAllowAllTools('agent', true, { planMode: true })).toBe(false);
-    });
-
     it('does not use allow-all-tools for a read-only request under global Agent mode', () => {
       expect(shouldUseCopilotAllowAllTools('agent', true, { readOnly: true })).toBe(false);
-      expect(resolveCopilotAllowedTools('ask', undefined, false, true)).toContain('web_search');
+      expect(resolveCopilotAllowedTools('ask', undefined, true)).toContain('web_search');
     });
 
     it('lets explicit tool requests use available-tools instead of allow-all-tools', () => {

@@ -68,17 +68,19 @@ describe('SecretStorage', () => {
     app.saveLocalStorage('obsidian-ai-tutor:trust', {
       ...getDefaultTrust(),
       permissionMode: 'agent',
+      // Written by older releases; no longer part of the trust record.
       lastNonPlanPermissionMode: 'agent',
       blanketWriteAcknowledged: ['agy'],
       allowUnsafeAgyAgent: true,
     });
 
-    expect(readTrust(app)).toMatchObject({
+    const trust = readTrust(app);
+    expect(trust).toMatchObject({
       permissionMode: 'ask',
-      lastNonPlanPermissionMode: 'ask',
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: true,
     });
+    expect(trust).not.toHaveProperty('lastNonPlanPermissionMode');
   });
 
   it('moves a token out of the vault settings and blanks it there', () => {

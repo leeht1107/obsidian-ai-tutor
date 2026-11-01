@@ -4,12 +4,10 @@
 
 import { Notice, TFile } from 'obsidian';
 
-import { DEFAULT_SETTINGS } from '@/core/types/settings';
 import { ConversationController } from '@/features/chat/controllers/ConversationController';
 import { InputController, type InputControllerDeps } from '@/features/chat/controllers/InputController';
 import { dispatchLearningSetup } from '@/features/chat/ObsidianCopilotView';
 import { ChatState } from '@/features/chat/state/ChatState';
-import ObsidianCopilotPlugin from '@/main';
 import { LearningSetupModal } from '@/ui/modals/LearningSetupModal';
 
 // Helper to create mock DOM element
@@ -105,11 +103,8 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
         resetSession: jest.fn(),
         getSessionId: jest.fn().mockReturnValue(null),
         setSessionId: jest.fn(),
-        setApprovedPlanContent: jest.fn(),
-        setCurrentPlanFilePath: jest.fn(),
       },
       saveSettings: jest.fn(),
-      recapturePermissionMode: jest.fn(),
       settings: {
         slashCommands: [],
         blockedCommands: { unix: [], windows: [] },
@@ -162,9 +157,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
     getInstructionRefineService: () => null,
     getTitleGenerationService: () => null,
     getComponent: () => ({} as any),
-    setPlanModeActive: jest.fn(),
     setBashExpansionActive: jest.fn(),
-    getPlanBanner: () => null,
     generateId: () => `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     resetContextMeter: jest.fn(),
     ...overrides,
@@ -194,7 +187,6 @@ describe('InputController - Message Queue', () => {
         content: 'queued message',
         images: undefined,
         editorContext: null,
-        hidden: undefined,
         promptPrefix: undefined,
         skipLearningCommand: true,
       });
@@ -215,7 +207,6 @@ describe('InputController - Message Queue', () => {
         content: 'queued with images',
         images: mockImages,
         editorContext: null,
-        hidden: undefined,
         promptPrefix: undefined,
         skipLearningCommand: true,
       });
@@ -235,11 +226,11 @@ describe('InputController - Message Queue', () => {
 
     it('should preserve prompt prefix when queuing', async () => {
       deps.state.isStreaming = true;
-      inputEl.value = 'queued plan';
+      inputEl.value = 'queued message';
 
-      await controller.sendMessage({ promptPrefix: 'Plan prefix' });
+      await controller.sendMessage({ promptPrefix: 'Custom prefix' });
 
-      expect(deps.state.queuedMessage?.promptPrefix).toBe('Plan prefix');
+      expect(deps.state.queuedMessage?.promptPrefix).toBe('Custom prefix');
     });
 
     it('should merge images when appending to queue', async () => {
@@ -310,15 +301,15 @@ describe('InputController - Message Queue', () => {
       }
     });
 
-    it('should forward prompt prefix when sending queued message in non-plan mode', async () => {
+    it('should forward prompt prefix when sending queued message', async () => {
       jest.useFakeTimers();
       try {
         deps.plugin.settings.permissionMode = 'ask';
         deps.state.queuedMessage = {
-          content: 'queued plan',
+          content: 'queued message',
           images: undefined,
           editorContext: null,
-          promptPrefix: 'Plan prefix',
+          promptPrefix: 'Custom prefix',
         };
 
         const sendSpy = jest.spyOn(controller, 'sendMessage').mockResolvedValue(undefined);
@@ -327,7 +318,7 @@ describe('InputController - Message Queue', () => {
         jest.runAllTimers();
         await Promise.resolve();
 
-        expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ promptPrefix: 'Plan prefix' }));
+        expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ promptPrefix: 'Custom prefix' }));
         sendSpy.mockRestore();
       } finally {
         jest.useRealTimers();
@@ -486,16 +477,16 @@ describe('InputController - Message Queue', () => {
       expect(prompts[1]).toContain('notes/session.md');
     });
 
-    it('should send hidden message with content override without clearing input', async () => {
+    it('should send a content override without clearing input', async () => {
       deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
       inputEl.value = 'draft message';
 
-      await controller.sendMessage({ hidden: true, content: 'Auto prompt' });
+      await controller.sendMessage({ content: 'Auto prompt' });
 
       expect(inputEl.value).toBe('draft message');
       expect(deps.state.messages[0].content).toBe('Auto prompt');
-      expect(deps.state.messages[0].hidden).toBe(true);
-      expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
+      expect(deps.state.messages[0].hidden).toBeUndefined();
+      expect(deps.renderer.addMessage).toHaveBeenCalledTimes(2);
     });
 
     it.each(['quiz', 'socratic'] as const)('treats a bare Brief mention as a normal answer during an active %s session', async (mode) => {
@@ -1501,104 +1492,18 @@ describe('InputController - Message Queue', () => {
     });
   });
 
-  describe('Plan mode', () => {
-    it('clears stale plan file path when starting plan mode in plan permission', async () => {
-      (deps.plugin.agentService.query as jest.Mock).mockReturnValue(
-        createMockStream([{ type: 'done' }])
-      );
-      deps.plugin.settings.permissionMode = 'plan';
-      inputEl.value = 'Plan this';
-
-      await controller.sendPlanModeMessage();
-
-      expect(deps.plugin.agentService.setCurrentPlanFilePath).toHaveBeenCalledWith(null);
-    });
-
-    it('sends plan mode request prefix without switching permission', async () => {
-      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
-        expect(prompt).toContain('User requested plan mode. Call EnterPlanMode before responding.');
-        return createMockStream([{ type: 'done' }]);
-      });
-      deps.plugin.settings.permissionMode = 'ask';
-      inputEl.value = 'Plan this';
-
-      await controller.sendPlanModeMessage();
-
-      expect(deps.plugin.settings.permissionMode).toBe('ask');
-      expect(deps.state.planModeState).toBeNull();
-      expect(deps.state.messages[0].content).toBe('Plan this');
-    });
-
-    it('routes queued messages through plan mode when permissionMode is plan', async () => {
-      jest.useFakeTimers();
-      try {
-        deps.plugin.settings.permissionMode = 'plan';
-        deps.state.queuedMessage = { content: 'Queued plan', images: undefined, editorContext: null };
-
-        const sendPlanModeSpy = jest
-          .spyOn(controller as any, 'sendMessageWithPlanMode')
-          .mockResolvedValue(undefined);
-        const sendSpy = jest.spyOn(controller, 'sendMessage').mockResolvedValue(undefined);
-
-        (controller as any).processQueuedMessage();
-        jest.runAllTimers();
-        await Promise.resolve();
-
-        expect(sendPlanModeSpy).toHaveBeenCalledWith(
-          expect.objectContaining({ content: 'Queued plan' })
-        );
-        expect(sendSpy).not.toHaveBeenCalled();
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    it('activates plan permission mode after EnterPlanMode is pending', async () => {
-      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
-      deps.plugin.settings.permissionMode = 'ask';
-      inputEl.value = 'Original request';
-
-      await controller.handleEnterPlanMode();
-      expect(deps.state.planModeActivationPending).toBe(true);
-
-      await controller.sendMessage();
-
-      expect(deps.plugin.settings.permissionMode).toBe('plan');
-      expect(deps.plugin.saveSettings).toHaveBeenCalled();
-      expect(deps.state.planModeState?.isActive).toBe(true);
-      expect(deps.state.planModeState?.agentInitiated).toBe(true);
-    });
-
-    it('should send hidden plan mode message without rendering user bubble', async () => {
-      (deps.plugin.agentService.query as jest.Mock).mockReturnValue(
-        createMockStream([{ type: 'done' }])
-      );
-      deps.plugin.settings.permissionMode = 'plan';
-      const imageContextManager = deps.getImageContextManager()!;
-
-      await (controller as any).sendMessageWithPlanMode({
-        content: 'Revise plan',
-        hidden: true,
-        images: [],
-      });
-
-      expect(deps.state.messages[0].hidden).toBe(true);
-      expect(deps.renderer.addMessage).toHaveBeenCalledTimes(1);
-      expect(imageContextManager.clearImages).not.toHaveBeenCalled();
-    });
-
+  describe('Turn finalization', () => {
     it.each([
-      ['failed', [{ type: 'text', content: 'partial plan' }, { type: 'error', content: 'provider failed' }]],
-      ['interrupted', [{ type: 'text', content: 'partial plan' }, { type: 'done' }]],
-    ] as const)('does not generate a title after a %s first plan turn', async (kind, chunks) => {
+      ['failed', [{ type: 'text', content: 'partial answer' }, { type: 'error', content: 'provider failed' }]],
+      ['interrupted', [{ type: 'text', content: 'partial answer' }, { type: 'done' }]],
+    ] as const)('does not generate a title after a %s first turn', async (kind, chunks) => {
       const mockTitleService = {
         generateTitle: jest.fn().mockResolvedValue(undefined),
         cancel: jest.fn(),
       };
       deps.getTitleGenerationService = () => mockTitleService as any;
-      deps.state.currentConversationId = 'conv-plan';
+      deps.state.currentConversationId = 'conv-first';
       deps.plugin.settings.enableAutoTitleGeneration = true;
-      deps.plugin.settings.permissionMode = 'plan';
       deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
         for (const chunk of chunks) {
           yield chunk;
@@ -1611,21 +1516,20 @@ describe('InputController - Message Queue', () => {
         if (chunk.type === 'text') msg.content += chunk.content;
       });
 
-      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+      await controller.sendMessage({ content: 'Explain this' });
 
       expect(deps.state.messages.at(-1)?.requestOutcome).toBe(kind);
       expect(mockTitleService.generateTitle).not.toHaveBeenCalled();
       expect(deps.plugin.updateConversation).not.toHaveBeenCalledWith(
-        'conv-plan',
+        'conv-first',
         { titleGenerationStatus: 'pending' }
       );
     });
 
-    it('holds the switch lock until an interrupted plan turn is finalized and saved', async () => {
+    it('holds the switch lock until an interrupted turn is finalized and saved', async () => {
       const lockedDuring: Record<string, boolean> = {};
-      deps.plugin.settings.permissionMode = 'plan';
       deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
-        yield { type: 'text', content: 'partial plan' };
+        yield { type: 'text', content: 'partial answer' };
         deps.state.cancelRequested = true;
         yield { type: 'done' };
       });
@@ -1637,77 +1541,10 @@ describe('InputController - Message Queue', () => {
         lockedDuring.outcomeSet = deps.state.messages.at(-1)?.requestOutcome === 'interrupted';
       });
 
-      await (controller as any).sendMessageWithPlanMode({ content: 'Plan this' });
+      await controller.sendMessage({ content: 'Explain this' });
 
       expect(lockedDuring).toEqual({ finalize: true, save: true, outcomeSet: true });
       expect(deps.state.isStreaming).toBe(false);
-    });
-
-    it('returns a queued message to the input when a plan turn fails to save', async () => {
-      deps.plugin.settings.permissionMode = 'plan';
-      (deps.plugin.agentService.query as jest.Mock).mockReturnValue(createMockStream([{ type: 'done' }]));
-      (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
-        deps.state.queuedMessage = { content: 'next question', editorContext: null };
-        throw new Error('vault write failed');
-      });
-
-      await expect((controller as any).sendMessageWithPlanMode({ content: 'Plan this' }))
-        .rejects.toThrow('vault write failed');
-
-      expect(deps.state.isStreaming).toBe(false);
-      expect(deps.state.queuedMessage).toBeNull();
-      expect(inputEl.value).toBe('next question');
-    });
-
-    it('restores ask, not agent, when exiting plan mode with no prior mode recorded', async () => {
-      // lastNonPlanPermissionMode unset is the fallback path — it must never silently
-      // escalate to agent (full write access, no blanket-write consent gate).
-      deps.plugin.settings.permissionMode = 'plan';
-      deps.plugin.settings.lastNonPlanPermissionMode = undefined;
-
-      await (controller as any).exitPlanPermissionMode();
-
-      expect(deps.plugin.settings.permissionMode).toBe('ask');
-    });
-
-    it('returns to Ask and clears runtime Agent authority when a plan ends', async () => {
-      // Reproduces the adversarial sequence: a plan region is still draining (having
-      // captured 'ask', since plan always resolves read-only) when its own approval
-      // callback restores 'agent'. The write-authority counter and capture below are the
-      // REAL plugin machinery (src/main.ts), not a mock, so this exercises the actual
-      // interaction between `exitPlanPermissionMode` and `recapturePermissionMode`.
-      const plugin = new ObsidianCopilotPlugin(
-        { workspace: { getLeavesOfType: jest.fn().mockReturnValue([]) } } as any,
-        { id: 'obsidian-ai-tutor', version: '0.0.0' } as any
-      );
-      plugin.settings = {
-        ...DEFAULT_SETTINGS,
-        selectedProvider: 'codex',
-        permissionMode: 'plan',
-        lastNonPlanPermissionMode: 'agent',
-        enableInlineBash: true,
-      };
-      (plugin as any).saveSettings = jest.fn().mockResolvedValue(undefined);
-
-      deps.plugin = plugin as any;
-      deps.setBashExpansionActive = (active: boolean) => plugin.setBashExpansionActive(active);
-      controller = new InputController(deps);
-
-      // The write-authority region this plan request opened is still open.
-      plugin.setBashExpansionActive(true);
-      expect(plugin.getCapturedPermissionMode()).toBe('ask');
-
-      // Plan approval is not a reusable Agent grant. A later Agent transition
-      // has to ask again, even while this read-only region finishes draining.
-      await (controller as any).exitPlanPermissionMode();
-
-      expect(plugin.settings.permissionMode).toBe('ask');
-      expect(plugin.settings.blanketWriteAcknowledged).toEqual([]);
-      expect(plugin.getCapturedPermissionMode()).toBe('ask');
-
-      // The region is still open; draining it clears the capture as normal.
-      plugin.setBashExpansionActive(false);
-      expect(plugin.getCapturedPermissionMode()).toBeNull();
     });
   });
 
@@ -2274,13 +2111,7 @@ describe('InputController learning sessions and Quiz review', () => {
       getImageContextManager: () => null,
       getExternalContextSelector: () => null,
       clearQueuedMessage: jest.fn(),
-      getApprovedPlan: () => null,
-      setApprovedPlan: jest.fn(),
-      showPlanBanner: jest.fn(),
-      hidePlanBanner: jest.fn(),
-      triggerPendingPlanApproval: jest.fn(),
       getTitleGenerationService: () => null,
-      setPlanModeActive: jest.fn(),
       getTodoPanel: () => null,
     });
     deps.conversationController = conversationController;
@@ -2403,6 +2234,104 @@ describe('InputController learning sessions and Quiz review', () => {
     await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('render failed');
 
     expect(deps.state.isStreaming).toBe(false);
+  });
+
+  it('keeps a queued message when Escape is pressed while a finished turn is being saved', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    const controller = new InputController(deps);
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = { content: 'follow-up', editorContext: null, skipLearningCommand: true };
+      controller.cancelStreaming();
+    });
+
+    jest.useFakeTimers();
+    let outcome: unknown;
+    try {
+      outcome = await controller.sendMessage({ content: 'hello' });
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(outcome).toBe('completed');
+    expect(deps.plugin.agentService.cancel).not.toHaveBeenCalled();
+    const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.some((prompt) => prompt.includes('follow-up'))).toBe(true);
+  });
+
+  it('hands a queued message back to the input instead of sending it after a later turn', async () => {
+    const deps = createMockDeps();
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = {
+        content: 'Summarize the next section.\n\nalso add examples', editorContext: null,
+      };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    expect(deps.state.queuedMessage).toBeNull();
+    expect(deps.getInputEl().value).toBe('Summarize the next section.\n\nalso add examples');
+
+    // A later, unrelated turn must not carry the stale request along after it.
+    deps.getInputEl().value = '';
+    jest.useFakeTimers();
+    try {
+      await controller.sendMessage({ content: 'unrelated' });
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+    const prompts = (deps.plugin.agentService.query as jest.Mock).mock.calls.map(([prompt]) => String(prompt));
+    expect(prompts.filter((prompt) => prompt.includes('next section'))).toHaveLength(0);
+  });
+
+  it('resends a restored queued message with the selection it was queued with', async () => {
+    const deps = createMockDeps();
+    const selectionA = { notePath: 'A.md', mode: 'selection' as const, selectedText: 'paragraph A' };
+    const selectionB = { notePath: 'B.md', mode: 'selection' as const, selectedText: 'paragraph B' };
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = {
+        content: '이 부분을 설명해 줘', editorContext: selectionA, skipLearningCommand: true,
+      };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+    expect(deps.getInputEl().value).toBe('이 부분을 설명해 줘');
+
+    // Meanwhile the user selected a paragraph in another note.
+    (deps.selectionController.getContext as jest.Mock).mockReturnValue(selectionB);
+    await controller.sendMessage();
+
+    const lastPrompt = String((deps.plugin.agentService.query as jest.Mock).mock.calls.at(-1)?.[0]);
+    expect(lastPrompt).toContain('paragraph A');
+    expect(lastPrompt).not.toContain('paragraph B');
+  });
+
+  it('drops a restored message\'s send options when the conversation changes', async () => {
+    const deps = createMockDeps();
+    const selectionA = { notePath: 'A.md', mode: 'selection' as const, selectedText: 'paragraph A' };
+    deps.plugin.agentService.query = jest.fn(async function* () { yield { type: 'done' }; }) as any;
+    (deps.conversationController.save as jest.Mock).mockImplementationOnce(async () => {
+      deps.state.queuedMessage = { content: 'explain this', editorContext: selectionA, skipLearningCommand: true };
+      throw new Error('vault write failed');
+    });
+    const controller = new InputController(deps);
+    await expect(controller.sendMessage({ content: 'hello' })).rejects.toThrow('vault write failed');
+
+    // A new conversation (both unsaved, so the id alone cannot tell them apart).
+    controller.discardQueuedInput();
+    deps.getInputEl().value = 'explain this';
+    await controller.sendMessage();
+
+    const lastPrompt = String((deps.plugin.agentService.query as jest.Mock).mock.calls.at(-1)?.[0]);
+    expect(lastPrompt).not.toContain('paragraph A');
   });
 
   it('refuses an inferred Quiz start while a reply is streaming', async () => {

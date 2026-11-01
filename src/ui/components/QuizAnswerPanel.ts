@@ -2,7 +2,7 @@
  * QuizAnswerPanel component.
  *
  * Replaces the input area with a keyboard-navigable answer selection panel.
- * Follows PlanApprovalPanel pattern: hides input wrapper, shows panel, restores on resolve.
+ * Hides the input wrapper, shows the panel, and restores the input on resolve.
  */
 
 import type { QuizQuestionMeta } from '../../core/types';
