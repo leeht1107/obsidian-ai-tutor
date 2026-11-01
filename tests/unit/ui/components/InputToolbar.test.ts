@@ -114,6 +114,43 @@ describe('PermissionToggle - bash expansion busy lock', () => {
   });
 });
 
+describe('PermissionToggle - Shift+Tab shortcut', () => {
+  it('flips the visible Ask/Agent toggle like a click, and back again', async () => {
+    const { settings, callbacks, toggle, labelText } = build({
+      permissionMode: 'ask', blanketWriteAcknowledged: ['copilot'],
+    });
+
+    await toggle.togglePermissionMode();
+    expect(settings.permissionMode).toBe('agent');
+    expect(labelText()).toBe('Agent');
+
+    await toggle.togglePermissionMode();
+    expect(settings.permissionMode).toBe('ask');
+    expect(labelText()).toBe('Ask');
+    expect(callbacks.onPermissionModeChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for write consent before Agent, like a click', async () => {
+    const { settings, callbacks, toggle } = build({ permissionMode: 'ask' });
+    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
+
+    await toggle.togglePermissionMode();
+
+    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
+    expect(settings.permissionMode).toBe('ask');
+  });
+
+  it('keeps the same in-flight lock as a click', async () => {
+    const { settings, callbacks, toggle, setBashExpansionInFlight } = build({ permissionMode: 'ask' });
+    setBashExpansionInFlight(true);
+
+    await toggle.togglePermissionMode();
+
+    expect(settings.permissionMode).toBe('ask');
+    expect(callbacks.onPermissionModeChange).not.toHaveBeenCalled();
+  });
+});
+
 describe('PermissionToggle - busy label shows the CAPTURED mode, not a fresh resolution', () => {
   it('reproduces the reviewer sequence: captured under agent, then a fresh resolution would give ask, label still reads Agent and stays disabled', () => {
     // Start as the in-flight work was authorized: agent, claude, already acknowledged —

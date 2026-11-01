@@ -656,7 +656,7 @@ export class ObsidianCopilotView extends ItemView {
       if (e.key === 'Tab' && e.shiftKey && !this.state.isStreaming) {
         e.preventDefault();
         e.stopPropagation();
-        this.permissionToggle?.togglePlanMode();
+        void this.permissionToggle?.togglePermissionMode();
       }
     }, { capture: true });
 

@@ -677,14 +677,13 @@ export class PermissionToggle {
     this.updateDisplay();
   }
 
-  async togglePlanMode() {
-    if (this.isPlanModeLocked()) {
-      new Notice('Plan mode is active until the plan is approved.');
-      return;
-    }
-
-    this.onPlanModeToggle?.(!this.isPlanModeRequested());
-    this.updateDisplay();
+  /**
+   * Shift+Tab in the input. It flips the same visible Ask/Agent toggle as a click,
+   * through the same consent and in-flight guards. It used to arm a hidden plan
+   * request that the label never showed, silently changing the next message.
+   */
+  async togglePermissionMode() {
+    await this.toggle();
   }
 }
 

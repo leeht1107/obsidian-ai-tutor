@@ -10414,14 +10414,13 @@ var PermissionToggle = class {
     await applied;
     this.updateDisplay();
   }
-  async togglePlanMode() {
-    var _a;
-    if (this.isPlanModeLocked()) {
-      new import_obsidian7.Notice("Plan mode is active until the plan is approved.");
-      return;
-    }
-    (_a = this.onPlanModeToggle) == null ? void 0 : _a.call(this, !this.isPlanModeRequested());
-    this.updateDisplay();
+  /**
+   * Shift+Tab in the input. It flips the same visible Ask/Agent toggle as a click,
+   * through the same consent and in-flight guards. It used to arm a hidden plan
+   * request that the label never showed, silently changing the next message.
+   */
+  async togglePermissionMode() {
+    await this.toggle();
   }
 };
 var LearningLauncherButton = class {
@@ -21196,7 +21195,7 @@ var ObsidianCopilotView = class extends import_obsidian26.ItemView {
       if (e.key === "Tab" && e.shiftKey && !this.state.isStreaming) {
         e.preventDefault();
         e.stopPropagation();
-        (_a = this.permissionToggle) == null ? void 0 : _a.togglePlanMode();
+        void ((_a = this.permissionToggle) == null ? void 0 : _a.togglePermissionMode());
       }
     }, { capture: true });
     this.registerDomEvent(inputEl, "keydown", (e) => {
