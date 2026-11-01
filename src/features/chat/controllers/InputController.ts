@@ -802,7 +802,9 @@ ${promptToSend}`;
       readOnly: Boolean(queryOptions?.readOnly || learningRequest),
     };
 
-    let streamOutcome: StreamOutcome = 'completed';
+    // Error rendering can throw too: completion is earned only by a normal return.
+    let streamOutcome: StreamOutcome = 'failed';
+    let executionSettled = false;
     try {
       if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== 'copilot') {
         streamOutcome = 'failed';
@@ -810,6 +812,7 @@ ${promptToSend}`;
       } else {
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
+      executionSettled = true;
     } finally {
       // Hold the switch lock until this turn's state is settled and saved: finalizing awaits
       // rendering, and a switch in that gap would apply the cleanup below to another conversation.
@@ -895,7 +898,11 @@ ${promptToSend}`;
         this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
+        if (!cleanupSettled || !executionSettled) {
+          this.recoverFromTurnCleanupFailure(executionSettled
+            ? '응답을 저장하지 못했습니다.'
+            : '응답을 처리하지 못했습니다.');
+        }
       }
 
       // Show quiz answer panel if the assistant message has a quiz question
@@ -918,7 +925,7 @@ ${promptToSend}`;
         }
       }
 
-      if (!skipPostCompletionFollowups) {
+      if (!skipPostCompletionFollowups && executionSettled) {
         // A failed/interrupted first turn has no trustworthy assistant answer to title,
         // and must not launch a second provider request after the primary one was rejected.
         if (streamOutcome === 'completed') {
@@ -991,15 +998,15 @@ ${promptToSend}`;
   }
 
   /**
-   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * A turn's execution or cleanup threw, so the queued message must not auto-send.
    * Hands the queued message back to the input instead of leaving it stranded: left queued,
    * it would fire after some later, unrelated turn.
    */
-  private recoverFromTurnCleanupFailure(): void {
+  private recoverFromTurnCleanupFailure(failureMessage = '응답을 저장하지 못했습니다.'): void {
     const { state } = this.deps;
     const queued = state.queuedMessage;
     if (!queued) {
-      new Notice('응답을 저장하지 못했습니다.');
+      new Notice(failureMessage);
       return;
     }
     // Take it off the queue first: a partial restore must not leave the same message both
@@ -1024,10 +1031,10 @@ ${promptToSend}`;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 되돌렸습니다.');
+      new Notice(`${failureMessage} 대기 중이던 메시지를 입력창으로 되돌렸습니다.`);
     } catch (error) {
       console.error('[ObsidianCopilot] Failed to restore the queued message:', error);
-      new Notice('응답을 저장하지 못했습니다. 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.');
+      new Notice(`${failureMessage} 대기 중이던 메시지를 입력창으로 모두 되돌리지 못했으니 확인해 주세요.`);
     }
   }
 

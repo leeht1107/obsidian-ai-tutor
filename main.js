@@ -17422,7 +17422,8 @@ ${promptToSend}`;
       enableWebSearch: requestWebSearchEnabled,
       readOnly: Boolean((queryOptions == null ? void 0 : queryOptions.readOnly) || learningRequest)
     };
-    let streamOutcome = "completed";
+    let streamOutcome = "failed";
+    let executionSettled = false;
     try {
       if (slashAllowedToolsRequested && plugin.settings.selectedProvider !== "copilot") {
         streamOutcome = "failed";
@@ -17430,6 +17431,7 @@ ${promptToSend}`;
       } else {
         streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
       }
+      executionSettled = true;
     } finally {
       let cleanupSettled = false;
       this.finalizingTurn = true;
@@ -17504,7 +17506,9 @@ ${promptToSend}`;
         this.finalizingTurn = false;
         state.isStreaming = false;
         state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
+        if (!cleanupSettled || !executionSettled) {
+          this.recoverFromTurnCleanupFailure(executionSettled ? "\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." : "\uC751\uB2F5\uC744 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+        }
       }
       let skipPostCompletionFollowups = false;
       if (assistantMsg.quizQuestion && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
@@ -17524,7 +17528,7 @@ ${promptToSend}`;
           }
         }
       }
-      if (!skipPostCompletionFollowups) {
+      if (!skipPostCompletionFollowups && executionSettled) {
         if (streamOutcome === "completed") {
           await this.triggerTitleGeneration();
         }
@@ -17582,15 +17586,15 @@ ${promptToSend}`;
     this.updateQueueIndicator();
   }
   /**
-   * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
+   * A turn's execution or cleanup threw, so the queued message must not auto-send.
    * Hands the queued message back to the input instead of leaving it stranded: left queued,
    * it would fire after some later, unrelated turn.
    */
-  recoverFromTurnCleanupFailure() {
+  recoverFromTurnCleanupFailure(failureMessage = "\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.") {
     const { state } = this.deps;
     const queued = state.queuedMessage;
     if (!queued) {
-      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian23.Notice(failureMessage);
       return;
     }
     this.clearQueuedMessage();
@@ -17613,10 +17617,10 @@ ${inputEl.value}` : queued.content;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian23.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.`);
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
-      new import_obsidian23.Notice("\uC751\uB2F5\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian23.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
     }
   }
   /**

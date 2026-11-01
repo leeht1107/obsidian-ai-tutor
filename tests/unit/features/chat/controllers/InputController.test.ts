@@ -1072,6 +1072,62 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.socraticSession).toBeNull();
     });
 
+    it.each(['quiz', 'socratic', 'new quiz', 'new socratic'])(
+      'keeps an exceptional %s failure failed and restores queued input without dispatch', async (mode) => {
+        const quiz = { totalQuestions: 3, currentQuestion: 1, scopeLabel: 'quiz', difficulty: '중' as const };
+        const socratic = { maxDepth: 4, currentDepth: 1, scopeLabel: 'socratic', supportLevel: 1 as const, isSummaryPhase: false };
+        if (mode === 'quiz') deps.state.quizSession = quiz;
+        if (mode === 'socratic') deps.state.socraticSession = socratic;
+        deps.state.currentConversationId = 'conv-failure';
+        deps.state.messages = [{ id: 'prior-review', role: 'assistant', content: 'review', timestamp: 0, quizReviewAvailable: true }];
+        deps.plugin.agentService.query = jest.fn().mockImplementation(async function* () {
+          deps.state.queuedMessage = { content: 'follow-up', editorContext: null };
+          yield { type: 'text', content: 'partial answer' };
+          throw new Error('provider failed');
+        });
+        deps.streamController.handleStreamChunk = jest.fn().mockImplementation((_chunk: any, msg: any) => {
+          msg.content = 'partial answer';
+          msg.quizQuestion = mode.includes('quiz')
+            ? { current: 1, total: 3, options: [], multiSelect: false, freeText: false }
+            : null;
+        });
+        (deps.streamController.appendText as jest.Mock).mockRejectedValue(new Error('error display failed'));
+        const savedOutcomes: unknown[] = [];
+        (deps.conversationController.save as jest.Mock).mockImplementation(async () => {
+          savedOutcomes.push(deps.state.messages.at(-1)?.requestOutcome);
+        });
+        const titleSpy = jest.spyOn(controller as any, 'triggerTitleGeneration');
+        const queueSpy = jest.spyOn(controller as any, 'processQueuedMessage');
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          await expect(controller.sendMessage({
+            content: 'Explain this',
+            ...(mode === 'new quiz' ? { quizSessionInit: quiz } : {}),
+            ...(mode === 'new socratic' ? { socraticSessionInit: { scopeLabel: 'socratic' } } : {}),
+          })).rejects.toThrow('error display failed');
+
+          expect(savedOutcomes).toEqual(['failed']);
+          expect(deps.state.messages.at(-1)?.requestOutcome).toBe('failed');
+          expect(deps.state.messages.at(-1)?.quizQuestion).toBeNull();
+          expect(deps.state.quizSession).toEqual(mode === 'quiz' ? quiz : null);
+          expect(deps.state.socraticSession).toEqual(mode === 'socratic' ? socratic : null);
+          expect(deps.state.messages[0].quizReviewAvailable).toBe(true);
+          expect(deps.streamController.injectChoiceButtonsIfNeeded).not.toHaveBeenCalled();
+          expect(titleSpy).not.toHaveBeenCalled();
+          expect(queueSpy).not.toHaveBeenCalled();
+          expect(jest.getTimerCount()).toBe(0);
+          expect(deps.state.queuedMessage).toBeNull();
+          expect(inputEl.value).toBe('follow-up');
+          expect(deps.state.isStreaming).toBe(false);
+          expect(deps.plugin.agentService.query).toHaveBeenCalledTimes(1);
+        } finally {
+          jest.useRealTimers();
+          errorSpy.mockRestore();
+        }
+      }
+    );
+
     it.each([['상', ['view', 'web_search', 'web_fetch']], ['중', ['view']]] as const)(
       'keeps current-note Quiz tools aligned with difficulty %s', async (difficulty, allowedTools) => {
         deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));

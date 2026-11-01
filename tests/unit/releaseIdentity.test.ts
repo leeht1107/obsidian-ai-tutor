@@ -15,14 +15,43 @@ describe('release identity', () => {
   };
 
   const runValidator = (tag: string) => spawnSync(process.execPath, [validatorPath, tag, dir], { encoding: 'utf8' });
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-identity-'));
     writeFixture();
+    git('init');
+    git('config', 'user.name', 'Release Test');
+    git('config', 'user.email', 'release-test@example.invalid');
+    git('config', 'commit.gpgsign', 'false');
+    git('config', 'core.hooksPath', path.join(dir, 'no-hooks'));
+    git('add', 'package.json', 'manifest.json', 'versions.json');
+    git('commit', '-m', 'Release fixture');
+    git('-c', 'tag.gpgsign=false', 'tag', '0.1.27');
   });
   afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
   it('accepts matching tag, package, manifest, and current versions mapping', () => {
+    expect(runValidator('0.1.27').status).toBe(0);
+  });
+
+  it('rejects a tag pointing at a different commit even when metadata matches', () => {
+    git('commit', '--allow-empty', '-m', 'Different build commit');
+    const result = runValidator('0.1.27');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must point to HEAD');
+  });
+
+  it('rejects a missing tag instead of allowing the release action to create it', () => {
+    git('tag', '-d', '0.1.27');
+    const result = runValidator('0.1.27');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('must exist');
+  });
+
+  it('accepts an annotated tag that resolves to the build commit', () => {
+    git('tag', '-d', '0.1.27');
+    git('-c', 'tag.gpgsign=false', 'tag', '-a', '0.1.27', '-m', 'Release fixture');
     expect(runValidator('0.1.27').status).toBe(0);
   });
 

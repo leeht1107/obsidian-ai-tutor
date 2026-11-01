@@ -10,6 +10,9 @@ on:
         description: 'Version tag (e.g. 0.2.93)'
         required: true
 
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
   release-check:
     runs-on: ${{ matrix.os }}
@@ -19,6 +22,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Manual releases must test and build the existing tag, never the
+          # branch from which the workflow was dispatched.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -28,6 +36,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate release identity
+        run: node scripts/validate-release.js "$RELEASE_TAG"
+        shell: bash
 
       - name: Typecheck
         run: npm run typecheck
@@ -51,6 +63,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
           fetch-depth: 0  # Full history for changelog generation
 
       - name: Setup Node 20
@@ -62,20 +75,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate release identity
+        run: node scripts/validate-release.js "$RELEASE_TAG"
+
       - name: Build release assets
         run: npm run build
-
-      - name: Determine tag name
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Validate release identity
-        run: node scripts/validate-release.js "${{ steps.tag.outputs.name }}"
 
       - name: Get previous tag
         id: prev_tag
@@ -87,7 +91,7 @@ jobs:
         id: changelog
         run: |
           if [ -n "${{ steps.prev_tag.outputs.tag }}" ]; then
-            CHANGELOG=$(git log ${{ steps.prev_tag.outputs.tag }}..HEAD --pretty=format:"- %s" --no-merges | grep -v "^- ${{ steps.tag.outputs.name }}$" || true)
+            CHANGELOG=$(git log ${{ steps.prev_tag.outputs.tag }}..HEAD --pretty=format:"- %s" --no-merges | grep -v "^- ${RELEASE_TAG}$" || true)
           else
             CHANGELOG=$(git log --pretty=format:"- %s" --no-merges | head -20)
           fi
@@ -103,13 +107,13 @@ jobs:
         # surface, and pinning them buys a maintenance burden with no evidence.
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: ${{ steps.tag.outputs.name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           body: |
             ## What's Changed
             ${{ steps.changelog.outputs.notes }}
 
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ steps.tag.outputs.name }}
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ env.RELEASE_TAG }}
           files: |
             main.js
             manifest.json
