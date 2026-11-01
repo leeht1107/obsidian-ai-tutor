@@ -130,6 +130,17 @@ describe('PermissionToggle - Shift+Tab shortcut', () => {
     expect(callbacks.onPermissionModeChange).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['copilot', 'claude', 'codex', 'agy'])('works the same for %s', async (provider) => {
+    const { settings, toggle, labelText } = build({
+      selectedProvider: provider, permissionMode: 'ask', blanketWriteAcknowledged: [provider],
+    });
+
+    await toggle.togglePermissionMode();
+    expect([settings.permissionMode, labelText()]).toEqual(['agent', 'Agent']);
+    await toggle.togglePermissionMode();
+    expect([settings.permissionMode, labelText()]).toEqual(['ask', 'Ask']);
+  });
+
   it('asks for write consent before Agent, like a click', async () => {
     const { settings, callbacks, toggle } = build({ permissionMode: 'ask' });
     callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
