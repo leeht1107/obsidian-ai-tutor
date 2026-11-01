@@ -37,20 +37,8 @@ export interface ConversationControllerDeps {
   getImageContextManager: () => ImageContextManager | null;
   getExternalContextSelector: () => ExternalContextSelector | null;
   clearQueuedMessage: () => void;
-  /** Get current approved plan content from agent service. */
-  getApprovedPlan: () => string | null;
-  /** Set approved plan content in agent service. */
-  setApprovedPlan: (plan: string | null) => void;
-  /** Show the plan banner with content. */
-  showPlanBanner: (content: string) => void;
-  /** Hide the plan banner. */
-  hidePlanBanner: () => void;
-  /** Trigger pending plan approval panel (for restore on load). */
-  triggerPendingPlanApproval: (content: string) => void;
   /** Get title generation service. */
   getTitleGenerationService: () => TitleGenerationService | null;
-  /** Set plan mode active state (updates UI toggle and file context). */
-  setPlanModeActive: (active: boolean) => void;
   /** Get TodoPanel for remounting after messagesEl.empty(). */
   getTodoPanel: () => TodoPanel | null;
 }
@@ -106,12 +94,6 @@ export class ConversationController {
     state.usage = null;
     state.currentTodos = null;
 
-    // Clear approved plan and pending plan for new conversation
-    this.deps.setApprovedPlan(null);
-    this.deps.hidePlanBanner();
-    state.pendingPlanContent = null;
-    this.restorePlanModeState();
-
     const messagesEl = this.deps.getMessagesEl();
     messagesEl.empty();
 
@@ -165,18 +147,6 @@ export class ConversationController {
 
     plugin.agentService.setSessionId(conversation.sessionId);
 
-    // Restore approved plan for this conversation
-    if (conversation.approvedPlan) {
-      this.deps.setApprovedPlan(conversation.approvedPlan);
-      this.deps.showPlanBanner(conversation.approvedPlan);
-    } else {
-      this.deps.setApprovedPlan(null);
-      this.deps.hidePlanBanner();
-    }
-
-    // Restore pending plan content
-    state.pendingPlanContent = conversation.pendingPlanContent ?? null;
-    this.restorePlanModeState();
     state.quizSession = conversation.quizSession ?? null;
     state.socraticSession = conversation.socraticSession ?? null;
     this.dismissActiveQuizAnswerPanel();
@@ -210,11 +180,6 @@ export class ConversationController {
     state.currentTodos = extractLastTodosFromMessages(state.messages);
 
     this.callbacks.onConversationLoaded?.();
-
-    // Trigger pending plan approval if there's pending content
-    if (conversation.pendingPlanContent && !conversation.approvedPlan) {
-      this.deps.triggerPendingPlanApproval(conversation.pendingPlanContent);
-    }
   }
 
   /** Switches to a different conversation. */
@@ -236,18 +201,6 @@ export class ConversationController {
     state.messages = [...conversation.messages];
     state.usage = conversation.usage ?? null;
 
-    // Restore approved plan for this conversation
-    if (conversation.approvedPlan) {
-      this.deps.setApprovedPlan(conversation.approvedPlan);
-      this.deps.showPlanBanner(conversation.approvedPlan);
-    } else {
-      this.deps.setApprovedPlan(null);
-      this.deps.hidePlanBanner();
-    }
-
-    // Restore pending plan content
-    state.pendingPlanContent = conversation.pendingPlanContent ?? null;
-    this.restorePlanModeState();
     state.quizSession = conversation.quizSession ?? null;
     state.socraticSession = conversation.socraticSession ?? null;
     this.dismissActiveQuizAnswerPanel();
@@ -283,11 +236,6 @@ export class ConversationController {
     this.updateWelcomeVisibility();
 
     this.callbacks.onConversationSwitched?.();
-
-    // Trigger pending plan approval if there's pending content
-    if (conversation.pendingPlanContent && !conversation.approvedPlan) {
-      this.deps.triggerPendingPlanApproval(conversation.pendingPlanContent);
-    }
   }
 
   /** Saves the current conversation. */
@@ -300,7 +248,6 @@ export class ConversationController {
     const currentNote = fileCtx?.getCurrentNotePath() || undefined;
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = externalContextSelector?.getExternalContexts() ?? [];
-    const approvedPlan = this.deps.getApprovedPlan();
 
     const updates: Partial<Conversation> = {
       messages: state.getPersistedMessages(),
@@ -308,9 +255,6 @@ export class ConversationController {
       currentNote: currentNote,
       externalContextPaths: externalContextPaths.length > 0 ? externalContextPaths : undefined,
       usage: state.usage ?? undefined,
-      approvedPlan: approvedPlan ?? undefined,
-      pendingPlanContent: state.pendingPlanContent ?? undefined,
-      isInPlanMode: state.planModeState?.isActive ?? undefined,
       quizSession: state.quizSession ?? undefined,
       socraticSession: state.socraticSession ?? undefined,
     };
@@ -320,33 +264,6 @@ export class ConversationController {
     }
 
     await plugin.updateConversation(state.currentConversationId, updates);
-  }
-
-  /**
-   * Restores plan mode state based on current permission mode.
-   * Resets transient flags and sets up planModeState appropriately.
-   */
-  private restorePlanModeState(): void {
-    const { plugin, state } = this.deps;
-
-    state.planModeRequested = false;
-    state.planModeActivationPending = false;
-
-    const isPlanMode = plugin.settings.permissionMode === 'plan';
-    if (isPlanMode) {
-      // Preserve agentInitiated status when staying in plan mode
-      const wasAgentInitiated = state.planModeState?.agentInitiated ?? false;
-      state.planModeState = {
-        isActive: true,
-        planFilePath: null,
-        planContent: null,
-        originalQuery: null,
-        agentInitiated: wasAgentInitiated,
-      };
-    } else {
-      state.resetPlanModeState();
-    }
-    this.deps.setPlanModeActive(isPlanMode);
   }
 
   // ============================================
@@ -555,9 +472,6 @@ export class ConversationController {
 
     if (!assistantText) return;
 
-    // Check if it's a plan conversation (title starts with [Plan])
-    const isPlan = fullConv.title.startsWith('[Plan]');
-
     // Store current title to check if user renames during generation
     const expectedTitle = fullConv.title;
 
@@ -579,8 +493,7 @@ export class ConversationController {
         const userManuallyRenamed = currentConv.title !== expectedTitle;
 
         if (result.success && result.title && !userManuallyRenamed) {
-          const newTitle = isPlan ? `[Plan] ${result.title}` : result.title;
-          await plugin.renameConversation(convId, newTitle);
+          await plugin.renameConversation(convId, result.title);
           await plugin.updateConversation(convId, { titleGenerationStatus: 'success' });
         } else if (!userManuallyRenamed) {
           // Keep existing title, mark as failed (only if user hasn't renamed)

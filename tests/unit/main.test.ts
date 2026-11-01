@@ -142,39 +142,6 @@ describe('ObsidianCopilotPlugin - captured permission mode', () => {
   });
 });
 
-describe('ObsidianCopilotPlugin - recapturePermissionMode', () => {
-  it('is a no-op while settled — there is no stale capture to correct', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'agent', blanketWriteAcknowledged: ['codex'] });
-    plugin.recapturePermissionMode();
-    expect(plugin.getCapturedPermissionMode()).toBeNull();
-  });
-
-  it('overwrites the captured mode from CURRENT settings while a region is open', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask', blanketWriteAcknowledged: ['codex'] });
-
-    plugin.setBashExpansionActive(true);
-    expect(plugin.getCapturedPermissionMode()).toBe('ask');
-
-    // A legitimate mid-flight authority change (e.g. plan approval) lands.
-    plugin.settings.permissionMode = 'agent';
-    plugin.recapturePermissionMode();
-
-    expect(plugin.getCapturedPermissionMode()).toBe('agent');
-  });
-
-  it('repaints every mounted view when it refreshes the capture', () => {
-    const plugin = buildPlugin({ selectedProvider: 'codex', permissionMode: 'ask', blanketWriteAcknowledged: ['codex'] });
-    plugin.setBashExpansionActive(true);
-    const leaf = { view: { refreshPermissionToggle: jest.fn() } };
-    (plugin.app.workspace.getLeavesOfType as jest.Mock).mockReturnValue([leaf]);
-
-    plugin.settings.permissionMode = 'agent';
-    plugin.recapturePermissionMode();
-
-    expect(leaf.view.refreshPermissionToggle).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('ObsidianCopilotPlugin - multi-leaf permission toggle repaint', () => {
   it('repaints every mounted leaf, not just the first, on a counter transition', () => {
     const plugin = buildPlugin();
@@ -192,7 +159,7 @@ describe('ObsidianCopilotPlugin - multi-leaf permission toggle repaint', () => {
 describe('ObsidianCopilotPlugin - toggle back to Ask', () => {
   it('drops Agent but keeps this session\'s write consent, so Agent is not asked for again', () => {
     const plugin = buildPlugin({
-      selectedProvider: 'agy', permissionMode: 'agent', lastNonPlanPermissionMode: 'agent',
+      selectedProvider: 'agy', permissionMode: 'agent',
       blanketWriteAcknowledged: ['agy'],
     });
     const epoch = plugin.getPermissionAuthorityEpoch();
@@ -200,7 +167,6 @@ describe('ObsidianCopilotPlugin - toggle back to Ask', () => {
     plugin.returnToAsk();
 
     expect(plugin.settings.permissionMode).toBe('ask');
-    expect(plugin.settings.lastNonPlanPermissionMode).toBe('ask');
     expect(plugin.settings.blanketWriteAcknowledged).toEqual(['agy']);
     // A consent dialog still open from before cannot grant Agent afterwards.
     expect(plugin.getPermissionAuthorityEpoch()).toBe(epoch + 1);
@@ -210,7 +176,7 @@ describe('ObsidianCopilotPlugin - toggle back to Ask', () => {
 describe('ObsidianCopilotPlugin - runtime authority reset', () => {
   it('drops Agent mode and every provider grant without changing an in-flight capture', () => {
     const plugin = buildPlugin({
-      selectedProvider: 'codex', permissionMode: 'agent', lastNonPlanPermissionMode: 'agent',
+      selectedProvider: 'codex', permissionMode: 'agent',
       blanketWriteAcknowledged: ['codex'],
     });
     plugin.setBashExpansionActive(true);
@@ -219,7 +185,6 @@ describe('ObsidianCopilotPlugin - runtime authority reset', () => {
     plugin.resetPermissionAuthority();
 
     expect(plugin.settings.permissionMode).toBe('ask');
-    expect(plugin.settings.lastNonPlanPermissionMode).toBe('ask');
     expect(plugin.settings.blanketWriteAcknowledged).toEqual([]);
     expect(plugin.getCapturedPermissionMode()).toBe('agent');
   });

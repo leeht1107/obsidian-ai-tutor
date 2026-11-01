@@ -1,7 +1,3 @@
-import { Notice } from 'obsidian';
-
-const noticeMessages = (): string[] => (Notice as any).messages;
-
 import { ExternalContextSelector, LearningLauncherButton, PermissionToggle } from '../../../../src/ui/components/InputToolbar';
 
 /** Minimal Obsidian element stand-in — same shape used by ModelSelectorEffort.test.ts. */
@@ -118,68 +114,9 @@ describe('PermissionToggle - bash expansion busy lock', () => {
   });
 });
 
-describe('PermissionToggle - Shift+Tab shortcut', () => {
-  it('flips the visible Ask/Agent toggle like a click, and back again', async () => {
-    const { settings, callbacks, toggle, labelText } = build({
-      permissionMode: 'ask', blanketWriteAcknowledged: ['copilot'],
-    });
-
-    await toggle.togglePermissionMode();
-    expect(settings.permissionMode).toBe('agent');
-    expect(labelText()).toBe('Agent');
-
-    await toggle.togglePermissionMode();
-    expect(settings.permissionMode).toBe('ask');
-    expect(labelText()).toBe('Ask');
-    expect(callbacks.onPermissionModeChange).toHaveBeenCalledTimes(2);
-  });
-
-  it.each(['copilot', 'claude', 'codex', 'agy'])('works the same for %s', async (provider) => {
-    const { settings, toggle, labelText } = build({
-      selectedProvider: provider, permissionMode: 'ask', blanketWriteAcknowledged: [provider],
-    });
-
-    await toggle.togglePermissionMode();
-    expect([settings.permissionMode, labelText()]).toEqual(['agent', 'Agent']);
-    await toggle.togglePermissionMode();
-    expect([settings.permissionMode, labelText()]).toEqual(['ask', 'Ask']);
-  });
-
-  it('asks for write consent before Agent, like a click', async () => {
-    const { settings, callbacks, toggle } = build({ permissionMode: 'ask' });
-    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
-
-    await toggle.togglePermissionMode();
-
-    expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
-    expect(settings.permissionMode).toBe('ask');
-  });
-
-  it('shows a notice for each switch, since a keystroke shows nothing itself', async () => {
-    const { toggle } = build({ permissionMode: 'ask', blanketWriteAcknowledged: ['copilot'] });
-    noticeMessages().length = 0;
-
-    await toggle.togglePermissionMode();
-    await toggle.togglePermissionMode();
-
-    expect(noticeMessages()).toEqual([
-      'Agent 모드: 이제 파일을 수정할 수 있습니다.',
-      'Ask 모드: 파일을 수정하지 않습니다.',
-    ]);
-  });
-
-  it('shows no mode notice when the consent dialog is declined', async () => {
-    const { callbacks, toggle } = build({ permissionMode: 'ask' });
-    callbacks.confirmBlanketWrite = jest.fn().mockResolvedValue(false);
-    noticeMessages().length = 0;
-
-    await toggle.togglePermissionMode();
-
-    expect(noticeMessages()).toEqual([]);
-  });
-
+describe('PermissionToggle - write consent', () => {
   it('asks for write consent only the first time, not on every Ask/Agent round trip', async () => {
-    const { settings, callbacks, toggle } = build({ permissionMode: 'ask', blanketWriteAcknowledged: [] });
+    const { settings, callbacks, container } = build({ permissionMode: 'ask', blanketWriteAcknowledged: [] });
     // As the view does: accepting records consent, and going back to Ask keeps it.
     callbacks.confirmBlanketWrite = jest.fn().mockImplementation(async (provider: string) => {
       settings.blanketWriteAcknowledged = [...settings.blanketWriteAcknowledged, provider];
@@ -187,23 +124,13 @@ describe('PermissionToggle - Shift+Tab shortcut', () => {
     });
 
     for (let i = 0; i < 3; i++) {
-      await toggle.togglePermissionMode();
+      await container.clickAndSettle();
       expect(settings.permissionMode).toBe('agent');
-      await toggle.togglePermissionMode();
+      await container.clickAndSettle();
       expect(settings.permissionMode).toBe('ask');
     }
 
     expect(callbacks.confirmBlanketWrite).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the same in-flight lock as a click', async () => {
-    const { settings, callbacks, toggle, setBashExpansionInFlight } = build({ permissionMode: 'ask' });
-    setBashExpansionInFlight(true);
-
-    await toggle.togglePermissionMode();
-
-    expect(settings.permissionMode).toBe('ask');
-    expect(callbacks.onPermissionModeChange).not.toHaveBeenCalled();
   });
 });
 

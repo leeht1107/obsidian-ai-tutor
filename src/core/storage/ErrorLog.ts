@@ -85,7 +85,7 @@ function capEntry(entry: ErrorLogEntry): ErrorLogEntry {
 
 export interface ErrorDiagnostic {
   code: string;
-  storedMode?: 'ask' | 'agent' | 'plan';
+  storedMode?: 'ask' | 'agent';
   effectiveMode?: 'ask' | 'agent';
   outputFormat?: string;
   autoApproveTools?: boolean;

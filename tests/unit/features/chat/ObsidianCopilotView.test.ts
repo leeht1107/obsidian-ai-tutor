@@ -6,7 +6,7 @@ import * as providerRegistry from '../../../../src/core/providers/providerRegist
 import { getProviderDescriptor } from '../../../../src/core/providers/providerRegistry';
 import * as readiness from '../../../../src/core/setup/providerReadiness';
 import { PROVIDER_MARKS } from '../../../../src/features/chat/constants';
-import { createProviderSelector, getAgyWebSearchWarning, handlePermissionShortcut } from '../../../../src/features/chat/ObsidianCopilotView';
+import { createProviderSelector, getAgyWebSearchWarning } from '../../../../src/features/chat/ObsidianCopilotView';
 import { getModelSelectorLabel, ModelSelector, ThinkingBudgetSelector, toToolbarSettings } from '../../../../src/ui/components/InputToolbar';
 
 describe('chat provider selector', () => {
@@ -289,77 +289,3 @@ describe('native tutor icon', () => {
   });
 });
 
-describe('Shift+Tab Ask/Agent shortcut', () => {
-  const keyEvent = (init: Partial<KeyboardEvent> = {}) => {
-    const event = new Event('keydown', { cancelable: true }) as any;
-    Object.assign(event, { key: 'Tab', shiftKey: true, ctrlKey: false, altKey: false, metaKey: false,
-      isComposing: false, repeat: false, ...init });
-    return event as KeyboardEvent;
-  };
-
-  it('flips the mode once and keeps the key from moving focus', () => {
-    const toggle = jest.fn();
-    const event = keyEvent();
-
-    expect(handlePermissionShortcut(event, toggle)).toBe(true);
-
-    expect(toggle).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  it('works while a reply is streaming, like clicking the toggle', () => {
-    // There is no streaming guard: the handler takes no state, so nothing can block it.
-    const toggle = jest.fn();
-    handlePermissionShortcut(keyEvent(), toggle);
-    expect(toggle).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores auto-repeat while the key is held, so the mode does not flip back and forth', () => {
-    const toggle = jest.fn();
-    const held = keyEvent({ repeat: true });
-
-    expect(handlePermissionShortcut(held, toggle)).toBe(true);
-
-    expect(toggle).not.toHaveBeenCalled();
-    expect(held.defaultPrevented).toBe(true);
-  });
-
-  it('leaves the key to the IME while a syllable is being composed', () => {
-    const toggle = jest.fn();
-    const composing = keyEvent({ isComposing: true });
-
-    expect(handlePermissionShortcut(composing, toggle)).toBe(false);
-
-    expect(toggle).not.toHaveBeenCalled();
-    expect(composing.defaultPrevented).toBe(false);
-  });
-
-  it.each([
-    ['plain Tab', { shiftKey: false }],
-    ['Ctrl+Shift+Tab', { ctrlKey: true }],
-    ['Alt+Shift+Tab', { altKey: true }],
-    ['Cmd+Shift+Tab', { metaKey: true }],
-    ['another key', { key: 'Enter' }],
-  ])('does nothing for %s', (_label, init) => {
-    const toggle = jest.fn();
-    expect(handlePermissionShortcut(keyEvent(init as Partial<KeyboardEvent>), toggle)).toBe(false);
-    expect(toggle).not.toHaveBeenCalled();
-  });
-
-  it('keeps the / and @ lists on the same input from also selecting an item', () => {
-    // Same registration order as the view: the shortcut first, then the input's own handler
-    // that hands Tab to the open command / file list.
-    const input = new EventTarget();
-    const toggle = jest.fn();
-    const dropdownSelect = jest.fn();
-    input.addEventListener('keydown', (e) => handlePermissionShortcut(e as KeyboardEvent, toggle), { capture: true });
-    input.addEventListener('keydown', (e) => {
-      if ((e as KeyboardEvent).key === 'Tab') dropdownSelect();
-    });
-
-    input.dispatchEvent(keyEvent());
-
-    expect(toggle).toHaveBeenCalledTimes(1);
-    expect(dropdownSelect).not.toHaveBeenCalled();
-  });
-});

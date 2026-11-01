@@ -162,7 +162,6 @@ function createMockDeps(): StreamControllerDeps {
     getMessagesEl: () => messagesEl,
     getFileContextManager: () => fileContextManager as any,
     updateQueueIndicator: jest.fn(),
-    setPlanModeActive: jest.fn(),
   };
 }
 

@@ -22,7 +22,7 @@ import {
 } from '../../../core/learning';
 import { resolveEffectivePermissionMode } from '../../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
-import type { AskUserQuestionInput, ChatMessage, ExitPlanModeDecision, ImageAttachment } from '../../../core/types';
+import type { AskUserQuestionInput, ChatMessage, ImageAttachment } from '../../../core/types';
 import { getBashToolBlockedCommands } from '../../../core/types';
 import type ObsidianCopilotPlugin from '../../../main';
 import {
@@ -34,9 +34,7 @@ import {
   type InstructionModeManager,
   LearningSetupModal,
   type LearningSetupResult,
-  type PlanBanner,
   showAskUserQuestionPanel,
-  showPlanApprovalPanel,
   showQuizAnswerPanel,
 } from '../../../ui';
 import { prependCurrentNote, prependCurrentNoteContent } from '../../../utils/context';
@@ -57,9 +55,6 @@ import type { QueryOptions } from '../state/types';
 import type { ConversationController } from './ConversationController';
 import type { SelectionController } from './SelectionController';
 import type { StreamController } from './StreamController';
-
-const PLAN_MODE_REQUEST_PREFIX =
-  'User requested plan mode. Call EnterPlanMode before responding.';
 
 const CURRENT_NOTE_ONLY_PATTERNS = [
   /현재\s*노트/u,
@@ -107,7 +102,6 @@ export interface InputControllerDeps {
   getInstructionRefineService: () => InstructionRefineService | null;
   getTitleGenerationService: () => TitleGenerationService | null;
   getComponent: () => Component;
-  setPlanModeActive: (active: boolean) => void;
   /**
    * Marks one write-capable action — a slash command's inline bash expanding, or a
    * provider request streaming — as started or settled, so the toolbar can lock the
@@ -116,25 +110,10 @@ export interface InputControllerDeps {
    * that calls `false`, since two such actions can overlap.
    */
   setBashExpansionActive: (active: boolean) => void;
-  getPlanBanner: () => PlanBanner | null;
   showSocraticBanner?: (scopeLabel: string, focusText?: string, onHint?: () => void, onStuck?: () => void) => void;
   hideSocraticBanner?: () => void;
   generateId: () => string;
   resetContextMeter: () => void;
-}
-
-interface PlanModeResendPayload {
-  content: string;
-  displayContent?: string;
-  images?: ImageAttachment[];
-  currentNote?: string;
-  editorContext?: EditorSelectionContext | null;
-  queryOptions?: QueryOptions;
-}
-
-interface PlanModeSendOptions extends PlanModeResendPayload {
-  skipUserMessage?: boolean;
-  hidden?: boolean;
 }
 
 interface QuizSessionInit {
@@ -343,7 +322,6 @@ export class InputController {
     result: LearningSetupResult,
     options: {
       promptPrefix?: string;
-      hidden?: boolean;
       editorContextOverride?: EditorSelectionContext | null;
     },
   ) {
@@ -351,7 +329,6 @@ export class InputController {
       content: result.prompt,
       displayContentOverride: result.displayContent,
       promptPrefix: options.promptPrefix,
-      hidden: options.hidden,
       editorContextOverride: options.editorContextOverride,
     };
 
@@ -383,7 +360,6 @@ export class InputController {
 
   async sendMessage(options?: {
     editorContextOverride?: EditorSelectionContext | null;
-    hidden?: boolean;
     content?: string;
     promptPrefix?: string;
     displayContentOverride?: string;
@@ -460,7 +436,6 @@ export class InputController {
 
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
-        hidden: options?.hidden,
         editorContextOverride: options?.editorContextOverride,
       });
       return;
@@ -481,7 +456,6 @@ export class InputController {
 
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
-        hidden: options?.hidden,
         editorContextOverride: options?.editorContextOverride,
       });
       return;
@@ -500,8 +474,6 @@ export class InputController {
           state.queuedMessage.images = [...(state.queuedMessage.images || []), ...images];
         }
         state.queuedMessage.editorContext = editorContext;
-        // Preserve hidden flag (once hidden, always hidden)
-        state.queuedMessage.hidden = state.queuedMessage.hidden || options?.hidden;
         if (promptPrefix) {
           state.queuedMessage.promptPrefix = state.queuedMessage.promptPrefix ?? promptPrefix;
         }
@@ -511,7 +483,6 @@ export class InputController {
           content,
           images,
           editorContext,
-          hidden: options?.hidden,
           promptPrefix,
           skipLearningCommand: true,
         };
@@ -589,12 +560,9 @@ export class InputController {
       displayContent: options?.displayContentOverride,
       timestamp: Date.now(),
       images: imagesForMessage,
-      hidden: options?.hidden,
     };
     state.addMessage(userMsg);
-    if (!options?.hidden) {
-      renderer.addMessage(userMsg);
-    }
+    renderer.addMessage(userMsg);
 
     const assistantMsg: ChatMessage = {
       id: this.deps.generateId(),
@@ -648,7 +616,7 @@ export class InputController {
           try {
             const result = await slashCommandManager.expandCommand(cmd, detected.args, {
               bash: {
-                // ASK/PLAN mode is read-only: inline bash never executes and never prompts
+                // ASK mode is read-only: inline bash never executes and never prompts
                 // for approval there, it is replaced with the same placeholder used when
                 // inline bash is disabled entirely (see SlashCommandManager.executeInlineBash).
                 // The raw setting is not enough: a provider still awaiting blanket-write
@@ -951,8 +919,6 @@ ${promptToSend}`;
       }
 
       if (!skipPostCompletionFollowups) {
-        await this.activatePendingPlanMode();
-
         // A failed/interrupted first turn has no trustworthy assistant answer to title,
         // and must not launch a second provider request after the primary one was rejected.
         if (streamOutcome === 'completed') {
@@ -980,310 +946,6 @@ ${promptToSend}`;
       return await this.deps.plugin.app.vault.cachedRead(file);
     } catch {
       return null;
-    }
-  }
-
-  // ============================================
-  // Plan Mode
-  // ============================================
-
-  setPlanModeRequested(active: boolean): void {
-    const { state } = this.deps;
-    if (state.planModeRequested === active) {
-      return;
-    }
-    state.planModeRequested = active;
-    this.deps.setPlanModeActive(active);
-  }
-
-  private ensurePlanModeState(agentInitiated: boolean): void {
-    const { state, plugin } = this.deps;
-    if (plugin.settings.permissionMode !== 'plan') {
-      return;
-    }
-    if (state.planModeState?.isActive) {
-      if (!state.planModeState.agentInitiated && agentInitiated) {
-        state.planModeState.agentInitiated = true;
-      }
-      return;
-    }
-    state.planModeState = {
-      isActive: true,
-      planFilePath: null,
-      planContent: null,
-      originalQuery: null,
-      agentInitiated,
-    };
-  }
-
-  private async activatePendingPlanMode(): Promise<void> {
-    const { plugin, state } = this.deps;
-    if (!state.planModeActivationPending) {
-      return;
-    }
-
-    state.planModeActivationPending = false;
-
-    // Reachable while a write-authority region opened by a DIFFERENT concurrent flow
-    // (e.g. an inline-edit expansion) is still open — this runs from the streaming
-    // region's own `finally`, after that region's own counter contribution already
-    // dropped. No guard or re-capture is needed here, unlike `exitPlanPermissionMode`
-    // below: this only narrows to 'plan' (always read-only, see
-    // `resolveEffectivePermissionMode`), never widens. It cannot make the toggle lie in
-    // the dangerous direction (showing Ask while Agent-authority work runs or can start),
-    // and it does not touch `capturedPermissionMode` — whatever an already-open region was
-    // captured as stays true regardless of what a later, unrelated region sets.
-    if (plugin.settings.permissionMode !== 'plan') {
-      plugin.settings.lastNonPlanPermissionMode = plugin.settings.permissionMode;
-      plugin.settings.permissionMode = 'plan';
-      await plugin.saveSettings();
-    }
-
-    state.planModeRequested = false;
-    this.ensurePlanModeState(true);
-    plugin.agentService.setCurrentPlanFilePath(null);
-    this.deps.setPlanModeActive(true);
-  }
-
-  private async exitPlanPermissionMode(): Promise<void> {
-    const { plugin, state } = this.deps;
-    if (plugin.settings.permissionMode === 'plan') {
-      if (typeof plugin.resetPermissionAuthority === 'function') plugin.resetPermissionAuthority();
-      else {
-        plugin.settings.permissionMode = 'ask';
-        plugin.settings.lastNonPlanPermissionMode = 'ask';
-        plugin.settings.blanketWriteAcknowledged = [];
-        plugin.recapturePermissionMode?.();
-      }
-      await plugin.saveSettings();
-    }
-    state.resetPlanModeState();
-    state.planModeRequested = false;
-    state.planModeActivationPending = false;
-    this.deps.setPlanModeActive(false);
-  }
-
-  /** Sends a message in plan mode (read-only exploration). */
-  async sendPlanModeMessage(): Promise<void> {
-    const { state, plugin } = this.deps;
-    const inputEl = this.deps.getInputEl();
-
-    const content = inputEl.value.trim();
-    if (!content) return;
-
-    // Cannot enter plan mode while streaming
-    if (state.isStreaming) {
-      new Notice('Cannot request plan mode while agent is working');
-      return;
-    }
-
-    if (plugin.settings.permissionMode === 'plan') {
-      // Clear any stale plan file path before starting a new plan mode session
-      plugin.agentService.setCurrentPlanFilePath(null);
-      // Preserve existing agentInitiated value, default to false (user-initiated) if unknown
-      const wasAgentInitiated = state.planModeState?.agentInitiated ?? false;
-      this.ensurePlanModeState(wasAgentInitiated);
-
-      // Set plan mode state (agent determines plan file path)
-      state.planModeState = {
-        isActive: true,
-        planFilePath: null,
-        planContent: null,
-        originalQuery: content,
-        agentInitiated: wasAgentInitiated,
-      };
-
-      const restored = this.takeRestoredQueuedSend(content);
-      // Clear input and send
-      inputEl.value = '';
-      await this.sendMessageWithPlanMode(
-        restored ? { content, editorContext: restored.editorContext } : { content }
-      );
-      return;
-    }
-
-    await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
-  }
-
-  /**
-   * Handles agent-initiated EnterPlanMode tool call.
-   * Sets up state for re-sending with plan mode after current stream ends.
-   */
-  async handleEnterPlanMode(): Promise<void> {
-    const { state, plugin } = this.deps;
-
-    if (plugin.settings.permissionMode === 'plan') {
-      this.ensurePlanModeState(true);
-      return;
-    }
-
-    state.planModeActivationPending = true;
-  }
-
-  /** Internal: sends message with plan mode options. */
-  private async sendMessageWithPlanMode(options?: PlanModeSendOptions): Promise<void> {
-    const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
-    const inputEl = this.deps.getInputEl();
-    const imageContextManager = this.deps.getImageContextManager();
-    const fileContextManager = this.deps.getFileContextManager();
-    if (plugin.settings.permissionMode !== 'plan') {
-      await this.sendMessage({ promptPrefix: PLAN_MODE_REQUEST_PREFIX });
-      return;
-    }
-    // Preserve existing agentInitiated value, default to false (user-initiated) if unknown
-    this.ensurePlanModeState(state.planModeState?.agentInitiated ?? false);
-
-    const content = (options?.content ?? inputEl.value).trim();
-    if (!content) return;
-
-    const skipUserMessage = options?.skipUserMessage ?? false;
-    if (options?.content === undefined) {
-      inputEl.value = '';
-    }
-    state.isStreaming = true;
-    state.cancelRequested = false;
-    state.ignoreUsageUpdates = false; // Allow usage updates for new query
-    state.subagentsSpawnedThisStream = 0; // Reset subagent counter for new query
-
-    // Hide welcome message
-    const welcomeEl = this.deps.getWelcomeEl();
-    if (welcomeEl) {
-      welcomeEl.style.display = 'none';
-    }
-
-    fileContextManager?.startSession();
-
-    const images = skipUserMessage
-      ? (options?.images ?? [])
-      : (options?.images ?? (imageContextManager?.getAttachedImages() || []));
-    const imagesForMessage = images.length > 0 ? [...images] : undefined;
-    if (!skipUserMessage && !options?.images) {
-      imageContextManager?.clearImages();
-    }
-
-    let currentNote: string | null = null;
-    let shouldSendCurrentNote = false;
-    let currentNoteForMessage: string | undefined;
-    if (skipUserMessage || options?.currentNote) {
-      currentNote = options?.currentNote || null;
-    } else {
-      currentNote = fileContextManager?.getCurrentNotePath() || null;
-    }
-    shouldSendCurrentNote = fileContextManager?.shouldSendCurrentNote(currentNote) ?? false;
-    if (shouldSendCurrentNote && currentNote) {
-      currentNoteForMessage = currentNote;
-    }
-
-    const editorContext = options?.editorContext ?? selectionController.getContext();
-
-    // Wrap query in XML tag with plan mode context
-    // Note: The system prompt already includes full plan mode instructions
-    let promptToSend = `[Plan Mode]
-Explore the codebase and create an implementation plan. Call the ExitPlanMode tool when the plan is ready for user approval.
-
-<query>
-${content}
-</query>`;
-    if (editorContext) {
-      promptToSend = prependEditorContext(promptToSend, editorContext);
-    }
-
-    if (shouldSendCurrentNote && currentNote) {
-      promptToSend = prependCurrentNote(promptToSend, currentNote);
-      currentNoteForMessage = currentNote;
-    }
-
-
-    // Declared out here so `executeStream` can exclude the in-flight turn from the
-    // replayed transcript; stays undefined on the resend path, where the user message
-    // is already an earlier part of the conversation rather than a new one.
-    let userMsg: ChatMessage | undefined;
-    if (!skipUserMessage) {
-      const displayContent = options?.displayContent ?? content;
-      userMsg = {
-        id: this.deps.generateId(),
-        role: 'user',
-        content,
-        displayContent: displayContent !== content ? displayContent : undefined,
-        timestamp: Date.now(),
-        currentNote: currentNoteForMessage,
-        images: imagesForMessage,
-        hidden: options?.hidden,
-      };
-      state.addMessage(userMsg);
-      if (!options?.hidden) {
-        renderer.addMessage(userMsg);
-      }
-    }
-    const assistantMsg: ChatMessage = {
-      id: this.deps.generateId(),
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-      toolCalls: [],
-      contentBlocks: [],
-    };
-    state.addMessage(assistantMsg);
-    const msgEl = renderer.addMessage(assistantMsg);
-    const contentEl = msgEl.querySelector('.ocop-message-content') as HTMLElement;
-
-    state.toolCallElements.clear();
-    state.currentContentEl = contentEl;
-    state.currentTextEl = null;
-    state.currentTextContent = '';
-
-    streamController.showThinkingIndicator(contentEl);
-
-    // Build query options with plan mode
-    const queryOptions = {
-      ...options?.queryOptions,
-      planMode: true,
-    };
-
-    let streamOutcome: StreamOutcome = 'completed';
-    try {
-      streamOutcome = await this.executeStream(promptToSend, imagesForMessage, assistantMsg, queryOptions, userMsg);
-    } finally {
-      // Same switch lock as sendMessage: a switch while finalizing would save this turn
-      // without its requestOutcome and run the cleanup below on another conversation.
-      let cleanupSettled = false;
-      this.finalizingTurn = true;
-      try {
-        if (streamOutcome === 'interrupted') {
-          await streamController.appendText('\n\n<span class="ocop-interrupted">Plan mode interrupted</span>');
-          plugin.agentService.setCurrentPlanFilePath(null);
-        }
-        streamController.hideThinkingIndicator();
-        state.currentContentEl = null;
-
-        streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
-        assistantMsg.requestOutcome = streamOutcome;
-        if (streamOutcome === 'completed' && contentEl) {
-          streamController.injectChoiceButtonsIfNeeded(contentEl, assistantMsg, (choice) => {
-            void this.sendMessage({ content: choice });
-          });
-        }
-        state.activeSubagents.clear();
-
-        await conversationController.save(true);
-        cleanupSettled = true;
-      } finally {
-        this.finalizingTurn = false;
-        state.isStreaming = false;
-        state.cancelRequested = false;
-        if (!cleanupSettled) this.recoverFromTurnCleanupFailure();
-      }
-
-      await this.activatePendingPlanMode();
-
-      // Failed/interrupted plan turns can leave partial prose. Do not start a second
-      // provider request to title an answer that never completed.
-      if (streamOutcome === 'completed') {
-        await this.triggerTitleGeneration({ isPlanMode: true });
-      }
-
-      this.processQueuedMessage();
     }
   }
 
@@ -1330,9 +992,8 @@ ${content}
 
   /**
    * A turn's cleanup threw, so the follow-ups that send the queued message won't run.
-   * Hands the queued message back to the input instead of leaving it stranded. A hidden one
-   * is handed back too: left queued, it would fire after some later, unrelated turn, and it
-   * may carry the user's own text merged into it, so dropping it is not an option either.
+   * Hands the queued message back to the input instead of leaving it stranded: left queued,
+   * it would fire after some later, unrelated turn.
    */
   private recoverFromTurnCleanupFailure(): void {
     const { state } = this.deps;
@@ -1386,18 +1047,9 @@ ${content}
     const { state } = this.deps;
     if (!state.queuedMessage) return;
 
-    const { content, images, editorContext, hidden, promptPrefix, skipLearningCommand } = state.queuedMessage;
+    const { content, images, editorContext, promptPrefix, skipLearningCommand } = state.queuedMessage;
     state.queuedMessage = null;
     this.updateQueueIndicator();
-
-    const isPlanMode = this.deps.plugin.settings.permissionMode === 'plan';
-    if (isPlanMode) {
-      setTimeout(
-        () => this.sendMessageWithPlanMode({ content, images, editorContext, hidden }),
-        0
-      );
-      return;
-    }
 
     const inputEl = this.deps.getInputEl();
     inputEl.value = content;
@@ -1405,7 +1057,7 @@ ${content}
       this.deps.getImageContextManager()?.setImages(images);
     }
 
-    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, hidden, promptPrefix, skipLearningCommand }), 0);
+    setTimeout(() => this.sendMessage({ editorContextOverride: editorContext, promptPrefix, skipLearningCommand }), 0);
   }
 
   // ============================================
@@ -1416,9 +1068,8 @@ ${content}
    * Triggers AI title generation after first exchange.
    * Handles setting fallback title, firing async generation, and updating UI.
    */
-  private async triggerTitleGeneration(options: { isPlanMode?: boolean } = {}): Promise<void> {
+  private async triggerTitleGeneration(): Promise<void> {
     const { plugin, state, conversationController } = this.deps;
-    const { isPlanMode = false } = options;
 
     if (state.messages.length !== 2 || !state.currentConversationId) {
       return;
@@ -1443,8 +1094,7 @@ ${content}
 
     // Set immediate fallback title
     const fallbackTitle = conversationController.generateFallbackTitle(userContent);
-    const displayTitle = isPlanMode ? `[Plan] ${fallbackTitle}` : fallbackTitle;
-    await plugin.renameConversation(state.currentConversationId, displayTitle);
+    await plugin.renameConversation(state.currentConversationId, fallbackTitle);
 
     if (!plugin.settings.enableAutoTitleGeneration) {
       return;
@@ -1467,7 +1117,7 @@ ${content}
     conversationController.updateHistoryDropdown();
 
     const convId = state.currentConversationId;
-    const expectedTitle = displayTitle; // Store to check if user renamed during generation
+    const expectedTitle = fallbackTitle; // Store to check if user renamed during generation
 
     titleService.generateTitle(
       convId,
@@ -1482,8 +1132,7 @@ ${content}
         const userManuallyRenamed = currentConv.title !== expectedTitle;
 
         if (result.success && !userManuallyRenamed) {
-          const newTitle = isPlanMode ? `[Plan] ${result.title}` : result.title;
-          await plugin.renameConversation(conversationId, newTitle);
+          await plugin.renameConversation(conversationId, result.title);
           await plugin.updateConversation(conversationId, { titleGenerationStatus: 'success' });
         } else if (!userManuallyRenamed) {
           // Keep fallback title, mark as failed (only if user hasn't renamed)
@@ -1694,192 +1343,5 @@ ${content}
     }
 
     return showAskUserQuestionPanel(plugin.app, containerEl, input);
-  }
-
-  // ============================================
-  // Plan Mode Approval
-  // ============================================
-
-  /** Handles ExitPlanMode tool by showing plan approval panel. */
-  async handleExitPlanMode(planContent: string): Promise<ExitPlanModeDecision> {
-    const { state, renderer, conversationController, streamController } = this.deps;
-
-    // Get the container element (the ObsidianCode view container)
-    const messagesEl = this.deps.getMessagesEl();
-    const containerEl = messagesEl.parentElement;
-    if (!containerEl) {
-      return { decision: 'cancel' };
-    }
-
-    // Store plan content in state
-    if (state.planModeState) {
-      state.planModeState.planContent = planContent;
-    }
-
-    streamController.hideThinkingIndicator();
-
-    // Finalize the current streaming text block (already streamed in real-time)
-    // and upgrade the existing assistant message to a plan message.
-    const assistantMsg = state.messages[state.messages.length - 1];
-    if (assistantMsg) {
-      streamController.finalizeCurrentThinkingBlock(assistantMsg);
-      await streamController.finalizeCurrentTextBlock(assistantMsg);
-      assistantMsg.isPlanMessage = true;
-    }
-
-    // Apply plan styling to the existing message element
-    const lastMsgEl = messagesEl.lastElementChild;
-    if (lastMsgEl) {
-      lastMsgEl.classList.add('ocop-message-plan');
-    }
-
-    state.currentTextEl = null;
-    state.currentTextContent = '';
-    state.currentThinkingState = null;
-
-    renderer.scrollToBottom();
-
-    // Save pending plan content to state and persist to conversation
-    state.pendingPlanContent = planContent;
-    await conversationController.save();
-
-    // Show approval panel and handle decision
-    return this.showApprovalPanelAndHandleDecision(planContent, containerEl);
-  }
-
-  /**
-   * Restores pending plan approval panel when loading a conversation.
-   * Called when a conversation with pendingPlanContent is loaded.
-   */
-  restorePendingPlanApproval(planContent: string): void {
-    const messagesEl = this.deps.getMessagesEl();
-    const containerEl = messagesEl.parentElement;
-    if (!containerEl) {
-      return;
-    }
-
-    // Show approval panel (plan message is already in chat from saved messages)
-    void this.showApprovalPanelAndHandleDecision(planContent, containerEl);
-  }
-
-  /** Shows approval panel and handles the decision. */
-  private async showApprovalPanelAndHandleDecision(
-    planContent: string,
-    containerEl: HTMLElement
-  ): Promise<ExitPlanModeDecision> {
-    const { plugin, state, conversationController } = this.deps;
-
-    // Show approval panel (buttons only, plan is already in chat)
-    const result = await showPlanApprovalPanel(
-      plugin.app,
-      containerEl,
-      planContent,
-      this.deps.getComponent()
-    );
-
-    // Clear pending plan content after any decision
-    state.pendingPlanContent = null;
-
-    if (result.decision === 'approve') {
-      // Add approval indicator
-      this.addApprovalIndicator('approve');
-      // Store approved plan content for system prompt
-      plugin.agentService.setApprovedPlanContent(planContent);
-      // Show the plan banner
-      const planBanner = this.deps.getPlanBanner();
-      if (planBanner) {
-        void planBanner.show(planContent);
-      }
-      // Exit plan mode and restore permission settings
-      await this.exitPlanPermissionMode();
-      plugin.agentService.setCurrentPlanFilePath(null);
-      // Save conversation to clear pending and set approved
-      await conversationController.save();
-      // Auto-send implementation prompt (hidden from UI)
-      setTimeout(
-        () => this.sendMessage({ hidden: true, content: 'Please implement the approved plan.' }),
-        100
-      );
-      return { decision: 'approve' };
-    } else if (result.decision === 'approve_new_session') {
-      // Add approval indicator
-      this.addApprovalIndicator('approve_new_session');
-      // Show the plan banner
-      const planBanner = this.deps.getPlanBanner();
-      if (planBanner) {
-        void planBanner.show(planContent);
-      }
-      // Exit plan mode and restore permission settings
-      await this.exitPlanPermissionMode();
-      plugin.agentService.setCurrentPlanFilePath(null);
-      // RESET SESSION for fresh context window
-      plugin.agentService.resetSession();
-      // Store approved plan content AFTER reset (resetSession clears it)
-      plugin.agentService.setApprovedPlanContent(planContent);
-      // Ignore any further usage updates from the old stream
-      state.ignoreUsageUpdates = true;
-      // Clear usage and reset the context meter (fresh session)
-      state.usage = null;
-      this.deps.resetContextMeter();
-      // Save conversation to clear pending and set approved (sessionId will be null)
-      await conversationController.save();
-      // Auto-send implementation prompt (hidden from UI)
-      setTimeout(
-        () => this.sendMessage({ hidden: true, content: 'Please implement the approved plan.' }),
-        100
-      );
-      return { decision: 'approve_new_session' };
-    } else if (result.decision === 'revise') {
-      // Add approval indicator with feedback
-      this.addApprovalIndicator('revise', result.feedback);
-      // Save conversation to clear pending (new plan will be generated)
-      await conversationController.save();
-      // Clear plan file path to avoid reusing stale content on revise
-      plugin.agentService.setCurrentPlanFilePath(null);
-      // Auto-send feedback as hidden plan mode message (indicator already shows it)
-      setTimeout(
-        () => this.sendMessageWithPlanMode({ content: result.feedback, hidden: true, images: [] }),
-        100
-      );
-      return { decision: 'revise', feedback: result.feedback };
-    } else {
-      // Cancel (Esc) - plan mode stays active, user can continue chatting or revise
-      // Only clear the plan file path so a new plan can be generated
-      plugin.agentService.setCurrentPlanFilePath(null);
-      // Save conversation to clear pending
-      await conversationController.save();
-      return { decision: 'cancel' };
-    }
-  }
-
-  /** Hides the plan banner. */
-  hidePlanBanner(): void {
-    const planBanner = this.deps.getPlanBanner();
-    if (planBanner) {
-      planBanner.hide();
-    }
-  }
-
-  /** Adds an approval indicator message to the chat. */
-  private addApprovalIndicator(
-    type: 'approve' | 'approve_new_session' | 'revise',
-    feedback?: string
-  ): void {
-    const { state, renderer } = this.deps;
-
-    const indicatorMsg: ChatMessage = {
-      id: `indicator-${Date.now()}`,
-      role: 'user',
-      content: '', // Empty content, rendered via approvalIndicator
-      timestamp: Date.now(),
-      approvalIndicator: {
-        type,
-        feedback,
-      },
-    };
-
-    state.addMessage(indicatorMsg);
-    renderer.addMessage(indicatorMsg);
-    renderer.scrollToBottom();
   }
 }

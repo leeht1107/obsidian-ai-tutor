@@ -85,15 +85,11 @@ export interface ChatMessage {
   contentBlocks?: ContentBlock[];
   currentNote?: string;
   images?: ImageAttachment[];
-  /** Whether this is a plan message (for distinct styling). */
-  isPlanMessage?: boolean;
-  /** Whether this message should be hidden from the UI. */
+  /**
+   * Legacy: internal messages saved by older versions are flagged so they stay out of the
+   * UI when an old conversation is loaded. Nothing sets this any more.
+   */
   hidden?: boolean;
-  /** Approval indicator for plan mode decisions. */
-  approvalIndicator?: {
-    type: 'approve' | 'approve_new_session' | 'revise';
-    feedback?: string; // For revise
-  };
   /** `null` suppresses question recovery for partial output from a failed Quiz request. */
   quizQuestion?: QuizQuestionMeta | null;
   /** Final Quiz turn offers an optional Socratic review action. */
@@ -120,12 +116,6 @@ export interface Conversation {
   externalContextPaths?: string[];
   /** Context window usage information. */
   usage?: UsageInfo;
-  /** Approved implementation plan for this conversation. */
-  approvedPlan?: string;
-  /** Pending plan content awaiting user approval. */
-  pendingPlanContent?: string;
-  /** Whether this conversation is currently in plan mode (agent exploring/generating plan). */
-  isInPlanMode?: boolean;
   /** Status of AI title generation. */
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
   quizSession?: QuizSessionState;

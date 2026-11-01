@@ -52,8 +52,6 @@ export interface StreamControllerDeps {
   getMessagesEl: () => HTMLElement;
   getFileContextManager: () => FileContextManager | null;
   updateQueueIndicator: () => void;
-  /** Callback to set plan mode active (for UI toggle sync). */
-  setPlanModeActive: (active: boolean) => void;
 }
 
 /**
@@ -129,7 +127,7 @@ export class StreamController {
           break;
         }
 
-        // Handle plan mode tools (EnterPlanMode, ExitPlanMode)
+        // The CLI's own EnterPlanMode/ExitPlanMode tools are internal to it
         if (isPlanModeTool(chunk.name)) {
           // Skip rendering - these tools are invisible to the user
           break;
@@ -195,13 +193,7 @@ export class StreamController {
     chunk: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> },
     msg: ChatMessage
   ): void {
-    const { plugin, state } = this.deps;
-
-    // Skip rendering Write/Edit tools during plan mode (read-only mode)
-    const isPlanMode = plugin.settings.permissionMode === 'plan';
-    if (isPlanMode && isWriteEditTool(chunk.name)) {
-      return;
-    }
+    const { state } = this.deps;
 
     const toolCall: ToolCallInfo = {
       id: chunk.id,

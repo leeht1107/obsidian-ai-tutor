@@ -32,15 +32,6 @@ export {
   type InstructionModeState,
 } from './InstructionModeManager';
 export {
-  PlanApprovalPanel,
-  type PlanApprovalPanelOptions,
-  showPlanApprovalPanel,
-} from './PlanApprovalPanel';
-export {
-  PlanBanner,
-  type PlanBannerOptions,
-} from './PlanBanner';
-export {
   dismissQuizAnswerPanel,
   QUIZ_STUCK_ANSWER,
   QuizAnswerPanel,

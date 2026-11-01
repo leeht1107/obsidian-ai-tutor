@@ -84,14 +84,6 @@ export class MessageRenderer {
       return lastChild ?? this.messagesEl;
     }
 
-    // Render approval indicator if present
-    if (msg.approvalIndicator) {
-      const indicatorEl = this.renderApprovalIndicator(msg.approvalIndicator);
-      this.ensureTodoPanelAtBottom();
-      this.scrollToBottom();
-      return indicatorEl;
-    }
-
     // Render images above message bubble for user messages
     if (msg.role === 'user' && msg.images && msg.images.length > 0) {
       this.renderMessageImages(this.messagesEl, msg.images);
@@ -188,12 +180,6 @@ export class MessageRenderer {
       return;
     }
 
-    // Render approval indicator if present
-    if (msg.approvalIndicator) {
-      this.renderApprovalIndicator(msg.approvalIndicator);
-      return;
-    }
-
     // Render images above bubble for user messages
     if (msg.role === 'user' && msg.images && msg.images.length > 0) {
       this.renderMessageImages(this.messagesEl, msg.images);
@@ -211,11 +197,6 @@ export class MessageRenderer {
       cls: `ocop-message ocop-message-${msg.role}`,
     });
 
-    // Apply plan message styling if this is a plan message
-    if (msg.isPlanMessage) {
-      msgEl.classList.add('ocop-message-plan');
-    }
-
     const contentEl = msgEl.createDiv({ cls: 'ocop-message-content' });
 
     if (msg.role === 'assistant') {
@@ -231,38 +212,6 @@ export class MessageRenderer {
     } else if (msg.role === 'assistant') {
       this.renderAssistantContent(msg, contentEl);
     }
-  }
-
-  /**
-   * Renders an approval indicator for plan mode decisions.
-   */
-  private renderApprovalIndicator(indicator: NonNullable<ChatMessage['approvalIndicator']>): HTMLElement {
-    const indicatorEl = this.messagesEl.createDiv({
-      cls: 'ocop-approval-indicator',
-    });
-
-    const iconEl = indicatorEl.createSpan({ cls: 'ocop-approval-indicator-icon' });
-    const textEl = indicatorEl.createSpan({ cls: 'ocop-approval-indicator-text' });
-
-    switch (indicator.type) {
-      case 'approve':
-        indicatorEl.classList.add('ocop-approval-indicator-approve');
-        setIcon(iconEl, 'check');
-        textEl.textContent = 'User approved plan.';
-        break;
-      case 'approve_new_session':
-        indicatorEl.classList.add('ocop-approval-indicator-approve');
-        setIcon(iconEl, 'check');
-        textEl.textContent = 'User approved plan, implement in new session.';
-        break;
-      case 'revise':
-        indicatorEl.classList.add('ocop-approval-indicator-revise');
-        setIcon(iconEl, 'x');
-        textEl.textContent = indicator.feedback || 'User requested revision.';
-        break;
-    }
-
-    return indicatorEl;
   }
 
   /**

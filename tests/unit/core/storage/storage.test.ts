@@ -67,6 +67,21 @@ describe('SessionStorage JSONL format', () => {
       expect(conversation!.messages[1].role).toBe('assistant');
     });
 
+    it('ignores plan-mode fields left in metadata by older releases', () => {
+      const jsonl = [
+        '{"type":"meta","id":"conv-1","title":"Old","createdAt":1,"updatedAt":2,"sessionId":null,"approvedPlan":"p","pendingPlanContent":"q","isInPlanMode":true}',
+        '{"type":"message","message":{"id":"msg-1","role":"user","content":"Hello","timestamp":1}}',
+      ].join('\n');
+
+      const conversation = parseJSONLHelper(jsonl);
+
+      expect(conversation).not.toBeNull();
+      expect(conversation!.messages).toHaveLength(1);
+      expect(conversation).not.toHaveProperty('approvedPlan');
+      expect(conversation).not.toHaveProperty('pendingPlanContent');
+      expect(conversation).not.toHaveProperty('isInPlanMode');
+    });
+
     it('should handle empty content', () => {
       const conversation = parseJSONLHelper('');
       expect(conversation).toBeNull();

@@ -33,7 +33,6 @@ export interface ToolbarSettings {
   selectedProvider: ProviderId;
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
-  lastNonPlanPermissionMode?: 'agent' | 'ask';
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
   blanketWriteAcknowledged?: string[];
@@ -50,7 +49,6 @@ export function toToolbarSettings(settings: {
   selectedProvider: ProviderId;
   thinkingBudget: ThinkingBudget;
   permissionMode: PermissionMode;
-  lastNonPlanPermissionMode?: 'agent' | 'ask';
   providerModels?: Partial<Record<ProviderId, string>>;
   providerEfforts?: Partial<Record<ProviderId, string>>;
   blanketWriteAcknowledged?: string[];
@@ -61,7 +59,6 @@ export function toToolbarSettings(settings: {
     selectedProvider: settings.selectedProvider,
     thinkingBudget: settings.thinkingBudget,
     permissionMode: settings.permissionMode,
-    lastNonPlanPermissionMode: settings.lastNonPlanPermissionMode,
     providerModels: settings.providerModels,
     providerEfforts: settings.providerEfforts,
     blanketWriteAcknowledged: settings.blanketWriteAcknowledged,
@@ -79,8 +76,6 @@ export interface ToolbarCallbacks {
   onOpenLearning?: () => Promise<void>;
   getSettings: () => ToolbarSettings;
   getEnvironmentVariables?: () => string;
-  isAgentInitiatedPlanMode?: () => boolean;
-  isPlanModeRequested?: () => boolean;
   /** Ask the student, in a dialog they must answer, before a blanket-write provider may write. */
   confirmBlanketWrite?: (provider: ProviderId, authorityEpoch: number) => Promise<boolean>;
   getPermissionAuthorityEpoch?: () => number;
@@ -504,7 +499,6 @@ export class PermissionToggle {
   private toggleEl: HTMLElement | null = null;
   private labelEl: HTMLElement | null = null;
   private callbacks: ToolbarCallbacks;
-  private onPlanModeToggle: ((active: boolean) => void) | null = null;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
     this.callbacks = callbacks;
@@ -522,30 +516,9 @@ export class PermissionToggle {
     });
   }
 
-  setOnPlanModeToggle(callback: (active: boolean) => void) {
-    this.onPlanModeToggle = callback;
-  }
-
-  setPlanModeActive(_active: boolean) {
-    this.updateDisplay();
-  }
-
-  isPlanModeActive(): boolean {
-    return this.isPlanModeLocked() || this.isPlanModeRequested();
-  }
-
-  private isPlanModeLocked(): boolean {
-    return this.callbacks.getSettings().permissionMode === 'plan';
-  }
-
-  private isPlanModeRequested(): boolean {
-    return this.callbacks.isPlanModeRequested?.() ?? false;
-  }
-
   updateDisplay() {
     if (!this.toggleEl || !this.labelEl) return;
 
-    this.container.removeClass('plan-mode');
     this.container.removeClass('is-unavailable');
     this.labelEl.empty();
 
@@ -588,10 +561,6 @@ export class PermissionToggle {
       return;
     }
 
-    // Plan was a third label for the same read-only restriction and is no longer
-    // offered. A setting saved as 'plan' reads and behaves as Ask, so it can never
-    // present as one thing and become another on the next click.
-    //
     // The shared predicate, not the raw setting: a provider awaiting consent — reachable
     // just by switching providers while in Agent — dispatches read-only whatever
     // `permissionMode` says, so the label must READ as Ask. Showing Agent there was the
@@ -627,8 +596,7 @@ export class PermissionToggle {
       new Notice('이 CLI는 읽기 전용을 지원하지 않습니다. 읽기만 시키려면 다른 provider를 고르세요.');
       return;
     }
-    // Two states only: read-only, or allowed to write. Plan was a third label for
-    // the same read-only restriction and is normalised to Ask when settings load.
+    // Two states only: read-only, or allowed to write.
     // The click acts on the state the student can SEE, so a provider awaiting
     // consent moves toward Agent on the first click rather than the second.
     const shown = resolveEffectivePermissionMode(settings.permissionMode, provider, settings.blanketWriteAcknowledged);
@@ -647,7 +615,7 @@ export class PermissionToggle {
       }
     }
 
-    // A provider switch, new view, reload boundary, or Plan exit may have reset
+    // A provider switch, new view, or reload boundary may have reset
     // authority while the modal was open. Its old answer cannot authorize the new state.
     if ((this.callbacks.getPermissionAuthorityEpoch?.() ?? authorityEpoch) !== authorityEpoch
       || this.callbacks.getSettings().selectedProvider !== provider) {
@@ -675,29 +643,6 @@ export class PermissionToggle {
     this.updateDisplay();
     await applied;
     this.updateDisplay();
-  }
-
-  /**
-   * Shift+Tab in the input: the same Ask/Agent toggle as a click, through the same
-   * consent and in-flight guards, plus a notice since a keystroke shows nothing itself.
-   */
-  async togglePermissionMode() {
-    const before = this.shownMode();
-    await this.toggle();
-    const after = this.shownMode();
-    // A keystroke gives no visual cue of its own, and Agent can write files.
-    if (after !== before) {
-      new Notice(after === 'agent'
-        ? 'Agent 모드: 이제 파일을 수정할 수 있습니다.'
-        : 'Ask 모드: 파일을 수정하지 않습니다.');
-    }
-  }
-
-  private shownMode(): 'ask' | 'agent' {
-    const settings = this.callbacks.getSettings();
-    return resolveEffectivePermissionMode(
-      settings.permissionMode, settings.selectedProvider as ProviderId, settings.blanketWriteAcknowledged
-    );
   }
 }
 

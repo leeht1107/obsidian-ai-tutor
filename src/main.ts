@@ -300,7 +300,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
 
     const trust = readTrust(this.app);
     this.settings.permissionMode = 'ask';
-    this.settings.lastNonPlanPermissionMode = 'ask';
     this.settings.blanketWriteAcknowledged = [];
     this.settings.allowUnsafeAgyAgent = trust.allowUnsafeAgyAgent;
     this.settings.permissions = trust.permissions;
@@ -391,7 +390,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
       // Runtime Agent authority never crosses a reload. Only the separate Agy
       // expert preference persists; every actual transition is confirmed again.
       permissionMode: 'ask',
-      lastNonPlanPermissionMode: 'ask',
       blanketWriteAcknowledged: [],
       allowUnsafeAgyAgent: this.settings.allowUnsafeAgyAgent ?? false,
       permissions: this.settings.permissions ?? [],
@@ -682,7 +680,6 @@ export default class ObsidianCopilotPlugin extends Plugin {
   resetPermissionAuthority(): void {
     this.permissionAuthorityEpoch += 1;
     this.settings.permissionMode = 'ask';
-    this.settings.lastNonPlanPermissionMode = 'ask';
     this.settings.blanketWriteAcknowledged = [];
     this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
@@ -696,33 +693,10 @@ export default class ObsidianCopilotPlugin extends Plugin {
   returnToAsk(): void {
     this.permissionAuthorityEpoch += 1;
     this.settings.permissionMode = 'ask';
-    this.settings.lastNonPlanPermissionMode = 'ask';
     this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 
   getPermissionAuthorityEpoch(): number {
     return this.permissionAuthorityEpoch;
-  }
-
-  /**
-   * Refreshes the captured mode from CURRENT settings without waiting for the counter to
-   * drain. The capture above exists to freeze the toggle against a change that would let
-   * it lie about work already running — but not every mid-flight `permissionMode` write is
-   * that kind of change. Some (plan approval restoring the prior mode) are the user
-   * deliberately granting authority right now, and the stale capture, not the write, is
-   * what would be wrong: the toggle would keep showing the read-only mode a plan-mode
-   * region captured, while the approved work is about to run with real authority. Callers
-   * that land a legitimate mid-flight grant call this immediately after the write so the
-   * label catches up to what just became true. A no-op while settled — there is no capture
-   * to correct.
-   */
-  recapturePermissionMode(): void {
-    if (this.writeAuthorityCount === 0) return;
-    this.capturedPermissionMode = resolveEffectivePermissionMode(
-      this.settings.permissionMode,
-      this.settings.selectedProvider as ProviderId,
-      this.settings.blanketWriteAcknowledged
-    );
-    this.getAllViews().forEach((view) => view.refreshPermissionToggle());
   }
 }
