@@ -2,6 +2,7 @@
  * Chat and conversation type definitions.
  */
 
+import type { CompletedLearningSnapshot } from '../learning/records/types';
 import type { SubagentInfo, SubagentMode, ToolCallInfo } from './tools';
 
 /** View type identifier for Obsidian. */
@@ -53,6 +54,10 @@ export interface QuizSessionState {
   enableWebSearch?: boolean;
   questionStyle?: 'material' | 'application';
   sourceInstruction?: string;
+  /** Typed paths of the approved course materials; never parsed from prompt prose. */
+  sourcePaths?: string[];
+  sourceFingerprints?: Record<string, string>;
+  learningSessionId?: string;
 }
 
 export interface SocraticSessionState {
@@ -66,6 +71,13 @@ export interface SocraticSessionState {
   isSummaryPhase: boolean;
   /** A Quiz review reads only that Quiz's source, never the note open in the editor. */
   quizReview?: boolean;
+  /** Started from saved records (or an explicit fresh start): isolated like a Quiz review. */
+  recordEntry?: 'new' | 'review' | 'continue';
+  /** Typed paths of the approved course materials; never parsed from prompt prose. */
+  sourcePaths?: string[];
+  sourceFingerprints?: Record<string, string>;
+  /** Identity of this learning session: the id of its first user message. */
+  learningSessionId?: string;
 }
 
 export interface SocraticTurnMeta {
@@ -97,6 +109,12 @@ export interface ChatMessage {
   quizReviewSourceInstruction?: string;
   quizReviewEnableWebSearch?: boolean;
   socraticTurn?: SocraticTurnMeta;
+  /** Quiz hint turn: the user message and its reply are not an answer or feedback. */
+  quizHint?: boolean;
+  /** Set on the student reply that answered the final synthesizing question. */
+  socraticSynthesis?: boolean;
+  /** True completion evidence for a finished Quiz/Socratic session; absent on legacy messages. */
+  learningSnapshot?: CompletedLearningSnapshot;
   /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
   requestOutcome?: 'completed' | 'failed' | 'interrupted';
 }

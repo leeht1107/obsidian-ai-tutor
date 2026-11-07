@@ -115,6 +115,8 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
       renameConversation: jest.fn(),
       updateConversation: jest.fn(),
       getConversationById: jest.fn().mockReturnValue(null),
+      getLearningRecordSaveService: jest.fn().mockReturnValue({ isSaving: jest.fn().mockReturnValue(false) }),
+      attachLearningSnapshot: jest.fn().mockResolvedValue(true),
     } as any,
     state,
     renderer: {
@@ -1013,6 +1015,7 @@ describe('InputController - Message Queue', () => {
         difficulty: '상',
         questionStyle: 'application',
         enableWebSearch: true,
+        learningSessionId: expect.any(String),
       });
       const prompt = (deps.plugin.agentService.query as jest.Mock).mock.calls[0][0] as string;
       expect(prompt).not.toContain('You are continuing an active quiz');
@@ -1493,6 +1496,7 @@ describe('InputController - Message Queue', () => {
           focusText: 'PK',
           difficulty: undefined,
           sourceInstruction: undefined,
+          learningSessionId: expect.any(String),
         });
       });
     });

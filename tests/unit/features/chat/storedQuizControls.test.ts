@@ -39,3 +39,19 @@ describe('stored quiz controls reach the same actions as the live panel', () => 
     expect(resolveStoredQuizControl(null)).toBeNull();
   });
 });
+
+describe('learning record save button delegation', () => {
+  const { resolveLearningRecordSave } = jest.requireActual('../../../../src/features/chat/ObsidianCopilotView');
+  it('resolves the message of the clicked save button', () => {
+    const button = { dataset: { messageId: 'done-1' } };
+    const target = { closest: (selector: string) => (selector === '.ocop-learning-record-save-btn' ? button : null) } as unknown as Element;
+    expect(resolveLearningRecordSave(target)).toEqual({ messageId: 'done-1', button });
+  });
+
+  it('ignores other clicks and buttons without a message id', () => {
+    expect(resolveLearningRecordSave(clickOn('ocop-quiz-hint-btn'))).toBeNull();
+    const bare = { closest: () => ({ dataset: {} }) } as unknown as Element;
+    expect(resolveLearningRecordSave(bare)).toBeNull();
+    expect(resolveLearningRecordSave(null)).toBeNull();
+  });
+});

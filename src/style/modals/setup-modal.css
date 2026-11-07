@@ -88,14 +88,16 @@
 
 .ocop-learning-question-styles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 4px 0 12px;
 }
 
 .ocop-learning-question-style {
   display: flex;
+  min-width: 0;
   min-height: 76px;
+  height: auto;
   flex-direction: column;
   align-items: flex-start;
   gap: 5px;
@@ -105,7 +107,17 @@
   background: var(--background-primary);
   color: var(--text-normal);
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   cursor: pointer;
+}
+
+.ocop-learning-question-style strong,
+.ocop-learning-question-style span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .ocop-learning-question-style span {
@@ -147,12 +159,146 @@
   color: var(--text-normal);
 }
 
+.ocop-quiz-note-item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ocop-quiz-note-item > input[type='checkbox'] {
+  flex-shrink: 0;
+}
+
 .ocop-quiz-note-item:hover {
   background: var(--background-modifier-hover);
 }
 
 @media (max-width: 480px) {
   .ocop-learning-question-styles {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Saved learning records: setup list, start preview, save preview, chat actions */
+.ocop-learning-records {
+  margin: 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ocop-learning-record-list {
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.ocop-learning-preview {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.ocop-learning-preview ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.ocop-learning-preview li {
+  overflow-wrap: anywhere;
+}
+
+.ocop-learning-record-item {
+  margin-top: 8px;
+}
+
+.ocop-learning-preview-paths {
+  margin: 4px 0 0;
+  max-height: 140px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-smaller);
+}
+
+.ocop-learning-record-content,
+.ocop-learning-record-sent {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  font-size: var(--font-smaller);
+}
+
+.ocop-learning-record-sent-details {
+  margin-top: 4px;
+  font-size: var(--font-smaller);
+}
+
+.ocop-learning-record-modal {
+  width: min(720px, 92vw);
+}
+
+.ocop-learning-record-banner {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background-modifier-error-hover, var(--background-secondary));
+  color: var(--text-normal);
+}
+
+.ocop-learning-record-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 2px;
+  font-size: var(--font-ui-small);
+}
+
+.ocop-learning-record-name input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ocop-learning-record-text {
+  width: 100%;
+  margin-top: 8px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.ocop-learning-record-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ocop-learning-record-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Socratic setup: course materials and past records read as one context region */
+.ocop-learning-context {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.ocop-learning-context-roles {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.ocop-learning-summary {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--interactive-accent);
+  background: var(--background-primary-alt);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
 }

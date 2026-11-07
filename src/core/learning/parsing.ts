@@ -1,7 +1,16 @@
 import type { QuizQuestionMeta, QuizQuestionOption, SocraticTurnMeta } from '../types';
 
+/**
+ * A real summary turn: the marker alone on its own prose line (not inside a fence, quote or
+ * list item) followed by actual summary text. A quoted example or a reply cut off after the
+ * marker does not end the session.
+ */
 export function parseSocraticMeta(content: string): SocraticTurnMeta | undefined {
-  if (!/^\s*##SOCRATIC_SUMMARY##/m.test(content)) return undefined;
+  const lines = withoutFencedCode(content.replace(/\r\n/g, '\n')).split('\n');
+  const at = lines.findIndex((line) => /^\s*##SOCRATIC_SUMMARY##/.test(line));
+  if (at === -1) return undefined;
+  const sameLine = lines[at].replace(/^\s*##SOCRATIC_SUMMARY##/, '').trim();
+  if (!sameLine && !lines.slice(at + 1).some((line) => line.trim() !== '')) return undefined;
   return { isSummary: true };
 }
 

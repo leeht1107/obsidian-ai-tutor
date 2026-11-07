@@ -153,6 +153,8 @@ export interface ObsidianCopilotSettings {
   permissions: Permission[];
   excludedTags: string[];
   mediaFolder: string;
+  /** Vault-relative folder where saved learning records are created (each save still needs consent). */
+  learningRecordsFolder: string;
   environmentVariables: string;
   envSnippets: EnvSnippet[];
   systemPrompt: string;
@@ -185,6 +187,7 @@ export const DEFAULT_SETTINGS: ObsidianCopilotSettings = {
   permissions: [],
   excludedTags: [],
   mediaFolder: '',
+  learningRecordsFolder: '.ai-tutor/learning-records',
   environmentVariables: '',
   envSnippets: [],
   systemPrompt: '',

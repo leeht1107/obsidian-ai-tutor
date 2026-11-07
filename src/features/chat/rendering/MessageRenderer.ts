@@ -39,6 +39,22 @@ export function renderQuizReviewButton(contentEl: HTMLElement, messageId: string
   review.dataset.messageId = messageId;
 }
 
+/** The save action of a completed learning turn; the view delegates its click. */
+export function renderLearningRecordActions(contentEl: HTMLElement, msg: ChatMessage): void {
+  if (!msg.learningSnapshot) return;
+  const row = contentEl.createDiv({ cls: 'ocop-learning-record-actions' });
+  const label = msg.learningSnapshot.saved ? '저장한 학습 기록 열기' : '[학습 기록 저장]';
+  const save = row.createEl('button', { cls: 'ocop-learning-record-save-btn', text: label });
+  save.type = 'button';
+  save.dataset.messageId = msg.id;
+  row.createSpan({
+    cls: 'ocop-learning-record-hint',
+    text: msg.learningSnapshot.saved
+      ? msg.learningSnapshot.saved.path
+      : '저장 위치를 미리 보여 드리고, 허락하셔야만 저장합니다.',
+  });
+}
+
 /**
  * MessageRenderer handles all message DOM rendering.
  *
@@ -280,6 +296,7 @@ export class MessageRenderer {
     if (msg.quizReviewAvailable) {
       renderQuizReviewButton(contentEl, msg.id);
     }
+    renderLearningRecordActions(contentEl, msg);
   }
 
   private renderQuizAnswerActions(contentEl: HTMLElement, quizQuestion: NonNullable<ChatMessage['quizQuestion']>): void {

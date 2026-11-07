@@ -20,8 +20,17 @@ import {
   type QuizQuestionStyle,
   shouldEnableQuizWebSearch,
 } from '../../../core/learning';
+import {
+  buildQuizSnapshot,
+  buildSocraticSnapshot,
+  type CompletedLearningSnapshot,
+  readRecordBodies,
+  sha256,
+  type SnapshotSession,
+} from '../../../core/learning/records';
 import { resolveEffectivePermissionMode } from '../../../core/providers/providerRegistry';
 import { isCommandBlocked } from '../../../core/security/BlocklistChecker';
+import { ObsidianRecordFs } from '../../../core/storage/LearningRecordFs';
 import type { AskUserQuestionInput, ChatMessage, ImageAttachment } from '../../../core/types';
 import { getBashToolBlockedCommands } from '../../../core/types';
 import type ObsidianCopilotPlugin from '../../../main';
@@ -47,7 +56,7 @@ import {
   resolveSlashAllowedTools,
   slashAllowsInlineBash,
 } from '../../../utils/slashCommand';
-import { type MessageRenderer, renderQuizReviewButton } from '../rendering/MessageRenderer';
+import { type MessageRenderer, renderLearningRecordActions, renderQuizReviewButton } from '../rendering/MessageRenderer';
 import type { InstructionRefineService } from '../services/InstructionRefineService';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
 import type { ChatState } from '../state/ChatState';
@@ -124,12 +133,18 @@ interface QuizSessionInit {
   enableWebSearch?: boolean;
   questionStyle?: QuizQuestionStyle;
   sourceInstruction?: string;
+  sourcePaths?: string[];
+  sourceFingerprints?: Record<string, string>;
 }
 
 interface SocraticSessionInit {
   scopeLabel: string;
   focusText?: string;
   sourceInstruction?: string;
+  sourcePaths?: string[];
+  sourceFingerprints?: Record<string, string>;
+  /** Saved-record entry: a fresh conversation that reads no editor, note or earlier context. */
+  recordEntry?: 'new' | 'review' | 'continue';
   enableWebSearch?: boolean;
   /** A Quiz review continues the Quiz's own source instead of starting a new session. */
   quizReview?: boolean;
@@ -174,6 +189,11 @@ export class InputController {
     this.deps.hideSocraticBanner?.();
   }
 
+  private recordSource(): { fs: ObsidianRecordFs; folder: string } {
+    const { plugin } = this.deps;
+    return { fs: new ObsidianRecordFs(plugin.app), folder: plugin.settings.learningRecordsFolder };
+  }
+
   /** Quiz 힌트 shortcut (PRD §8.2): asks for one hint without grading or advancing. */
   /** Public: the stored-message quiz row reaches this through the view's delegation. */
   requestQuizHint(): void {
@@ -194,6 +214,12 @@ export class InputController {
       new Notice('이 Quiz의 복습은 이미 시작했거나 더 이상 사용할 수 없습니다.');
       return true;
     }
+    // A save that is still writing settles before the review starts; a finished save does not block it.
+    if (state.currentConversationId
+      && this.deps.plugin.getLearningRecordSaveService().isSaving(state.currentConversationId, messageId)) {
+      new Notice('학습 기록 저장이 끝난 뒤 복습을 시작해 주세요.');
+      return false;
+    }
     // Consume first so a switch or summary-only reply cannot reopen it; restore only on failure.
     const conversationId = state.currentConversationId;
     finalTurn.quizReviewAvailable = false;
@@ -212,6 +238,7 @@ export class InputController {
         // Only a Quiz that required Web keeps it; otherwise the toolbar toggle decides.
         enableWebSearch: finalTurn.quizReviewEnableWebSearch === true ? true : undefined,
         quizReview: true,
+        sourcePaths: finalTurn.learningSnapshot?.sourcePaths,
       },
       });
     } finally {
@@ -318,6 +345,49 @@ export class InputController {
     };
   }
 
+  /**
+   * Re-reads what the student approved and compares it with what the setup showed. A source or
+   * record that changed after the preview must be confirmed again, never sent silently.
+   */
+  private async inputsStillMatch(result: LearningSetupResult): Promise<boolean> {
+    const { plugin } = this.deps;
+    try {
+      for (const [path, fingerprint] of Object.entries(result.sourceFingerprints ?? {})) {
+        const file = plugin.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile) || sha256(await plugin.app.vault.read(file)) !== fingerprint) {
+          new Notice(`선택한 자료가 시작 직전에 바뀌었습니다: ${path}. 다시 시작해 확인해 주세요.`);
+          return false;
+        }
+      }
+      if (result.mode === 'socratic' && result.recordPaths?.length) {
+        const bodies = await readRecordBodies(new ObsidianRecordFs(plugin.app), result.recordPaths);
+        if (bodies.some((body) => body.fingerprint !== result.recordFingerprints[body.path])) {
+          new Notice('선택한 학습 기록이 미리보기 이후 바뀌었습니다. 다시 시작해 확인해 주세요.');
+          return false;
+        }
+      }
+    } catch {
+      new Notice('선택한 자료나 기록을 다시 읽지 못해 시작하지 않았습니다.');
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A new app conversation and provider session, with the queue, attachments and external
+   * context cleared. Only called after the final Start confirmation.
+   */
+  private async startFreshConversation(): Promise<boolean> {
+    const { plugin, state, conversationController } = this.deps;
+    if (state.isStreaming) return false;
+    this.discardQueuedInput();
+    await conversationController.createNew();
+    plugin.agentService.resetSession();
+    this.deps.getImageContextManager()?.clearImages();
+    this.deps.getInputEl().value = '';
+    return state.messages.length === 0 && !state.quizSession && !state.socraticSession;
+  }
+
   private async sendLearningSetupResult(
     result: LearningSetupResult,
     options: {
@@ -325,6 +395,8 @@ export class InputController {
       editorContextOverride?: EditorSelectionContext | null;
     },
   ) {
+    if (!(await this.inputsStillMatch(result))) return;
+
     const sharedOptions = {
       content: result.prompt,
       displayContentOverride: result.displayContent,
@@ -343,9 +415,21 @@ export class InputController {
           enableWebSearch: result.enableWebSearch,
           questionStyle: result.questionStyle,
           sourceInstruction: result.sourceInstruction,
+          sourcePaths: result.sourcePaths,
+          sourceFingerprints: result.sourceFingerprints,
         },
       });
       return;
+    }
+
+    if (result.entry) {
+      // Saved-record entry (new, review, continue): none of the earlier conversation may leak in.
+      if (!(await this.startFreshConversation())) {
+        new Notice('새 대화를 시작하지 못했습니다. 진행 중인 응답이 끝난 뒤 다시 시도해 주세요.');
+        return;
+      }
+      sharedOptions.promptPrefix = undefined;
+      sharedOptions.editorContextOverride = null;
     }
 
     await this.sendMessage({
@@ -354,6 +438,9 @@ export class InputController {
         scopeLabel: result.displayContent,
         focusText: result.focusText,
         sourceInstruction: result.sourceInstruction,
+        sourcePaths: result.sourcePaths,
+        sourceFingerprints: result.sourceFingerprints,
+        recordEntry: result.entry,
       },
     });
   }
@@ -424,7 +511,7 @@ export class InputController {
     if (!options?.skipLearningCommand
       && (mentionedLearningCommand?.mode === 'quiz' || content === '/quiz' || content.startsWith('/quiz '))) {
       const quizFocusText = mentionedLearningCommand ? '' : content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
-      const quizModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'quiz', quizFocusText);
+      const quizModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'quiz', quizFocusText, this.recordSource());
       const learningResult = await quizModal.openAndWait();
       if (!learningResult) {
         return;
@@ -444,7 +531,7 @@ export class InputController {
     if (!options?.skipLearningCommand
       && (mentionedLearningCommand?.mode === 'socratic' || content === '/socratic' || content.startsWith('/socratic '))) {
       const socraticFocusText = mentionedLearningCommand ? '' : content === '/socratic' ? '' : content.slice('/socratic'.length).trim();
-      const socraticModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'socratic', socraticFocusText);
+      const socraticModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'socratic', socraticFocusText, this.recordSource());
       const learningResult = await socraticModal.openAndWait();
       if (!learningResult) {
         return;
@@ -512,6 +599,8 @@ export class InputController {
         enableWebSearch: quizSessionInit.enableWebSearch,
         questionStyle: quizSessionInit.questionStyle,
         sourceInstruction: quizSessionInit.sourceInstruction,
+        sourcePaths: quizSessionInit.sourcePaths,
+        sourceFingerprints: quizSessionInit.sourceFingerprints,
       };
     }
 
@@ -527,7 +616,10 @@ export class InputController {
         enableWebSearch: socraticSessionInit.enableWebSearch,
         supportLevel: 1,
         isSummaryPhase: false,
+        sourcePaths: socraticSessionInit.sourcePaths,
+        sourceFingerprints: socraticSessionInit.sourceFingerprints,
         ...(socraticSessionInit.quizReview ? { quizReview: true } : {}),
+        ...(socraticSessionInit.recordEntry ? { recordEntry: socraticSessionInit.recordEntry } : {}),
       };
       this.deps.showSocraticBanner?.(
         socraticSessionInit.scopeLabel,
@@ -561,6 +653,11 @@ export class InputController {
       timestamp: Date.now(),
       images: imagesForMessage,
     };
+    if (options?.quizHintRequest) userMsg.quizHint = true;
+    // The reply to the final synthesizing question is the one message bound as the student's synthesis.
+    if (!socraticSessionInit && state.socraticSession?.isSummaryPhase) userMsg.socraticSynthesis = true;
+    if (quizSessionInit && state.quizSession) state.quizSession = { ...state.quizSession, learningSessionId: userMsg.id };
+    if (socraticSessionInit && state.socraticSession) state.socraticSession = { ...state.socraticSession, learningSessionId: userMsg.id };
     state.addMessage(userMsg);
     renderer.addMessage(userMsg);
 
@@ -583,7 +680,9 @@ export class InputController {
     streamController.showThinkingIndicator(contentEl);
 
     const currentNotePath = fileContextManager?.getCurrentNotePath() || null;
-    const shouldSendCurrentNote = !state.socraticSession?.quizReview
+    // A Quiz review and a saved-record start read only their own source, never the open note.
+    const isolatedLearning = Boolean(state.socraticSession?.quizReview || state.socraticSession?.recordEntry);
+    const shouldSendCurrentNote = !isolatedLearning
       && (fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
     let slashTemplateCurrentNoteScope = false;
@@ -686,7 +785,7 @@ export class InputController {
     // A Quiz review reads only the Quiz's source, not a selection in an unrelated note.
     const editorContext = editorContextOverride !== undefined
       ? editorContextOverride
-      : state.socraticSession?.quizReview ? null : selectionController.getContext();
+      : isolatedLearning ? null : selectionController.getContext();
 
     // Wrap query in XML tag
     let promptToSend = `<query>\n${content}\n</query>`;
@@ -839,6 +938,7 @@ ${promptToSend}`;
         }
         state.activeSubagents.clear();
 
+        let snapshotCandidate: CompletedLearningSnapshot | null = null;
         const finishedQuiz = streamOutcome === 'completed' && Boolean(state.quizSession && !quizSessionInit
           && !options?.quizHintRequest && state.quizSession.currentQuestion >= state.quizSession.totalQuestions);
         if (finishedQuiz && state.quizSession) {
@@ -846,6 +946,9 @@ ${promptToSend}`;
           assistantMsg.quizReviewSourceInstruction = state.quizSession.sourceInstruction;
           assistantMsg.quizReviewEnableWebSearch = state.quizSession.enableWebSearch;
           if (contentEl) renderQuizReviewButton(contentEl, assistantMsg.id);
+          // The completion message must never be recovered as a live question by the regex path.
+          assistantMsg.quizQuestion = null;
+          snapshotCandidate = this.snapshotForQuiz(state.quizSession, assistantMsg.id);
         }
 
         if (streamOutcome !== 'completed' && quizSessionInit) {
@@ -871,6 +974,8 @@ ${promptToSend}`;
           const s = state.socraticSession;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel ?? s.supportLevel };
           if (assistantMsg.socraticTurn?.isSummary) {
+            assistantMsg.quizQuestion = null;
+            snapshotCandidate = this.snapshotForSocratic(s, assistantMsg.id);
             state.socraticSession = null;
             this.deps.hideSocraticBanner?.();
           } else if (updatedSession.isSummaryPhase) {
@@ -893,6 +998,8 @@ ${promptToSend}`;
         }
 
         await conversationController.save(true);
+        // Only an acknowledged write exposes a restart-safe draft; a failure leaves plain chat.
+        if (snapshotCandidate) await this.attachCompletedSnapshot(assistantMsg, snapshotCandidate, contentEl);
         cleanupSettled = true;
       } finally {
         this.finalizingTurn = false;
@@ -936,6 +1043,59 @@ ${promptToSend}`;
       }
     }
     return streamOutcome;
+  }
+
+  private snapshotSession(
+    session: { sourcePaths?: string[]; sourceFingerprints?: Record<string, string>; scopeLabel: string; learningSessionId?: string; totalQuestions?: number },
+  ): SnapshotSession | null {
+    const conversationId = this.deps.state.currentConversationId;
+    if (!conversationId || !session.learningSessionId) return null;
+    return {
+      conversationId,
+      learningSessionId: session.learningSessionId,
+      scopeLabel: session.scopeLabel,
+      sourcePaths: session.sourcePaths ?? [],
+      sourceFingerprints: session.sourceFingerprints,
+      totalQuestions: session.totalQuestions,
+    };
+  }
+
+  private snapshotForQuiz(
+    session: NonNullable<ChatState['quizSession']>,
+    completionMessageId: string,
+  ): CompletedLearningSnapshot | null {
+    const snapshotSession = this.snapshotSession({ ...session, totalQuestions: session.totalQuestions });
+    if (!snapshotSession) return null;
+    return buildQuizSnapshot({ session: snapshotSession, messages: this.deps.state.messages, completionMessageId, now: Date.now() });
+  }
+
+  private snapshotForSocratic(
+    session: NonNullable<ChatState['socraticSession']>,
+    completionMessageId: string,
+  ): CompletedLearningSnapshot | null {
+    const snapshotSession = this.snapshotSession(session);
+    if (!snapshotSession) return null;
+    return buildSocraticSnapshot({
+      session: snapshotSession,
+      messages: this.deps.state.messages,
+      completionMessageId,
+      origin: session.quizReview ? 'quiz-review' : 'socratic',
+      now: Date.now(),
+    });
+  }
+
+  private async attachCompletedSnapshot(
+    assistantMsg: ChatMessage,
+    snapshot: CompletedLearningSnapshot,
+    contentEl: HTMLElement | null,
+  ): Promise<void> {
+    const acknowledged = await this.deps.plugin.attachLearningSnapshot(snapshot.conversationId, assistantMsg.id, snapshot);
+    if (!acknowledged) {
+      new Notice('학습 기록 초안을 안전하게 저장하지 못해 이번에는 기록 저장을 쓸 수 없습니다.');
+      return;
+    }
+    assistantMsg.learningSnapshot = snapshot;
+    if (contentEl) renderLearningRecordActions(contentEl, assistantMsg);
   }
 
   private shouldUseCurrentNoteOnlyScope(content: string): boolean {

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import type { App } from 'obsidian';
 import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
 
+import { DEFAULT_LEARNING_RECORDS_FOLDER, normalizeVaultPath } from '../../core/learning/records';
 import { defaultModelSource, getConfiguredProviderCliPath, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption, PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
 import { ERROR_LOG_PATH } from '../../core/storage/ErrorLog';
@@ -612,6 +613,26 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.mediaFolder)
           .onChange(async (value) => {
             this.plugin.settings.mediaFolder = value.trim();
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.addClass('ocop-settings-media-input');
+      });
+
+    new Setting(chatContentEl)
+      .setName('학습 기록 저장 위치')
+      .setDesc('학습이 끝난 뒤 저장하는 기록 노트가 만들어질 보관함 내 폴더입니다. 저장할 때마다 위치와 내용을 보여 드리고 허락을 받으며, 폴더를 바꿔도 이미 저장된 기록은 옮기지 않습니다.')
+      .addText((text) => {
+        text
+          .setPlaceholder(DEFAULT_LEARNING_RECORDS_FOLDER)
+          .setValue(this.plugin.settings.learningRecordsFolder)
+          .onChange(async (value) => {
+            const folder = normalizeVaultPath(value);
+            if (!folder) {
+              text.inputEl.setAttribute('aria-invalid', 'true');
+              return;
+            }
+            text.inputEl.removeAttribute('aria-invalid');
+            this.plugin.settings.learningRecordsFolder = folder;
             await this.plugin.saveSettings();
           });
         text.inputEl.addClass('ocop-settings-media-input');

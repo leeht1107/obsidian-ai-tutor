@@ -42,6 +42,7 @@ import {
   SelectionController,
   StreamController,
 } from './controllers';
+import { LearningRecordController } from './controllers/LearningRecordController';
 import { MessageRenderer } from './rendering';
 import { AsyncSubagentManager } from './services/AsyncSubagentManager';
 import { InstructionRefineService } from './services/InstructionRefineService';
@@ -64,6 +65,7 @@ export class ObsidianCopilotView extends ItemView {
   private conversationController: ConversationController | null = null;
   private streamController: StreamController | null = null;
   private inputController: InputController | null = null;
+  private learningRecordController: LearningRecordController;
   private navigationController: NavigationController | null = null;
 
   private renderer: MessageRenderer | null = null;
@@ -99,6 +101,7 @@ export class ObsidianCopilotView extends ItemView {
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianCopilotPlugin) {
     super(leaf);
     this.plugin = plugin;
+    this.learningRecordController = new LearningRecordController(plugin);
     this.state = new ChatState({
       onUsageChanged: (usage) => {
         this.contextUsageMeter?.update(usage);
@@ -490,6 +493,23 @@ export class ObsidianCopilotView extends ItemView {
   }
 
   private wireEventHandlers() {
+    // Keep this view's state and button in step with an acknowledged snapshot write; without
+    // it a later save of the chat would overwrite the pending/saved reference.
+    if (typeof this.plugin.onLearningSnapshotCommitted === 'function') {
+      this.register(this.plugin.onLearningSnapshotCommitted((conversationId, messageId, snapshot) => {
+        if (this.state.currentConversationId !== conversationId) return;
+        const message = this.state.messages.find((m) => m.id === messageId);
+        if (message) message.learningSnapshot = snapshot;
+        const buttons = this.containerEl.querySelectorAll?.<HTMLButtonElement>('.ocop-learning-record-save-btn');
+        buttons?.forEach((button) => {
+          if (button.dataset.messageId !== messageId) return;
+          button.textContent = snapshot.saved ? '저장한 학습 기록 열기' : '[학습 기록 저장]';
+          const hint = button.nextElementSibling;
+          if (hint) hint.textContent = snapshot.saved ? snapshot.saved.path : '저장 위치를 미리 보여 드리고, 허락하셔야만 저장합니다.';
+        });
+      }));
+    }
+
     this.registerDomEvent(document, 'click', () => {
       this.historyDropdown?.removeClass('visible');
     });
@@ -538,6 +558,18 @@ export class ObsidianCopilotView extends ItemView {
         const answerValue = submitBtn.getAttribute('data-answer-value') || '';
         if (answerValue) {
           void this.inputController.sendMessage({ content: answerValue });
+        }
+        return;
+      }
+
+      const recordSave = resolveLearningRecordSave(target);
+      if (recordSave) {
+        const conversationId = this.state.currentConversationId;
+        if (conversationId) {
+          recordSave.button.disabled = true;
+          void this.learningRecordController.openSave(conversationId, recordSave.messageId)
+            .catch((error: unknown) => console.error('[ObsidianCopilot] Learning record save failed:', error))
+            .finally(() => { recordSave.button.disabled = false; });
         }
         return;
       }
@@ -708,6 +740,16 @@ export function resolveStoredQuizControl(target: Element | null): StoredQuizCont
   if (target?.closest('.ocop-quiz-hint-btn')) return { kind: 'hint' };
   if (target?.closest('.ocop-quiz-stuck-btn')) return { kind: 'answer', content: QUIZ_STUCK_ANSWER };
   return null;
+}
+
+/**
+ * The save button of a completed learning turn carries no handler of its own; this container
+ * delegation is what opens the preview. Exported to be tested without a DOM.
+ */
+export function resolveLearningRecordSave(target: Element | null): { messageId: string; button: HTMLButtonElement } | null {
+  const button = target?.closest('.ocop-learning-record-save-btn') as HTMLButtonElement | null;
+  const messageId = button?.dataset.messageId;
+  return button && messageId ? { messageId, button } : null;
 }
 
 const PROVIDER_BUSY_NOTICE = '실행 중인 작업이 끝날 때까지 provider를 바꿀 수 없습니다.';

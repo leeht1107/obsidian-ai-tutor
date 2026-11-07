@@ -3,7 +3,7 @@
  */
 
 import type { ChatMessage } from '@/core/types';
-import { MessageRenderer } from '@/features/chat/rendering/MessageRenderer';
+import { MessageRenderer, renderLearningRecordActions } from '@/features/chat/rendering/MessageRenderer';
 import {
   renderStoredAsyncSubagent,
   renderStoredSubagent,
@@ -35,6 +35,7 @@ function createMockElement() {
     removeClass: (cls: string) => classList.delete(cls),
     hasClass: (cls: string) => classList.has(cls),
     style: {},
+    dataset: {} as Record<string, string>,
     scrollTop: 0,
     scrollHeight: 0,
     textContent: '',
@@ -212,5 +213,54 @@ describe('stored quiz messages recovered on replay', () => {
     expect(all.some((el) => el.hasClass('ocop-quiz-quick-action-btn ocop-quiz-stuck-btn'))).toBe(true);
     expect(all.some((el) => el.textContent === '💡 힌트')).toBe(true);
     expect(all.some((el) => el.textContent === '😵 모르겠어요')).toBe(true);
+  });
+});
+
+describe('learning record actions', () => {
+  const flatten = (el: any): any[] => [el, ...el.children.flatMap((child: any) => flatten(child))];
+  const snapshot = {
+    version: 1 as const, conversationId: 'c', completionMessageId: 'm1', mode: 'quiz' as const, origin: 'quiz' as const,
+    learningSessionId: 'u', completedAt: 1, sourcePaths: [], scopeLabel: '', questions: [], reportOrigin: 'local-evidence' as const,
+  };
+
+  it('draws one save action for a completed message that carries a snapshot', () => {
+    const contentEl = createMockElement();
+    renderLearningRecordActions(contentEl, { id: 'm1', role: 'assistant', content: 'x', timestamp: 1, learningSnapshot: snapshot });
+    const buttons = flatten(contentEl).filter((el) => el.hasClass('ocop-learning-record-save-btn'));
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].dataset.messageId).toBe('m1');
+    expect(buttons[0].textContent).toBe('[학습 기록 저장]');
+  });
+
+  it('draws nothing for a legacy message, even one whose prose looks like a summary', () => {
+    const contentEl = createMockElement();
+    renderLearningRecordActions(contentEl, { id: 'm2', role: 'assistant', content: '##SOCRATIC_SUMMARY##\n요약', timestamp: 1, socraticTurn: { isSummary: true } });
+    expect(contentEl.children).toHaveLength(0);
+  });
+
+  it('shows the saved location once the note exists', () => {
+    const contentEl = createMockElement();
+    renderLearningRecordActions(contentEl, {
+      id: 'm1', role: 'assistant', content: 'x', timestamp: 1,
+      learningSnapshot: { ...snapshot, saved: { path: 'f/n.md', recordId: 'r', contentFingerprint: 'h', savedAt: 1 } },
+    });
+    const all = flatten(contentEl);
+    expect(all.some((el) => el.textContent === '저장한 학습 기록 열기')).toBe(true);
+    expect(all.some((el) => el.textContent === 'f/n.md')).toBe(true);
+  });
+
+  it('is drawn again from the stored snapshot after a restart and never revives the Quiz controls', () => {
+    const messagesEl = createMockElement();
+    const renderer = new MessageRenderer({} as any, createMockComponent() as any, messagesEl);
+    jest.spyOn(renderer, 'renderContent').mockResolvedValue(undefined);
+    renderer.renderStoredMessage({
+      id: 'm1', role: 'assistant', content: '### 정답 확인\n\n## 3/3번 문제\n\n#### 인용된 질문\n\nA. 가\nB. 나', timestamp: 1,
+      requestOutcome: 'completed', quizQuestion: null, learningSnapshot: snapshot,
+      contentBlocks: [{ type: 'text', content: '### 정답 확인\n\n## 3/3번 문제\n\n#### 인용된 질문\n\nA. 가\nB. 나' }],
+    });
+    const all = flatten(messagesEl);
+    expect(all.some((el) => el.hasClass('ocop-learning-record-save-btn'))).toBe(true);
+    expect(all.some((el) => el.hasClass('ocop-quiz-answer-btn'))).toBe(false);
+    expect(all.some((el) => el.hasClass('ocop-quiz-progress-fill'))).toBe(false);
   });
 });

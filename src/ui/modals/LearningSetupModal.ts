@@ -18,10 +18,48 @@ import {
   summarizeSelectedNotes,
   withPreparationGuidance,
 } from '../../core/learning';
+import {
+  buildRecordContext,
+  canContinueRecord,
+  discoverRecords,
+  escapeRecordText,
+  type LearningRecordBody,
+  type LearningRecordSummary,
+  MAX_SELECTED_RECORD_BYTES,
+  readRecordBodies,
+  readRecordSummary,
+  RecordBudgetError,
+  type RecordEntry,
+  type RecordFs,
+  REFERENCE_ONLY_INSTRUCTION,
+  sha256,
+  sortByRelevance,
+  totalRecordBytes,
+} from '../../core/learning/records';
 
 const EMPTY_NOTE_READ_CONCURRENCY = 16;
+/** Preview bounds: what is drawn is capped, what is dispatched is not. */
+const PREVIEW_EXCERPT_CHARS = 1500;
+const PREVIEW_EXCERPT_NOTES = 20;
+
+interface SourceExcerpt {
+  path: string;
+  /** First characters of the note exactly as read at Start (same read as its fingerprint). */
+  text: string;
+  /** Length of the whole note, so a cut can be disclosed. */
+  chars: number;
+}
+
+function excerptOf(text: string): string {
+  let cut = text.slice(0, PREVIEW_EXCERPT_CHARS);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (cut.length < text.length && last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return cut;
+}
 
 export type LearningSetupMode = 'quiz' | 'socratic';
+/** Where a Socratic conversation starts: fresh course materials OR a review of past records, never both. */
+export type StartingSource = 'materials' | 'records';
 
 export interface QuizSetupResult {
   mode: 'quiz';
@@ -36,6 +74,10 @@ export interface QuizSetupResult {
   enableWebSearch: boolean;
   /** False when no selected note has content to learn from. */
   hasSourceNotes: boolean;
+  /** Typed paths of the approved course materials. */
+  sourcePaths: string[];
+  /** SHA-256 of each source as read at Start, re-checked right before dispatch. */
+  sourceFingerprints: Record<string, string>;
 }
 
 export interface SocraticSetupResult {
@@ -45,6 +87,15 @@ export interface SocraticSetupResult {
   sourceInstruction: string;
   focusText?: string;
   hasSourceNotes: boolean;
+  sourcePaths: string[];
+  sourceFingerprints: Record<string, string>;
+  /** Saved-record entry; set for every Socratic start with a record source, so the start is a fresh conversation. */
+  entry?: RecordEntry;
+  recordPaths: string[];
+  /** Fingerprints of the record files the prompt was built from. */
+  recordFingerprints: Record<string, string>;
+  /** No verified course material: self-explanation only. */
+  referenceOnly: boolean;
 }
 
 export type LearningSetupResult = QuizSetupResult | SocraticSetupResult;
@@ -65,12 +116,22 @@ export class LearningSetupModal extends Modal {
   /** Notes found empty at Start; they count as no evidence. */
   private emptyNotePaths = new Set<string>();
   private starting = false;
+  private records: LearningRecordSummary[] = [];
+  private selectedRecordPaths = new Set<string>();
+  private startSource: StartingSource = 'materials';
+  private entry: RecordEntry = 'new';
+  private recordNotice = '';
+  /** Confirmation step shown before a saved-record start is dispatched. */
+  private pendingStart: { result: SocraticSetupResult; bodies: LearningRecordBody[]; excerpts: SourceExcerpt[] } | null = null;
+  private sourceFingerprints = new Map<string, string>();
+  private sourceExcerpts = new Map<string, SourceExcerpt>();
 
   constructor(
     app: App,
     private readonly activeFilePath: string | null,
     initialMode: LearningSetupMode,
     initialFocusText = '',
+    private readonly recordSource: { fs: RecordFs; folder: string } | null = null,
   ) {
     super(app);
     this.mode = initialMode;
@@ -85,10 +146,26 @@ export class LearningSetupModal extends Modal {
     this.modalEl.addClass('ocop-slash-modal');
     this.modalEl.addClass('ocop-learning-setup-modal');
     this.renderContent();
+    void this.loadRecords();
+  }
+
+  /** Local listing only: no provider call, no record content leaves the machine. */
+  private async loadRecords(): Promise<void> {
+    if (!this.recordSource) return;
+    try {
+      this.records = (await discoverRecords(this.recordSource.fs, this.recordSource.folder)).records;
+    } catch {
+      this.records = [];
+    }
+    this.renderContent();
   }
 
   private renderContent() {
     this.contentEl.empty();
+    if (this.pendingStart) {
+      this.renderStartPreview(this.pendingStart.result, this.pendingStart.bodies, this.pendingStart.excerpts);
+      return;
+    }
 
     const tabsEl = this.contentEl.createDiv({
       cls: 'ocop-learning-setup-tabs',
@@ -123,7 +200,17 @@ export class LearningSetupModal extends Modal {
       this.selectedFolderPaths.add(allFolders[0]);
     }
 
-    const detailsEl = this.contentEl.createDiv();
+    // Socratic: one starting source (materials OR past records) is chosen first and only its picker is shown.
+    const contextEl = this.mode === 'socratic'
+      ? this.contentEl.createDiv({ cls: 'ocop-learning-context' })
+      : this.contentEl;
+    if (this.mode === 'socratic') this.renderContextIntro(contextEl);
+    const showMaterials = this.mode === 'quiz' || !this.isRecordsSource();
+
+    let summaryEl: HTMLElement | null = null;
+    const updateSummary = () => summaryEl?.setText(this.summaryText());
+
+    const detailsEl = contextEl.createDiv();
     const renderDetails = () => {
       detailsEl.empty();
       if (subjectRoot) {
@@ -156,6 +243,7 @@ export class LearningSetupModal extends Modal {
               checkbox.checked = true;
             }
             noteCountEl.setText(`현재 선택: ${this.selectedNotePaths.size}개 노트`);
+            updateSummary();
           });
           noteItem.createSpan({ text: notePath });
         }
@@ -192,28 +280,32 @@ export class LearningSetupModal extends Modal {
           text: `현재 선택: 폴더 ${this.selectedFolderPaths.size}개 · 포함 노트 ${folderNoteCount}개`,
         });
       }
+      updateSummary();
     };
 
-    new Setting(this.contentEl)
-      .setName('학습 자료')
-      .setDesc('학습에 사용할 노트를 고릅니다. 준비 방법을 적은 노트(Brief·개요 등)를 함께 고르면 그 지시에 맞춰 진행합니다.')
-      .addDropdown((dropdown) => {
-        if (this.activeFilePath) {
-          dropdown.addOption('current-note', '현재 노트');
-        }
-        dropdown.addOption('note', '노트 선택');
-        dropdown.addOption('folder', '폴더 선택');
-        dropdown.setValue(this.learningScope).onChange((value: LearningScope) => {
-          this.learningScope = value;
-          renderDetails();
+    if (showMaterials) {
+      new Setting(contextEl)
+        .setName('학습 자료')
+        .setDesc('사실과 개념의 근거가 되는 노트를 고릅니다. 준비 방법을 적은 노트(Brief·개요 등)를 함께 고르면 그 지시에 맞춰 진행합니다.')
+        .addDropdown((dropdown) => {
+          if (this.activeFilePath) {
+            dropdown.addOption('current-note', '현재 노트');
+          }
+          dropdown.addOption('note', '노트 선택');
+          dropdown.addOption('folder', '폴더 선택');
+          dropdown.setValue(this.learningScope).onChange((value: LearningScope) => {
+            this.learningScope = value;
+            renderDetails();
+          });
         });
-      });
-
-    renderDetails();
+      renderDetails();
+    }
 
     if (this.mode === 'quiz') {
       this.renderQuizSettings();
     } else {
+      if (!showMaterials) this.renderRecordSection(contextEl);
+      // The generic note sits below the selectors so it never separates materials from records.
       const supportEl = this.contentEl.createDiv({ cls: 'ocop-learning-prerequisite-note' });
       supportEl.createEl('strong', { text: '막히는 개념은 예시로 풀어봐요' });
       supportEl.createEl('p', {
@@ -233,6 +325,10 @@ export class LearningSetupModal extends Modal {
           });
       });
 
+    if (this.mode === 'socratic') {
+      summaryEl = this.contentEl.createDiv({ cls: 'ocop-learning-summary', text: this.summaryText() });
+    }
+
     const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-setup-modal-buttons' });
     const cancelBtn = buttonsEl.createEl('button', { text: '취소', cls: 'ocop-cancel-btn' });
     cancelBtn.addEventListener('click', () => this.finish(null));
@@ -245,7 +341,14 @@ export class LearningSetupModal extends Modal {
     if (this.starting) return;
     this.starting = true;
     try {
+      if (this.isRecordsSource()) {
+        // Records start never touches course notes: the open note is not read and no source path is sent.
+        await this.startFromRecords();
+        return;
+      }
       this.emptyNotePaths.clear();
+      this.sourceFingerprints.clear();
+      this.sourceExcerpts.clear();
       const { paths } = this.buildScope();
       // Empty notes are no evidence: drop them, and refuse a selection with no content left.
       for (const path of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path);
@@ -257,10 +360,51 @@ export class LearningSetupModal extends Modal {
       }
       const result = this.buildResult();
       if (!this.canStart(result)) return;
+      if (result.mode === 'socratic') {
+        // Socratic confirms what will be read before anything is dispatched; Quiz is unchanged.
+        const excerpts = result.sourcePaths.flatMap((path) => this.sourceExcerpts.get(path) ?? []);
+        this.pendingStart = { result, bodies: [], excerpts };
+        this.renderContent();
+        return;
+      }
       this.finish(result);
     } finally {
       this.starting = false;
     }
+  }
+
+  /** Review or continue: read the chosen records fresh, check the 64KiB budget, then ask to confirm. */
+  private async startFromRecords(): Promise<void> {
+    const selected = this.selectedRecords();
+    if (selected.length === 0) {
+      new Notice('복습할 학습 기록을 하나 이상 선택하세요.');
+      return;
+    }
+    let bodies: LearningRecordBody[];
+    try {
+      bodies = await readRecordBodies(this.recordSource!.fs, selected.map((record) => record.path));
+      buildRecordContext(this.entry, bodies);
+      // Availability is decided by the fresh read, not by the listing shown earlier.
+      if (this.entry === 'continue' && !bodies.some((body) => body.canContinue)) {
+        new Notice('선택한 기록 중 남은 질문이 있는 기록이 없습니다.');
+        return;
+      }
+    } catch (error) {
+      new Notice(error instanceof RecordBudgetError || error instanceof Error ? error.message : '기록을 읽지 못했습니다.');
+      return;
+    }
+    const result = this.buildResult(bodies);
+    if (result.mode !== 'socratic' || !this.canStart(result)) return;
+    this.pendingStart = { result, bodies, excerpts: [] };
+    this.renderContent();
+  }
+
+  private isRecordsSource(): boolean {
+    return this.mode === 'socratic' && this.startSource === 'records' && this.recordSource !== null;
+  }
+
+  private selectedRecords(): LearningRecordSummary[] {
+    return this.records.filter((record) => this.selectedRecordPaths.has(record.path));
   }
 
   /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
@@ -269,7 +413,10 @@ export class LearningSetupModal extends Modal {
       const file = this.app.vault.getAbstractFileByPath?.(path);
       if (!(file instanceof TFile)) return true;
       try {
-        return !stripFrontmatter(await this.app.vault.cachedRead(file)).trim();
+        const text = await this.app.vault.cachedRead(file);
+        this.sourceFingerprints.set(path, sha256(text));
+        this.sourceExcerpts.set(path, { path, text: excerptOf(text), chars: text.length });
+        return !stripFrontmatter(text).trim();
       } catch {
         return true;
       }
@@ -288,6 +435,8 @@ export class LearningSetupModal extends Modal {
   }
 
   private canStart(result: LearningSetupResult): boolean {
+    // Saved records may be reviewed without course material, labelled reference-only.
+    if (result.mode === 'socratic' && result.referenceOnly) return true;
     if (!result.hasSourceNotes) {
       new Notice('학습에 쓸 노트가 없습니다. 내용이 있는 노트를 선택하세요.');
       return false;
@@ -364,6 +513,221 @@ export class LearningSetupModal extends Modal {
     });
   }
 
+  private renderContextIntro(containerEl: HTMLElement): void {
+    containerEl.createEl('strong', { text: '시작할 자료' });
+    if (!this.recordSource) {
+      containerEl.createEl('p', {
+        cls: 'setting-item-description',
+        text: '사실과 개념의 근거가 되는 학습 자료로 소크라테스식 질문을 시작합니다.',
+      });
+      return;
+    }
+    containerEl.createEl('p', {
+      cls: 'setting-item-description',
+      text: '둘 중 하나로 시작해요. 자료와 기록을 한꺼번에 섞지 않습니다.',
+    });
+    const sourceEl = containerEl.createDiv({ cls: 'ocop-learning-question-styles' });
+    sourceEl.setAttribute('role', 'radiogroup');
+    sourceEl.setAttribute('aria-label', '시작할 자료');
+    this.addSourceOption(sourceEl, 'materials', '자료로 새로 학습', '학습 자료: 사실과 개념의 근거입니다. 고른 노트만 보내고 지난 기록은 쓰지 않습니다.');
+    this.addSourceOption(sourceEl, 'records', '지난 기록으로 복습', '지난 학습 기록: 이전에 한 답과 직접 적은 메모로, 다시 짚을 부분을 알려 줍니다. 정답으로 쓰이지 않습니다.');
+  }
+
+  private addSourceOption(containerEl: HTMLElement, source: StartingSource, title: string, description: string): void {
+    const selected = this.startSource === source;
+    const option = containerEl.createEl('button', {
+      cls: selected ? 'ocop-learning-question-style is-active' : 'ocop-learning-question-style',
+      attr: { type: 'button', role: 'radio', 'aria-checked': String(selected) },
+    });
+    option.createEl('strong', { text: title });
+    option.createEl('span', { text: description });
+    option.addEventListener('click', () => {
+      if (this.startSource === source) return;
+      this.startSource = source;
+      this.selectedRecordPaths.clear();
+      this.recordNotice = '';
+      // Records begin at Review with nothing checked; materials are a fresh New start.
+      this.entry = source === 'records' ? 'review' : 'new';
+      this.renderContent();
+    });
+  }
+
+  /** One line above Start: the one chosen source and what will really be sent. */
+  private summaryText(): string {
+    if (this.mode !== 'socratic') return '';
+    if (this.isRecordsSource()) {
+      const count = this.selectedRecordPaths.size;
+      const action = this.entry === 'continue' ? '남은 질문을 이어서' : '기록을 다시 읽고';
+      return `지난 기록으로 복습 · 기록 ${count}개 — 고른 기록만 보내고 ${action} 소크라테스식 질문을 합니다. 자료 없이 자기 설명을 돕는 참고용이며 사실 여부는 채점하지 않습니다.`;
+    }
+    const { hasSourceNotes, paths } = this.buildScope();
+    return `자료로 새로 학습 · 학습 자료 ${hasSourceNotes ? paths.length : 0}개 — 선택한 자료만 사용합니다. 기록은 사용하지 않습니다.`;
+  }
+
+  /** In records mode the start mode follows the checks: Continue needs a record with remaining questions. */
+  private syncEntryWithSelection(): void {
+    if (this.entry === 'new' || (this.entry === 'continue' && !this.selectedRecords().some(canContinueRecord))) {
+      this.entry = 'review';
+    }
+  }
+
+  private renderRecordSection(containerEl: HTMLElement): void {
+    if (!this.recordSource) return;
+    const sectionEl = containerEl.createDiv({ cls: 'ocop-learning-records' });
+    sectionEl.createEl('strong', { text: '복습할 지난 학습 기록' });
+    sectionEl.createEl('p', {
+      cls: 'setting-item-description',
+      text: '하나 이상 고르세요(과목이 달라도 됩니다). 고른 기록만 이번 대화에서 다시 읽고, 목록을 보는 것만으로는 AI에 아무것도 보내지 않습니다. 현재 열린 노트는 보내지 않습니다.',
+    });
+
+    if (this.records.length > 0) {
+      const listEl = sectionEl.createDiv({ cls: 'ocop-quiz-note-list ocop-learning-record-list' });
+      // Newest first; the open note is not a signal here because records are chosen on their own.
+      for (const record of sortByRelevance(this.records, [])) {
+        const item = listEl.createDiv({ cls: 'ocop-quiz-note-item' });
+        const checkbox = item.createEl('input', { attr: { type: 'checkbox', 'aria-label': record.title } });
+        checkbox.checked = this.selectedRecordPaths.has(record.path);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) this.selectedRecordPaths.add(record.path);
+          else this.selectedRecordPaths.delete(record.path);
+          this.syncEntryWithSelection();
+          this.renderContent();
+        });
+        const duplicate = record.duplicatePaths.length > 0 ? ` · ⚠ 같은 ID가 다른 파일에도 있음(${record.duplicatePaths.length})` : '';
+        const date = record.createdAt ? record.createdAt.slice(0, 10) : '';
+        item.createSpan({ text: `${record.title} · ${date} · ${record.path}${duplicate}` });
+      }
+    } else {
+      sectionEl.createDiv({ cls: 'setting-item-description', text: '저장된 학습 기록이 아직 없습니다.' });
+    }
+
+    let pathInput = '';
+    new Setting(sectionEl)
+      .setName('다른 기록 열기')
+      .setDesc('다른 위치에 있는 기록 파일의 보관함 경로를 입력해 목록에 추가합니다.')
+      .addText((text) => text.setPlaceholder('폴더/기록.md').onChange((value) => { pathInput = value.trim(); }))
+      .addButton((button) => button.setButtonText('추가').onClick(() => { void this.addRecordByPath(pathInput); }));
+    if (this.recordNotice) sectionEl.createDiv({ cls: 'setting-item-description', text: this.recordNotice });
+
+    if (this.records.length === 0) return;
+    const entryEl = sectionEl.createDiv({ cls: 'ocop-learning-question-styles' });
+    entryEl.setAttribute('role', 'radiogroup');
+    entryEl.setAttribute('aria-label', '시작 방식');
+    const remaining = this.selectedRecords().some(canContinueRecord);
+    this.addEntryOption(entryEl, 'review', '선택한 기록으로 복습', '선택한 기록을 다시 읽고 개념을 짚어 연결합니다.', true);
+    this.addEntryOption(entryEl, 'continue', '이어서 하기', '남은 질문이 있는 기록에서만 사용할 수 있습니다. 직접 적은 메모는 복습에서 다시 읽힙니다.', remaining);
+    sectionEl.createDiv({
+      cls: 'setting-item-description',
+      text: '항상 새 대화에서 시작합니다. 지금 대화는 기록에 그대로 남습니다.',
+    });
+  }
+
+  private addEntryOption(containerEl: HTMLElement, entry: RecordEntry, title: string, description: string, enabled: boolean): void {
+    const selected = this.entry === entry;
+    const option = containerEl.createEl('button', {
+      cls: selected ? 'ocop-learning-question-style is-active' : 'ocop-learning-question-style',
+      attr: { type: 'button', role: 'radio', 'aria-checked': String(selected) },
+    });
+    option.createEl('strong', { text: title });
+    option.createEl('span', { text: description });
+    if (!enabled) {
+      option.disabled = true;
+      option.setAttribute('aria-disabled', 'true');
+    }
+    option.addEventListener('click', () => {
+      if (!enabled) return;
+      this.entry = entry;
+      this.renderContent();
+    });
+  }
+
+  private async addRecordByPath(path: string): Promise<void> {
+    if (!this.recordSource || !path) return;
+    const summary = await readRecordSummary(this.recordSource.fs, path).catch(() => null);
+    if (!summary) {
+      this.recordNotice = '학습 기록 형식의 파일을 찾지 못했습니다.';
+    } else if (this.records.some((record) => record.path === summary.path)) {
+      this.recordNotice = '이미 목록에 있습니다.';
+    } else {
+      this.records = [...this.records, summary];
+      this.selectedRecordPaths.add(summary.path);
+      this.syncEntryWithSelection();
+      this.recordNotice = '';
+    }
+    this.renderContent();
+  }
+
+  /** What will be sent, shown before anything is dispatched. */
+  private renderStartPreview(result: SocraticSetupResult, bodies: LearningRecordBody[], excerpts: SourceExcerpt[]): void {
+    this.contentEl.createEl('h3', { text: '이대로 시작할까요?' });
+    const materials = this.contentEl.createDiv({ cls: 'ocop-learning-preview' });
+    materials.createEl('strong', { text: `학습 자료 ${result.sourcePaths.length}개` });
+    if (result.sourcePaths.length > 0) {
+      const shown = excerpts.slice(0, PREVIEW_EXCERPT_NOTES);
+      const anyCut = shown.some((excerpt) => excerpt.chars > excerpt.text.length);
+      materials.createEl('p', {
+        cls: 'setting-item-description',
+        text: anyCut || excerpts.length > shown.length
+          ? `화면에는 노트마다 앞 ${PREVIEW_EXCERPT_CHARS}자까지만 보여 줍니다(발췌). 선택한 노트의 전체 내용을 AI가 읽으며, 발췌된 부분만 전달되는 것이 아닙니다.`
+          : '아래는 선택한 노트의 전체 내용입니다. 이 노트들을 AI가 읽습니다.',
+      });
+      for (const excerpt of shown) {
+        const item = materials.createDiv({ cls: 'ocop-learning-record-item' });
+        const cut = excerpt.chars > excerpt.text.length;
+        item.createEl('strong', {
+          text: cut ? `${excerpt.path} (앞 ${excerpt.text.length}자 / 전체 ${excerpt.chars}자)` : `${excerpt.path} (${excerpt.chars}자)`,
+        });
+        // Text node only: note content is never interpreted as HTML or Markdown here.
+        item.createEl('pre', { cls: 'ocop-learning-record-content', text: excerpt.text });
+      }
+      const rest = result.sourcePaths.filter((path) => !shown.some((excerpt) => excerpt.path === path));
+      if (rest.length > 0) {
+        materials.createEl('p', {
+          cls: 'setting-item-description',
+          text: `나머지 ${rest.length}개 노트는 경로만 표시합니다. 내용은 모두 AI가 읽습니다.`,
+        });
+        const list = materials.createEl('ul', { cls: 'ocop-learning-preview-paths' });
+        for (const path of rest) list.createEl('li', { text: path });
+      }
+    } else {
+      materials.createEl('p', { text: 'No verified original learning material available. 자료 없이 기록만 참고하는 자기 설명 모드이며, 사실 여부를 채점하지 않습니다.' });
+    }
+    if (bodies.length > 0) {
+      const records = this.contentEl.createDiv({ cls: 'ocop-learning-preview' });
+      records.createEl('strong', {
+        text: `보낼 기록 ${bodies.length}개 · ${Math.ceil(totalRecordBytes(bodies) / 1024)}KiB / ${MAX_SELECTED_RECORD_BYTES / 1024}KiB`,
+      });
+      records.createEl('p', {
+        cls: 'setting-item-description',
+        text: '아래는 선택한 기록의 전체 내용입니다. 내용은 빠짐없이 전달되지만, 기록이 지시로 읽히지 않도록 앞뒤 공백을 지우고 &, <, >, @ 같은 기호와 특수 표시를 안전한 문자로 바꿔 보냅니다. 실제로 전달되는 모습은 각 기록 아래 "실제 전달 형태"에서 확인할 수 있습니다.',
+      });
+      for (const body of bodies) {
+        const item = records.createDiv({ cls: 'ocop-learning-record-item' });
+        item.createEl('strong', { text: `${body.path} (${body.bytes}바이트)` });
+        // Text node only: record content is never interpreted as HTML or Markdown here.
+        item.createEl('pre', { cls: 'ocop-learning-record-content', text: body.body });
+        // The exact text placed in the prompt (same function as buildRecordContext), shown as text only.
+        const sent = item.createEl('details', { cls: 'ocop-learning-record-sent-details' });
+        sent.createEl('summary', { text: '실제 전달 형태 (안전하게 바꾼 글자)' });
+        sent.createEl('pre', { cls: 'ocop-learning-record-sent', text: escapeRecordText(body.body.trim()) });
+      }
+    }
+    this.contentEl.createEl('p', {
+      cls: 'setting-item-description',
+      text: bodies.length > 0
+        ? '기록 내용은 참고용 자료로만 전달되며 정답이나 권한으로 쓰이지 않습니다. 시작 직전에 파일이 바뀌면 다시 확인을 요청합니다.'
+        : '지난 기록은 사용하지 않습니다. 시작 직전에 노트가 바뀌면 다시 확인을 요청합니다.',
+    });
+    const buttonsEl = this.contentEl.createDiv({ cls: 'ocop-setup-modal-buttons' });
+    buttonsEl.createEl('button', { text: '뒤로', cls: 'ocop-cancel-btn' }).addEventListener('click', () => {
+      this.pendingStart = null;
+      this.renderContent();
+    });
+    buttonsEl.createEl('button', { text: '시작', cls: 'ocop-save-btn mod-cta' }).addEventListener('click', () => {
+      this.finish(result);
+    });
+  }
+
   onClose() {
     this.contentEl.empty();
     if (this.resolvePromise) {
@@ -379,9 +743,19 @@ export class LearningSetupModal extends Modal {
     });
   }
 
-  private buildResult(): LearningSetupResult {
-    const { sourceInstruction, displayScope, hasSourceNotes } = this.buildScope();
+  private buildResult(bodies?: LearningRecordBody[]): LearningSetupResult {
+    // A records start carries no course material: the open note is neither listed nor read.
+    const recordsOnly = this.isRecordsSource();
+    const { sourceInstruction, displayScope, hasSourceNotes, paths } = recordsOnly
+      ? { sourceInstruction: NO_EVIDENCE, displayScope: '지난 학습 기록 복습', hasSourceNotes: false, paths: [] as string[] }
+      : this.buildScope();
     const focusText = this.focusText || undefined;
+    const sourcePaths = [...paths];
+    const sourceFingerprints: Record<string, string> = {};
+    for (const path of sourcePaths) {
+      const fingerprint = this.sourceFingerprints.get(path);
+      if (fingerprint) sourceFingerprints[path] = fingerprint;
+    }
 
     if (this.mode === 'quiz') {
       return {
@@ -399,6 +773,8 @@ export class LearningSetupModal extends Modal {
         sourceInstruction,
         focusText,
         hasSourceNotes,
+        sourcePaths,
+        sourceFingerprints,
         enableWebSearch: shouldEnableQuizWebSearch(this.difficulty),
         prompt: buildQuizPrompt({
           questionCount: this.questionCount,
@@ -410,13 +786,30 @@ export class LearningSetupModal extends Modal {
       };
     }
 
+    const recordBodies = bodies ?? [];
+    // Every Socratic start from the record-aware setup is a saved-record entry, even with zero
+    // records or a missing folder: "new" is isolated from the earlier conversation too.
+    const savedEntry = this.mode === 'socratic' && this.recordSource ? this.entry : undefined;
+    const referenceOnly = recordBodies.length > 0 && !hasSourceNotes;
+    const recordContext = recordBodies.length > 0 ? buildRecordContext(this.entry, recordBodies) : undefined;
+    const recordFingerprints: Record<string, string> = {};
+    for (const body of recordBodies) recordFingerprints[body.path] = body.fingerprint;
+    // A reference-only start must not carry a forged course ground-truth instruction.
+    const scopeInstruction = referenceOnly ? REFERENCE_ONLY_INSTRUCTION : sourceInstruction;
+
     return {
       mode: 'socratic',
       displayContent: buildSocraticDisplayContent({ displayScope, focusText }),
-      sourceInstruction,
+      sourceInstruction: scopeInstruction,
       focusText,
       hasSourceNotes,
-      prompt: buildSocraticPrompt({ scopeInstruction: sourceInstruction, focusText, supportLevel: 1 }),
+      sourcePaths,
+      sourceFingerprints,
+      entry: savedEntry,
+      recordPaths: recordBodies.map((body) => body.path),
+      recordFingerprints,
+      referenceOnly,
+      prompt: buildSocraticPrompt({ scopeInstruction, focusText, supportLevel: 1, recordContext, referenceOnly }),
     };
   }
 

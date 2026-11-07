@@ -11,6 +11,12 @@ import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
 import { deleteCachedImages } from './core/images/imageCache';
 import {
+  type CompletedLearningSnapshot,
+  DEFAULT_LEARNING_RECORDS_FOLDER,
+  LearningRecordSaveService,
+  normalizeVaultPath,
+} from './core/learning/records';
+import {
   migrateProviderModels,
   type NativePermissionMode,
   type ProviderId,
@@ -20,6 +26,7 @@ import {
 import { applyRequestOutcome, type ConnectionState, type ProviderConnections } from './core/setup/providerConnection';
 import { StorageService } from './core/storage';
 import { reportBlockingFailure } from './core/storage/FailureReport';
+import { ObsidianRecordFs } from './core/storage/LearningRecordFs';
 import type {
   Conversation,
   ConversationMeta,
@@ -286,6 +293,13 @@ export default class ObsidianCopilotPlugin extends Plugin {
       ...settings,
       slashCommands,
     };
+
+    // A settings file from before learning records has no folder; a hand-edited one may hold an
+    // unusable value. Either way records use the default instead of failing every later save.
+    const storedFolder: unknown = this.settings.learningRecordsFolder;
+    this.settings.learningRecordsFolder = typeof storedFolder === 'string' && normalizeVaultPath(storedFolder)
+      ? normalizeVaultPath(storedFolder) as string
+      : DEFAULT_LEARNING_RECORDS_FOLDER;
 
     // Credentials and trust state must not stay in the shareable vault settings
     // file. Device-local storage is authoritative; from here on these fields
@@ -588,6 +602,76 @@ export default class ObsidianCopilotPlugin extends Plugin {
   /** Returns the current active conversation. */
   getActiveConversation(): Conversation | null {
     return this.conversations.find(c => c.id === this.activeConversationId) || null;
+  }
+
+  /** Listeners told after a learning snapshot was acknowledged by storage (views sync their state). */
+  private snapshotListeners = new Set<(conversationId: string, messageId: string, snapshot: CompletedLearningSnapshot) => void>();
+
+  onLearningSnapshotCommitted(
+    listener: (conversationId: string, messageId: string, snapshot: CompletedLearningSnapshot) => void,
+  ): () => void {
+    this.snapshotListeners.add(listener);
+    return () => { this.snapshotListeners.delete(listener); };
+  }
+
+  /** The persisted snapshot of one completed message, or null (legacy and unknown ids included). */
+  getLearningSnapshot(conversationId: string, messageId: string): CompletedLearningSnapshot | null {
+    const conversation = this.getConversationById(conversationId);
+    return conversation?.messages.find((message) => message.id === messageId)?.learningSnapshot ?? null;
+  }
+
+  /**
+   * Writes one message's snapshot and resolves true only after the session file write was
+   * acknowledged. The cache changes after the write, so a failed write leaves nothing that looks
+   * saved. `updateConversation` is not used: it ignores unknown ids and caches before writing.
+   * `attach` is the first write of a snapshot; `update` replaces an existing one.
+   */
+  private async writeSnapshot(
+    conversationId: string,
+    messageId: string,
+    next: (current: CompletedLearningSnapshot | undefined) => CompletedLearningSnapshot | null,
+  ): Promise<boolean> {
+    const conversation = this.conversations.find((c) => c.id === conversationId);
+    const index = conversation?.messages.findIndex((message) => message.id === messageId) ?? -1;
+    if (!conversation || index === -1) return false;
+    const snapshot = next(conversation.messages[index].learningSnapshot);
+    if (!snapshot) return false;
+    const messages = conversation.messages.map((message, i) => (i === index ? { ...message, learningSnapshot: snapshot } : message));
+    const candidate: Conversation = { ...conversation, messages, updatedAt: Date.now() };
+    try {
+      await this.storage.sessions.saveConversation(candidate);
+    } catch (error) {
+      console.error('[ObsidianCopilot] Failed to persist learning snapshot:', error);
+      return false;
+    }
+    Object.assign(conversation, { messages, updatedAt: candidate.updatedAt });
+    for (const listener of this.snapshotListeners) listener(conversationId, messageId, snapshot);
+    return true;
+  }
+
+  /** First persistence of a completed message's snapshot; false means nothing restart-safe exists. */
+  attachLearningSnapshot(conversationId: string, messageId: string, snapshot: CompletedLearningSnapshot): Promise<boolean> {
+    return this.writeSnapshot(conversationId, messageId, (current) => current ?? snapshot);
+  }
+
+  commitLearningSnapshot(
+    conversationId: string,
+    messageId: string,
+    update: (snapshot: CompletedLearningSnapshot) => CompletedLearningSnapshot,
+  ): Promise<boolean> {
+    return this.writeSnapshot(conversationId, messageId, (current) => (current ? update(current) : null));
+  }
+
+  private learningSaveService: LearningRecordSaveService | null = null;
+
+  /** One service per plugin so duplicate clicks from any view share one attempt. */
+  getLearningRecordSaveService(): LearningRecordSaveService {
+    this.learningSaveService ??= new LearningRecordSaveService({
+      fs: new ObsidianRecordFs(this.app),
+      getSnapshot: (conversationId, messageId) => this.getLearningSnapshot(conversationId, messageId),
+      commit: (conversationId, messageId, update) => this.commitLearningSnapshot(conversationId, messageId, update),
+    });
+    return this.learningSaveService;
   }
 
   /** Gets a conversation by ID from the in-memory cache. */

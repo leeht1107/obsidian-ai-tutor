@@ -3,11 +3,16 @@ import {
   getSocraticPersonaInstructions,
   type SocraticSupportLevel,
 } from './persona';
+import { REFERENCE_ONLY_INSTRUCTION } from './records/context';
 
 export interface SocraticPromptInput {
   scopeInstruction: string;
   focusText?: string;
   supportLevel?: SocraticSupportLevel;
+  /** Escaped block of the student-selected saved records (see buildRecordContext). */
+  recordContext?: string;
+  /** No verified course material: self-explanation only, never factual grading. */
+  referenceOnly?: boolean;
 }
 
 export interface SocraticDisplayInput {
@@ -29,7 +34,9 @@ export function buildSocraticDisplayContent(input: SocraticDisplayInput): string
 }
 
 export function buildSocraticPrompt(input: SocraticPromptInput): string {
-  const startInstruction = input.focusText
+  const startInstruction = input.recordContext
+    ? 'START: Open with one short warm sentence, then follow FIRST RESPONSE under SAVED LEARNING RECORDS: a brief evidence-based synthesis of the selected records and exactly ONE Socratic question. Do not ask what the student wants to explore first.'
+    : input.focusText
     ? [
       `START: Begin with a warm, brief greeting and say you will work on ${input.focusText} using the selected material.`,
       `Invite the student to name the exact point they find unclear or ask their question directly about ${input.focusText}. Do not assume the difficulty is a missing prerequisite or start with a diagnostic quiz.`,
@@ -49,6 +56,8 @@ export function buildSocraticPrompt(input: SocraticPromptInput): string {
     'ADAPTATION: 학생이 잘 따라오면 간단 인정 → 더 어려운 전이/반례/경계조건 질문. 학생이 헤매면 상세 피드백 → 예시/비유 제공 → 쉬운 질문으로 되돌아감. 복잡한 개념은 하위 단계로 나눠서 하나씩 진행.',
     'BOUNDARIES: 학생이 문제를 스스로 풀고 있을 때 정답을 통째로 주지는 마세요. 개념 설명을 직접 요청하면 질문으로 미루지 말고 바로 답하세요.',
     `SOURCE MATERIAL: ${input.scopeInstruction}`,
+    input.recordContext ?? '',
+    input.referenceOnly ? REFERENCE_ONLY_INSTRUCTION : '',
     input.focusText ? `Focus the dialogue on this topic: ${input.focusText}.` : '',
     'DIALOGUE STRUCTURE: Continue while dialogue helps the student reach a clear insight through their own reasoning; do not prolong it to satisfy a fixed question count. When the student has not already summarized the insight, ask one final synthesizing question. After the student replies, output the session summary:',
     '  ##SOCRATIC_SUMMARY##',

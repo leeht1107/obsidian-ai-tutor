@@ -345,6 +345,16 @@ describe('learning helpers', () => {
         isSummary: true,
       });
     });
+
+    it('ignores a summary marker that is only quoted, fenced or cut off', () => {
+      expect(parseSocraticMeta('예시입니다:\n```\n##SOCRATIC_SUMMARY##\n### 발견의 여정 요약\n```')).toBeUndefined();
+      expect(parseSocraticMeta('> ##SOCRATIC_SUMMARY##\n> ### 발견의 여정 요약')).toBeUndefined();
+      expect(parseSocraticMeta('- ##SOCRATIC_SUMMARY##\n- 요약')).toBeUndefined();
+      expect(parseSocraticMeta('##SOCRATIC_SUMMARY##')).toBeUndefined();
+      expect(parseSocraticMeta('##SOCRATIC_SUMMARY##\n   \n')).toBeUndefined();
+      expect(parseSocraticMeta('##SOCRATIC_SUMMARY## ### 발견의 여정 요약 학생이 이해했다')).toEqual({ isSummary: true });
+      expect(parseSocraticMeta('말하기 전에 ##SOCRATIC_SUMMARY## 라고 쓰면')).toBeUndefined();
+    });
   });
 });
 

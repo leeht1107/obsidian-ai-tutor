@@ -197,7 +197,9 @@ ${groundingInstructions}
 
 Step 1: Evaluate the student's answer in Korean (### 정답 확인 format, same as before).
 
-End with a concise Korean Quiz completion message. The application provides an optional Socratic review button; do not conduct the review unless the student selects it.`;
+End with a concise Korean Quiz completion message. The application provides an optional Socratic review button; do not conduct the review unless the student selects it.
+
+Step 2: After the completion message add a section headed exactly "### 학습 요약 (AI 초안)" with 2-4 short Korean bullets about which concepts this Quiz touched and what the student may want to revisit. Base it only on what was actually asked and answered. Do not give a score, an aggregate result, a mastery judgement or new answer keys.`;
 }
 
 /** Builds a non-advancing hint prompt for the QuizAnswerPanel's 힌트 shortcut. */
