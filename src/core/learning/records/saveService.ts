@@ -1,6 +1,6 @@
 import { newRecordIds } from './draft';
 import type { RecordFs } from './fs';
-import { recordIdOf } from './markdown';
+import { recordIdOf, recordProblem } from './markdown';
 import { resolveRecordPath, sha256 } from './paths';
 import type { CompletedLearningSnapshot, LearningSaveIntent } from './types';
 
@@ -34,7 +34,7 @@ export type SaveOutcome =
   | { kind: 'saved-link-failed'; path: string }
   | { kind: 'conflict'; path: string; reason: 'target-differs' | 'verify-mismatch' }
   | { kind: 'needs-fresh-choice'; path: string; reason: 'missing-after-attempt' | 'write-uncertain' }
-  | { kind: 'rejected'; reason: 'no-snapshot' | 'invalid-path' | 'intent-not-acknowledged' };
+  | { kind: 'rejected'; reason: 'no-snapshot' | 'invalid-path' | 'invalid-record' | 'intent-not-acknowledged' };
 
 type ReadState = { state: 'absent' } | { state: 'match' } | { state: 'differs' } | { state: 'unreadable' };
 
@@ -100,6 +100,9 @@ export class LearningRecordSaveService {
           : null;
       if (earlier) return this.resolveEarlier(snapshot, earlier);
     }
+
+    // The approved bytes are never rewritten, so bytes that would not be found again as a record are refused.
+    if (recordProblem(request.markdown)) return { kind: 'rejected', reason: 'invalid-record' };
 
     const existing = await this.readTarget(path, fingerprint);
     if (existing.state === 'differs' || existing.state === 'unreadable') {

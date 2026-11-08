@@ -346,6 +346,18 @@ describe('learning helpers', () => {
       });
     });
 
+    it('keeps one to three spaces of indent as prose but not a four-space or tab indented code block', () => {
+      const body = '##SOCRATIC_SUMMARY##\n### 발견의 여정 요약\n이 문장은 마크다운 문법 예시다.';
+      for (const indent of ['', ' ', '  ', '   ']) {
+        expect(parseSocraticMeta(body.split('\n').map((line) => indent + line).join('\n'))).toEqual({ isSummary: true });
+      }
+      for (const indent of ['    ', '\t', ' \t', '  \t', '        ']) {
+        expect(parseSocraticMeta(body.split('\n').map((line) => indent + line).join('\n'))).toBeUndefined();
+      }
+      // A real summary later in the reply still counts when an earlier code example is indented.
+      expect(parseSocraticMeta(`예시:\n\n    ##SOCRATIC_SUMMARY##\n    ### 요약\n\n${body}`)).toEqual({ isSummary: true });
+    });
+
     it('ignores a summary marker that is only quoted, fenced or cut off', () => {
       expect(parseSocraticMeta('예시입니다:\n```\n##SOCRATIC_SUMMARY##\n### 발견의 여정 요약\n```')).toBeUndefined();
       expect(parseSocraticMeta('> ##SOCRATIC_SUMMARY##\n> ### 발견의 여정 요약')).toBeUndefined();

@@ -28,6 +28,7 @@ import { StorageService } from './core/storage';
 import { reportBlockingFailure } from './core/storage/FailureReport';
 import { ObsidianRecordFs } from './core/storage/LearningRecordFs';
 import type {
+  ChatMessage,
   Conversation,
   ConversationMeta,
   ObsidianCopilotSettings} from './core/types';
@@ -541,7 +542,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.agentService.resetSession();
 
     // Save new conversation to session file
-    await this.storage.sessions.saveConversation(conversation);
+    await this.persistConversation(conversation);
     await this.storage.updateState({ activeConversationId: this.activeConversationId });
 
     return conversation;
@@ -568,8 +569,8 @@ export default class ObsidianCopilotPlugin extends Plugin {
     this.cleanupConversationImages(conversation);
     this.conversations.splice(index, 1);
 
-    // Delete the session file
-    await this.storage.sessions.deleteConversation(id);
+    // Delete the session file after every write already queued for it has settled
+    await this.enqueueConversationTask(id, () => this.storage.sessions.deleteConversation(id));
 
     if (this.activeConversationId === id) {
       if (this.conversations.length > 0) {
@@ -587,7 +588,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
 
     conversation.title = title.trim() || this.generateDefaultTitle();
     conversation.updatedAt = Date.now();
-    await this.storage.sessions.saveConversation(conversation);
+    await this.persistConversation(conversation);
   }
 
   /** Updates conversation properties (messages, sessionId, etc.). */
@@ -595,8 +596,36 @@ export default class ObsidianCopilotPlugin extends Plugin {
     const conversation = this.conversations.find(c => c.id === id);
     if (!conversation) return;
 
-    Object.assign(conversation, updates, { updatedAt: Date.now() });
-    await this.storage.sessions.saveConversation(conversation);
+    // An acknowledged snapshot is owned by writeSnapshot: a caller's older copy of a message
+    // (taken before the ack) must not take it away again.
+    const snapshots = new Map(conversation.messages.map((message) => [message.id, message.learningSnapshot]));
+    const messages = updates.messages?.map((message) => {
+      const known = snapshots.get(message.id);
+      return known ? { ...message, learningSnapshot: known } : message;
+    });
+    Object.assign(conversation, updates, messages ? { messages } : {}, { updatedAt: Date.now() });
+    await this.persistConversation(conversation);
+  }
+
+  /** The tail of each conversation's write stream; its writes run one at a time, in call order. */
+  private conversationWrites = new Map<string, Promise<void>>();
+
+  private enqueueConversationTask<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const result = (this.conversationWrites.get(id) ?? Promise.resolve()).then(task);
+    const tail = result.then(() => undefined, () => undefined);
+    this.conversationWrites.set(id, tail);
+    void tail.then(() => {
+      if (this.conversationWrites.get(id) === tail) this.conversationWrites.delete(id);
+    });
+    return result;
+  }
+
+  /** Writes the conversation as it is when its turn comes; a conversation deleted meanwhile is not brought back. */
+  private persistConversation(conversation: Conversation): Promise<void> {
+    return this.enqueueConversationTask(conversation.id, async () => {
+      if (!this.conversations.includes(conversation)) return;
+      await this.storage.sessions.saveConversation(conversation);
+    });
   }
 
   /** Returns the current active conversation. */
@@ -632,21 +661,30 @@ export default class ObsidianCopilotPlugin extends Plugin {
     next: (current: CompletedLearningSnapshot | undefined) => CompletedLearningSnapshot | null,
   ): Promise<boolean> {
     const conversation = this.conversations.find((c) => c.id === conversationId);
-    const index = conversation?.messages.findIndex((message) => message.id === messageId) ?? -1;
-    if (!conversation || index === -1) return false;
-    const snapshot = next(conversation.messages[index].learningSnapshot);
-    if (!snapshot) return false;
-    const messages = conversation.messages.map((message, i) => (i === index ? { ...message, learningSnapshot: snapshot } : message));
-    const candidate: Conversation = { ...conversation, messages, updatedAt: Date.now() };
-    try {
-      await this.storage.sessions.saveConversation(candidate);
-    } catch (error) {
-      console.error('[ObsidianCopilot] Failed to persist learning snapshot:', error);
-      return false;
-    }
-    Object.assign(conversation, { messages, updatedAt: candidate.updatedAt });
-    for (const listener of this.snapshotListeners) listener(conversationId, messageId, snapshot);
-    return true;
+    if (!conversation || !conversation.messages.some((message) => message.id === messageId)) return false;
+    return this.enqueueConversationTask(conversationId, async () => {
+      // Everything below starts from the conversation as it is now, after earlier writes finished.
+      if (!this.conversations.includes(conversation)) return false;
+      const current = conversation.messages.find((message) => message.id === messageId);
+      if (!current) return false;
+      const snapshot = next(current.learningSnapshot);
+      if (!snapshot) return false;
+      const withSnapshot = (messages: ChatMessage[]) => messages.map((message) => (
+        message.id === messageId ? { ...message, learningSnapshot: snapshot } : message
+      ));
+      const candidate: Conversation = { ...conversation, messages: withSnapshot(conversation.messages), updatedAt: Date.now() };
+      try {
+        await this.storage.sessions.saveConversation(candidate);
+      } catch (error) {
+        console.error('[ObsidianCopilot] Failed to persist learning snapshot:', error);
+        return false;
+      }
+      // A message added while the write was in flight stays: only the snapshot is applied to the cache.
+      if (!this.conversations.includes(conversation) || !conversation.messages.some((message) => message.id === messageId)) return false;
+      Object.assign(conversation, { messages: withSnapshot(conversation.messages), updatedAt: candidate.updatedAt });
+      for (const listener of this.snapshotListeners) listener(conversationId, messageId, snapshot);
+      return true;
+    });
   }
 
   /** First persistence of a completed message's snapshot; false means nothing restart-safe exists. */

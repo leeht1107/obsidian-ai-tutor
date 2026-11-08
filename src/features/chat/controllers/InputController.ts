@@ -388,14 +388,22 @@ export class InputController {
     return state.messages.length === 0 && !state.quizSession && !state.socraticSession;
   }
 
+  private stillInConversation(conversationId: string | null): boolean {
+    if (this.deps.state.currentConversationId === conversationId) return true;
+    new Notice('학습을 시작한 대화에서 다른 대화로 옮겨 시작하지 않았습니다. 다시 시작해 주세요.');
+    return false;
+  }
+
   private async sendLearningSetupResult(
     result: LearningSetupResult,
     options: {
       promptPrefix?: string;
       editorContextOverride?: EditorSelectionContext | null;
     },
+    /** The conversation the setup was started in; a different one now means the student moved on. */
+    initiatingConversationId: string | null = this.deps.state.currentConversationId,
   ) {
-    if (!(await this.inputsStillMatch(result))) return;
+    if (!(await this.inputsStillMatch(result)) || !this.stillInConversation(initiatingConversationId)) return;
 
     const sharedOptions = {
       content: result.prompt,
@@ -513,7 +521,7 @@ export class InputController {
       const quizFocusText = mentionedLearningCommand ? '' : content === '/quiz' ? '' : content.slice('/quiz'.length).trim();
       const quizModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'quiz', quizFocusText, this.recordSource());
       const learningResult = await quizModal.openAndWait();
-      if (!learningResult) {
+      if (!learningResult || !this.stillInConversation(conversationIdAtSend)) {
         return;
       }
 
@@ -524,7 +532,7 @@ export class InputController {
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
         editorContextOverride: options?.editorContextOverride,
-      });
+      }, conversationIdAtSend);
       return;
     }
 
@@ -533,7 +541,7 @@ export class InputController {
       const socraticFocusText = mentionedLearningCommand ? '' : content === '/socratic' ? '' : content.slice('/socratic'.length).trim();
       const socraticModal = new LearningSetupModal(plugin.app, mentionedLearningCommand?.notePath ?? fileContextManager?.getCurrentNotePath() ?? null, 'socratic', socraticFocusText, this.recordSource());
       const learningResult = await socraticModal.openAndWait();
-      if (!learningResult) {
+      if (!learningResult || !this.stillInConversation(conversationIdAtSend)) {
         return;
       }
 
@@ -544,7 +552,7 @@ export class InputController {
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options?.promptPrefix,
         editorContextOverride: options?.editorContextOverride,
-      });
+      }, conversationIdAtSend);
       return;
     }
 
@@ -642,7 +650,9 @@ export class InputController {
 
     fileContextManager?.startSession();
 
-    const images = imageContextManager?.getAttachedImages() || [];
+    // A programmatic Quiz review sends only the Quiz's own transcript: whatever image the student
+    // has pending in the composer is theirs for a later message, not part of this review.
+    const images = socraticSessionInit?.quizReview ? [] : imageContextManager?.getAttachedImages() || [];
     const imagesForMessage = images.length > 0 ? [...images] : undefined;
 
     const userMsg: ChatMessage = {
@@ -881,7 +891,8 @@ ${promptToSend}`;
 
     // Add external context paths to query
     const externalContextSelector = this.deps.getExternalContextSelector();
-    const externalContextPaths = externalContextSelector?.getExternalContexts();
+    // External contexts are mutable and were not captured with the Quiz, so a review never reads them.
+    const externalContextPaths = state.socraticSession?.quizReview ? undefined : externalContextSelector?.getExternalContexts();
     if (externalContextPaths && externalContextPaths.length > 0) {
       queryOptions = {
         ...queryOptions,

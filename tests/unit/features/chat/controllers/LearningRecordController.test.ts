@@ -23,6 +23,8 @@ jest.mock('@/ui/modals/LearningRecordSaveModal', () => ({
 }));
 
 const FOLDER = '.ai-tutor/learning-records';
+/** A usable record (these tests are about the save flow, not about invalid bytes). */
+const BODY_ONE = '---\ntype: ai-tutor-learning-record\nformatVersion: 1\nrecordId: "lr-one"\n---\n\nbody one\n';
 
 function setup(snapshot = quizSnapshot()) {
   const fs = new MemoryFs();
@@ -69,7 +71,7 @@ describe('LearningRecordController', () => {
 
   it('opens an already-saved note instead of showing a new preview or rewriting it', async () => {
     const { controller, fs, openLinkText } = setup();
-    modalAnswer = { fileName: 'x', markdown: 'body one' };
+    modalAnswer = { fileName: 'x', markdown: BODY_ONE };
     await controller.openSave('conv-1', 'a3');
     modalInputs.length = 0;
     const result = await controller.openSave('conv-1', 'a3');
@@ -81,7 +83,7 @@ describe('LearningRecordController', () => {
 
   it('explains a deleted note and recreates only after the student confirms a fresh save', async () => {
     const { controller, fs } = setup();
-    modalAnswer = { fileName: 'x', markdown: 'body one' };
+    modalAnswer = { fileName: 'x', markdown: BODY_ONE };
     await controller.openSave('conv-1', 'a3');
     fs.files.delete(`${FOLDER}/x.md`);
     modalInputs.length = 0;
@@ -91,15 +93,15 @@ describe('LearningRecordController', () => {
     expect(modalInputs[0].confirmLabel).toBe('새로 저장');
     expect(fs.files.size).toBe(0);
 
-    modalAnswer = { fileName: 'x', markdown: 'body one' };
+    modalAnswer = { fileName: 'x', markdown: BODY_ONE };
     const outcome = await controller.openSave('conv-1', 'a3');
     expect(outcome).toMatchObject({ kind: 'saved' });
-    expect(fs.files.get(`${FOLDER}/x.md`)).toBe('body one');
+    expect(fs.files.get(`${FOLDER}/x.md`)).toBe(BODY_ONE);
   });
 
   it('keeps an edited target and asks for a different file name', async () => {
     const { controller, fs } = setup();
-    modalAnswer = { fileName: 'x', markdown: 'body one' };
+    modalAnswer = { fileName: 'x', markdown: BODY_ONE };
     await controller.openSave('conv-1', 'a3');
     fs.files.set(`${FOLDER}/x.md`, 'student edited this');
     modalInputs.length = 0;
@@ -114,10 +116,10 @@ describe('LearningRecordController', () => {
     host.snapshot = quizSnapshot({
       pendingSave: {
         saveIntentId: 's', recordId: 'lr-1', conversationId: 'conv-1', completionMessageId: 'a3', previewRevision: 1,
-        folder: FOLDER, path: `${FOLDER}/x.md`, contentFingerprint: sha256('body one'), frozenAt: 1,
+        folder: FOLDER, path: `${FOLDER}/x.md`, contentFingerprint: sha256(BODY_ONE), frozenAt: 1,
       },
     });
-    fs.files.set(`${FOLDER}/x.md`, 'body one');
+    fs.files.set(`${FOLDER}/x.md`, BODY_ONE);
     const outcome = await controller.openSave('conv-1', 'a3');
     expect(outcome).toEqual({ kind: 'already-saved', path: `${FOLDER}/x.md` });
     expect(modalInputs).toHaveLength(0);
@@ -140,5 +142,18 @@ describe('LearningRecordController', () => {
     plugin.getConversationById = (id: string) => { seen.push(id); return quizConversation(); };
     await controller.openSave('conv-1', 'a3');
     expect(seen).toEqual(['conv-1']);
+  });
+
+  it('does not report a note without usable record metadata as a saved learning record', async () => {
+    const { controller, fs, host } = setup();
+    modalAnswer = { fileName: 'edited', markdown: '# 내가 편집한 기록\n\n본문만 남김' };
+    const outcome = await controller.openSave('conv-1', 'a3');
+    expect(outcome).toEqual({ kind: 'rejected', reason: 'invalid-record' });
+    expect(fs.createCalls).toBe(0);
+    expect(fs.files.size).toBe(0);
+    expect(host.commits).toBe(0);
+    const notices = (Notice as any).messages.join('\n');
+    expect(notices).not.toContain('저장했습니다');
+    expect(notices).toContain('학습 기록 형식');
   });
 });

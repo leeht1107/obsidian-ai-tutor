@@ -73,7 +73,12 @@ export async function readRecordBodies(fs: RecordFs, paths: string[]): Promise<L
   for (const path of paths) {
     const normalized = normalizeVaultPath(path);
     if (!normalized) throw new Error(`잘못된 기록 경로: ${path}`);
+    // Size first: a stat is not an atomic bound (the file can grow before the read), so the
+    // text is checked again below, but a file already over the cap is never read at all.
+    const stat = await fs.stat(normalized);
+    if (stat && stat.size > MAX_RECORD_FILE_BYTES) throw new Error(`학습 기록이 너무 큽니다: ${normalized}`);
     const text = await fs.read(normalized);
+    if (new TextEncoder().encode(text).length > MAX_RECORD_FILE_BYTES) throw new Error(`학습 기록이 너무 큽니다: ${normalized}`);
     const summary = parseRecordSummary(normalized, text, text.length);
     if (!summary) throw new Error(`학습 기록 형식이 아닙니다: ${normalized}`);
     bodies.push({ ...toRecordBody(normalized, summary.recordId, text), canContinue: canContinueRecord(summary) });

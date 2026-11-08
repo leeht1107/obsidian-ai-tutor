@@ -1,5 +1,8 @@
 import type { QuizQuestionMeta, QuizQuestionOption, SocraticTurnMeta } from '../types';
 
+/** The marker line: at most three spaces of indent, since four spaces or a tab is an indented code block. */
+const SUMMARY_MARKER = /^ {0,3}##SOCRATIC_SUMMARY##/;
+
 /**
  * A real summary turn: the marker alone on its own prose line (not inside a fence, quote or
  * list item) followed by actual summary text. A quoted example or a reply cut off after the
@@ -7,9 +10,9 @@ import type { QuizQuestionMeta, QuizQuestionOption, SocraticTurnMeta } from '../
  */
 export function parseSocraticMeta(content: string): SocraticTurnMeta | undefined {
   const lines = withoutFencedCode(content.replace(/\r\n/g, '\n')).split('\n');
-  const at = lines.findIndex((line) => /^\s*##SOCRATIC_SUMMARY##/.test(line));
+  const at = lines.findIndex((line) => SUMMARY_MARKER.test(line));
   if (at === -1) return undefined;
-  const sameLine = lines[at].replace(/^\s*##SOCRATIC_SUMMARY##/, '').trim();
+  const sameLine = lines[at].replace(SUMMARY_MARKER, '').trim();
   if (!sameLine && !lines.slice(at + 1).some((line) => line.trim() !== '')) return undefined;
   return { isSummary: true };
 }

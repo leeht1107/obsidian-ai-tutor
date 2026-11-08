@@ -1,7 +1,7 @@
 import type { App } from 'obsidian';
 import { Modal } from 'obsidian';
 
-import { resolveRecordPath } from '../../core/learning/records';
+import { recordProblem, resolveRecordPath } from '../../core/learning/records';
 
 export interface LearningRecordSaveChoice {
   fileName: string;
@@ -27,6 +27,7 @@ export class LearningRecordSaveModal extends Modal {
   private fileName: string;
   private markdown: string;
   private pathEl: HTMLElement | null = null;
+  private problemEl: HTMLElement | null = null;
   private confirmEl: HTMLButtonElement | null = null;
 
   constructor(app: App, private readonly input: LearningRecordSaveModalInput) {
@@ -67,15 +68,17 @@ export class LearningRecordSaveModal extends Modal {
 
     const area = contentEl.createEl('textarea', { cls: 'ocop-learning-record-text', attr: { rows: '16', 'aria-label': '저장할 내용' } });
     area.value = this.markdown;
+    this.problemEl = contentEl.createDiv({ cls: 'ocop-learning-record-banner' });
     area.addEventListener('input', () => {
       this.markdown = area.value;
+      this.refresh();
     });
 
     const buttons = contentEl.createDiv({ cls: 'ocop-setup-modal-buttons' });
     buttons.createEl('button', { text: '저장 안 함', cls: 'ocop-cancel-btn' }).addEventListener('click', () => this.finish(null));
     this.confirmEl = buttons.createEl('button', { text: this.input.confirmLabel ?? '저장', cls: 'ocop-save-btn mod-cta' });
     this.confirmEl.addEventListener('click', () => {
-      if (!this.target()) return;
+      if (!this.target() || recordProblem(this.markdown)) return;
       this.finish({ fileName: this.fileName, markdown: this.markdown });
     });
     this.refresh();
@@ -88,7 +91,9 @@ export class LearningRecordSaveModal extends Modal {
   private refresh(): void {
     const target = this.target();
     this.pathEl?.setText(target ? `저장 위치: ${target}` : '파일 이름이 올바르지 않습니다 (폴더 구분자 없이 입력하세요).');
-    if (this.confirmEl) this.confirmEl.disabled = !target;
+    const problem = recordProblem(this.markdown);
+    this.problemEl?.setText(problem ? `학습 기록으로 다시 찾을 수 없는 내용입니다: ${problem}. 고치거나 [저장 안 함]을 누르세요.` : '');
+    if (this.confirmEl) this.confirmEl.disabled = !target || problem !== null;
   }
 
   onClose(): void {

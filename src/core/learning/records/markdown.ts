@@ -1,5 +1,5 @@
 import type { LearningRecordMode, LearningRecordOrigin, LearningRecordSummary } from './types';
-import { LEARNING_RECORD_FORMAT_VERSION } from './types';
+import { LEARNING_RECORD_FORMAT_VERSION, MAX_RECORD_FILE_BYTES } from './types';
 
 export const RECORD_TYPE = 'ai-tutor-learning-record';
 
@@ -93,6 +93,22 @@ export function parseRecordSummary(path: string, text: string, size: number): Om
     remainingQuestions: Number.isFinite(remaining) && remaining > 0 ? Math.floor(remaining) : 0,
     size,
   };
+}
+
+/**
+ * Why `text` would not be found again as a record (null when it would): the same checks as
+ * `parseRecordSummary`, plus the size cap discovery applies. Used before anything is written.
+ */
+export function recordProblem(text: string): string | null {
+  const parts = splitFrontmatter(text);
+  if (!parts) return '맨 위의 --- 머리말이 없습니다';
+  if (parts.fields.get('type') !== RECORD_TYPE) return `type: ${RECORD_TYPE} 줄이 없습니다`;
+  if (Number(parts.fields.get('formatVersion')) !== LEARNING_RECORD_FORMAT_VERSION) {
+    return `formatVersion: ${LEARNING_RECORD_FORMAT_VERSION} 줄이 없습니다`;
+  }
+  if (!parseJsonString(parts.fields.get('recordId'))) return 'recordId 줄이 없거나 "따옴표" 문자열이 아닙니다';
+  if (new TextEncoder().encode(text).length > MAX_RECORD_FILE_BYTES) return '내용이 너무 커서 다시 찾을 수 없습니다';
+  return null;
 }
 
 /** Whether `text` is a record carrying exactly this id (used by exact-target reconciliation). */

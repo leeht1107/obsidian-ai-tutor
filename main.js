@@ -6086,6 +6086,17 @@ function parseRecordSummary(path17, text, size) {
     size
   };
 }
+function recordProblem(text) {
+  const parts = splitFrontmatter(text);
+  if (!parts) return "\uB9E8 \uC704\uC758 --- \uBA38\uB9AC\uB9D0\uC774 \uC5C6\uC2B5\uB2C8\uB2E4";
+  if (parts.fields.get("type") !== RECORD_TYPE) return `type: ${RECORD_TYPE} \uC904\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`;
+  if (Number(parts.fields.get("formatVersion")) !== LEARNING_RECORD_FORMAT_VERSION) {
+    return `formatVersion: ${LEARNING_RECORD_FORMAT_VERSION} \uC904\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`;
+  }
+  if (!parseJsonString(parts.fields.get("recordId"))) return 'recordId \uC904\uC774 \uC5C6\uAC70\uB098 "\uB530\uC634\uD45C" \uBB38\uC790\uC5F4\uC774 \uC544\uB2D9\uB2C8\uB2E4';
+  if (new TextEncoder().encode(text).length > MAX_RECORD_FILE_BYTES) return "\uB0B4\uC6A9\uC774 \uB108\uBB34 \uCEE4\uC11C \uB2E4\uC2DC \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4";
+  return null;
+}
 function recordIdOf(text) {
   const parts = splitFrontmatter(text);
   if (!parts || parts.fields.get("type") !== RECORD_TYPE) return null;
@@ -6362,6 +6373,7 @@ var LearningRecordSaveService = class {
       const earlier = snapshot.saved ? { path: snapshot.saved.path, fingerprint: snapshot.saved.contentFingerprint } : snapshot.pendingSave ? { path: snapshot.pendingSave.path, fingerprint: snapshot.pendingSave.contentFingerprint } : null;
       if (earlier) return this.resolveEarlier(snapshot, earlier);
     }
+    if (recordProblem(request.markdown)) return { kind: "rejected", reason: "invalid-record" };
     const existing = await this.readTarget(path17, fingerprint);
     if (existing.state === "differs" || existing.state === "unreadable") {
       return { kind: "conflict", path: path17, reason: "target-differs" };
@@ -6581,7 +6593,10 @@ async function readRecordBodies(fs15, paths) {
   for (const path17 of paths) {
     const normalized = normalizeVaultPath(path17);
     if (!normalized) throw new Error(`\uC798\uBABB\uB41C \uAE30\uB85D \uACBD\uB85C: ${path17}`);
+    const stat = await fs15.stat(normalized);
+    if (stat && stat.size > MAX_RECORD_FILE_BYTES) throw new Error(`\uD559\uC2B5 \uAE30\uB85D\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4: ${normalized}`);
     const text = await fs15.read(normalized);
+    if (new TextEncoder().encode(text).length > MAX_RECORD_FILE_BYTES) throw new Error(`\uD559\uC2B5 \uAE30\uB85D\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4: ${normalized}`);
     const summary = parseRecordSummary(normalized, text, text.length);
     if (!summary) throw new Error(`\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${normalized}`);
     bodies.push({ ...toRecordBody(normalized, summary.recordId, text), canContinue: canContinueRecord(summary) });
@@ -13815,11 +13830,12 @@ var InstructionModal = class extends import_obsidian12.Modal {
 var import_obsidian13 = require("obsidian");
 
 // src/core/learning/parsing.ts
+var SUMMARY_MARKER = /^ {0,3}##SOCRATIC_SUMMARY##/;
 function parseSocraticMeta(content) {
   const lines = withoutFencedCode(content.replace(/\r\n/g, "\n")).split("\n");
-  const at = lines.findIndex((line) => /^\s*##SOCRATIC_SUMMARY##/.test(line));
+  const at = lines.findIndex((line) => SUMMARY_MARKER.test(line));
   if (at === -1) return void 0;
-  const sameLine = lines[at].replace(/^\s*##SOCRATIC_SUMMARY##/, "").trim();
+  const sameLine = lines[at].replace(SUMMARY_MARKER, "").trim();
   if (!sameLine && !lines.slice(at + 1).some((line) => line.trim() !== "")) return void 0;
   return { isSummary: true };
 }
@@ -18129,8 +18145,13 @@ var InputController = class {
     this.deps.getInputEl().value = "";
     return state.messages.length === 0 && !state.quizSession && !state.socraticSession;
   }
-  async sendLearningSetupResult(result, options) {
-    if (!await this.inputsStillMatch(result)) return;
+  stillInConversation(conversationId) {
+    if (this.deps.state.currentConversationId === conversationId) return true;
+    new import_obsidian23.Notice("\uD559\uC2B5\uC744 \uC2DC\uC791\uD55C \uB300\uD654\uC5D0\uC11C \uB2E4\uB978 \uB300\uD654\uB85C \uC62E\uACA8 \uC2DC\uC791\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+    return false;
+  }
+  async sendLearningSetupResult(result, options, initiatingConversationId = this.deps.state.currentConversationId) {
+    if (!await this.inputsStillMatch(result) || !this.stillInConversation(initiatingConversationId)) return;
     const sharedOptions = {
       content: result.prompt,
       displayContentOverride: result.displayContent,
@@ -18175,7 +18196,7 @@ var InputController = class {
     });
   }
   async sendMessage(options) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G;
     const { plugin, state, renderer, streamController, selectionController, conversationController } = this.deps;
     const conversationIdAtSend = state.currentConversationId;
     const inputEl = this.deps.getInputEl();
@@ -18216,7 +18237,7 @@ var InputController = class {
       const quizFocusText = mentionedLearningCommand ? "" : content === "/quiz" ? "" : content.slice("/quiz".length).trim();
       const quizModal = new LearningSetupModal(plugin.app, (_k = (_j = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _j : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _k : null, "quiz", quizFocusText, this.recordSource());
       const learningResult = await quizModal.openAndWait();
-      if (!learningResult) {
+      if (!learningResult || !this.stillInConversation(conversationIdAtSend)) {
         return;
       }
       if (shouldUseInput) {
@@ -18225,14 +18246,14 @@ var InputController = class {
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options == null ? void 0 : options.promptPrefix,
         editorContextOverride: options == null ? void 0 : options.editorContextOverride
-      });
+      }, conversationIdAtSend);
       return;
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "socratic" || content === "/socratic" || content.startsWith("/socratic "))) {
       const socraticFocusText = mentionedLearningCommand ? "" : content === "/socratic" ? "" : content.slice("/socratic".length).trim();
       const socraticModal = new LearningSetupModal(plugin.app, (_m = (_l = mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.notePath) != null ? _l : fileContextManager == null ? void 0 : fileContextManager.getCurrentNotePath()) != null ? _m : null, "socratic", socraticFocusText, this.recordSource());
       const learningResult = await socraticModal.openAndWait();
-      if (!learningResult) {
+      if (!learningResult || !this.stillInConversation(conversationIdAtSend)) {
         return;
       }
       if (shouldUseInput) {
@@ -18241,7 +18262,7 @@ var InputController = class {
       await this.sendLearningSetupResult(learningResult, {
         promptPrefix: options == null ? void 0 : options.promptPrefix,
         editorContextOverride: options == null ? void 0 : options.editorContextOverride
-      });
+      }, conversationIdAtSend);
       return;
     }
     if (state.isStreaming) {
@@ -18327,7 +18348,7 @@ var InputController = class {
       welcomeEl.style.display = "none";
     }
     fileContextManager == null ? void 0 : fileContextManager.startSession();
-    const images = (imageContextManager == null ? void 0 : imageContextManager.getAttachedImages()) || [];
+    const images = (socraticSessionInit == null ? void 0 : socraticSessionInit.quizReview) ? [] : (imageContextManager == null ? void 0 : imageContextManager.getAttachedImages()) || [];
     const imagesForMessage = images.length > 0 ? [...images] : void 0;
     const userMsg = {
       id: this.deps.generateId(),
@@ -18516,15 +18537,15 @@ ${promptToSend}`;
       promptToSend = fileContextManager.transformContextMentions(promptToSend);
     }
     const externalContextSelector = this.deps.getExternalContextSelector();
-    const externalContextPaths = externalContextSelector == null ? void 0 : externalContextSelector.getExternalContexts();
+    const externalContextPaths = ((_v = state.socraticSession) == null ? void 0 : _v.quizReview) ? void 0 : externalContextSelector == null ? void 0 : externalContextSelector.getExternalContexts();
     if (externalContextPaths && externalContextPaths.length > 0) {
       queryOptions = {
         ...queryOptions,
         externalContextPaths
       };
     }
-    const webSearchEnabled = (_w = (_v = this.deps.getWebSearchToggle()) == null ? void 0 : _v.isEnabled()) != null ? _w : false;
-    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_y = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _y : (_x = state.socraticSession) == null ? void 0 : _x.enableWebSearch;
+    const webSearchEnabled = (_x = (_w = this.deps.getWebSearchToggle()) == null ? void 0 : _w.isEnabled()) != null ? _x : false;
+    const sessionWebSearchEnabled = quizRequest ? quizWebSearchEnabled : (_z = socraticSessionInit == null ? void 0 : socraticSessionInit.enableWebSearch) != null ? _z : (_y = state.socraticSession) == null ? void 0 : _y.enableWebSearch;
     const requestWebSearchEnabled = sessionWebSearchEnabled != null ? sessionWebSearchEnabled : webSearchEnabled;
     queryOptions = {
       ...queryOptions,
@@ -18577,7 +18598,7 @@ ${promptToSend}`;
         }
         if (streamOutcome !== "completed" && socraticSessionInit) {
           state.socraticSession = null;
-          (_A = (_z = this.deps).hideSocraticBanner) == null ? void 0 : _A.call(_z);
+          (_B = (_A = this.deps).hideSocraticBanner) == null ? void 0 : _B.call(_A);
         }
         if (state.quizSession && !quizSessionInit && streamOutcome === "completed" && !(options == null ? void 0 : options.quizHintRequest)) {
           if (state.quizSession.currentQuestion < state.quizSession.totalQuestions) {
@@ -18592,11 +18613,11 @@ ${promptToSend}`;
         if (state.socraticSession && !socraticSessionInit && streamOutcome === "completed") {
           const s = state.socraticSession;
           const updatedSession = { ...s, supportLevel: pendingSocraticSupportLevel != null ? pendingSocraticSupportLevel : s.supportLevel };
-          if ((_B = assistantMsg.socraticTurn) == null ? void 0 : _B.isSummary) {
+          if ((_C = assistantMsg.socraticTurn) == null ? void 0 : _C.isSummary) {
             assistantMsg.quizQuestion = null;
             snapshotCandidate = this.snapshotForSocratic(s, assistantMsg.id);
             state.socraticSession = null;
-            (_D = (_C = this.deps).hideSocraticBanner) == null ? void 0 : _D.call(_C);
+            (_E = (_D = this.deps).hideSocraticBanner) == null ? void 0 : _E.call(_D);
           } else if (updatedSession.isSummaryPhase) {
             state.socraticSession = updatedSession;
           } else if (updatedSession.currentDepth >= updatedSession.maxDepth) {
@@ -18609,7 +18630,7 @@ ${promptToSend}`;
           for (const message of state.messages) {
             if (message.id !== assistantMsg.id) message.quizReviewAvailable = false;
           }
-          const reviewButtons = (_F = (_E = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _F.call(_E, ".ocop-quiz-review-btn");
+          const reviewButtons = (_G = (_F = this.deps.getMessagesEl()).querySelectorAll) == null ? void 0 : _G.call(_F, ".ocop-quiz-review-btn");
           reviewButtons == null ? void 0 : reviewButtons.forEach((button) => {
             button.disabled = true;
           });
@@ -19905,6 +19926,7 @@ var LearningRecordSaveModal = class extends import_obsidian25.Modal {
     this.input = input;
     this.resolvePromise = null;
     this.pathEl = null;
+    this.problemEl = null;
     this.confirmEl = null;
     this.fileName = input.fileName;
     this.markdown = input.markdown;
@@ -19938,14 +19960,16 @@ var LearningRecordSaveModal = class extends import_obsidian25.Modal {
     this.pathEl = contentEl.createDiv({ cls: "setting-item-description" });
     const area = contentEl.createEl("textarea", { cls: "ocop-learning-record-text", attr: { rows: "16", "aria-label": "\uC800\uC7A5\uD560 \uB0B4\uC6A9" } });
     area.value = this.markdown;
+    this.problemEl = contentEl.createDiv({ cls: "ocop-learning-record-banner" });
     area.addEventListener("input", () => {
       this.markdown = area.value;
+      this.refresh();
     });
     const buttons = contentEl.createDiv({ cls: "ocop-setup-modal-buttons" });
     buttons.createEl("button", { text: "\uC800\uC7A5 \uC548 \uD568", cls: "ocop-cancel-btn" }).addEventListener("click", () => this.finish(null));
     this.confirmEl = buttons.createEl("button", { text: (_a = this.input.confirmLabel) != null ? _a : "\uC800\uC7A5", cls: "ocop-save-btn mod-cta" });
     this.confirmEl.addEventListener("click", () => {
-      if (!this.target()) return;
+      if (!this.target() || recordProblem(this.markdown)) return;
       this.finish({ fileName: this.fileName, markdown: this.markdown });
     });
     this.refresh();
@@ -19954,10 +19978,12 @@ var LearningRecordSaveModal = class extends import_obsidian25.Modal {
     return resolveRecordPath(this.input.folder, this.fileName.trim());
   }
   refresh() {
-    var _a;
+    var _a, _b;
     const target = this.target();
     (_a = this.pathEl) == null ? void 0 : _a.setText(target ? `\uC800\uC7A5 \uC704\uCE58: ${target}` : "\uD30C\uC77C \uC774\uB984\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (\uD3F4\uB354 \uAD6C\uBD84\uC790 \uC5C6\uC774 \uC785\uB825\uD558\uC138\uC694).");
-    if (this.confirmEl) this.confirmEl.disabled = !target;
+    const problem = recordProblem(this.markdown);
+    (_b = this.problemEl) == null ? void 0 : _b.setText(problem ? `\uD559\uC2B5 \uAE30\uB85D\uC73C\uB85C \uB2E4\uC2DC \uCC3E\uC744 \uC218 \uC5C6\uB294 \uB0B4\uC6A9\uC785\uB2C8\uB2E4: ${problem}. \uACE0\uCE58\uAC70\uB098 [\uC800\uC7A5 \uC548 \uD568]\uC744 \uB204\uB974\uC138\uC694.` : "");
+    if (this.confirmEl) this.confirmEl.disabled = !target || problem !== null;
   }
   onClose() {
     var _a;
@@ -20060,7 +20086,7 @@ var LearningRecordController = class {
         new import_obsidian26.Notice(`\uC800\uC7A5 \uACB0\uACFC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4(\uD30C\uC77C \uC5C6\uC74C): ${outcome.path}. \uC790\uB3D9\uC73C\uB85C \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
         break;
       case "rejected":
-        new import_obsidian26.Notice(outcome.reason === "intent-not-acknowledged" ? "\uC800\uC7A5 \uAE30\uB85D\uC744 \uC548\uC804\uD558\uAC8C \uB0A8\uAE30\uC9C0 \uBABB\uD574 \uB178\uD2B8\uB97C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC800\uC7A5\uD560 \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
+        new import_obsidian26.Notice(outcome.reason === "intent-not-acknowledged" ? "\uC800\uC7A5 \uAE30\uB85D\uC744 \uC548\uC804\uD558\uAC8C \uB0A8\uAE30\uC9C0 \uBABB\uD574 \uB178\uD2B8\uB97C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : outcome.reason === "invalid-record" ? "\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD(\uBA38\uB9AC\uB9D0\uC758 type, formatVersion, recordId)\uC774 \uB9DE\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC800\uC7A5\uD560 \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
         break;
     }
   }
@@ -22422,6 +22448,8 @@ var ObsidianCopilotPlugin = class extends import_obsidian32.Plugin {
     this.capturedPermissionMode = null;
     /** Invalidates consent dialogs opened before a lifecycle authority reset. */
     this.permissionAuthorityEpoch = 0;
+    /** The tail of each conversation's write stream; its writes run one at a time, in call order. */
+    this.conversationWrites = /* @__PURE__ */ new Map();
     /** Listeners told after a learning snapshot was acknowledged by storage (views sync their state). */
     this.snapshotListeners = /* @__PURE__ */ new Set();
     this.learningSaveService = null;
@@ -22796,7 +22824,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     this.conversations.unshift(conversation);
     this.activeConversationId = conversation.id;
     this.agentService.resetSession();
-    await this.storage.sessions.saveConversation(conversation);
+    await this.persistConversation(conversation);
     await this.storage.updateState({ activeConversationId: this.activeConversationId });
     return conversation;
   }
@@ -22816,7 +22844,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     const conversation = this.conversations[index];
     this.cleanupConversationImages(conversation);
     this.conversations.splice(index, 1);
-    await this.storage.sessions.deleteConversation(id);
+    await this.enqueueConversationTask(id, () => this.storage.sessions.deleteConversation(id));
     if (this.activeConversationId === id) {
       if (this.conversations.length > 0) {
         await this.switchConversation(this.conversations[0].id);
@@ -22831,14 +22859,37 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     if (!conversation) return;
     conversation.title = title.trim() || this.generateDefaultTitle();
     conversation.updatedAt = Date.now();
-    await this.storage.sessions.saveConversation(conversation);
+    await this.persistConversation(conversation);
   }
   /** Updates conversation properties (messages, sessionId, etc.). */
   async updateConversation(id, updates) {
+    var _a;
     const conversation = this.conversations.find((c) => c.id === id);
     if (!conversation) return;
-    Object.assign(conversation, updates, { updatedAt: Date.now() });
-    await this.storage.sessions.saveConversation(conversation);
+    const snapshots = new Map(conversation.messages.map((message) => [message.id, message.learningSnapshot]));
+    const messages = (_a = updates.messages) == null ? void 0 : _a.map((message) => {
+      const known = snapshots.get(message.id);
+      return known ? { ...message, learningSnapshot: known } : message;
+    });
+    Object.assign(conversation, updates, messages ? { messages } : {}, { updatedAt: Date.now() });
+    await this.persistConversation(conversation);
+  }
+  enqueueConversationTask(id, task) {
+    var _a;
+    const result = ((_a = this.conversationWrites.get(id)) != null ? _a : Promise.resolve()).then(task);
+    const tail = result.then(() => void 0, () => void 0);
+    this.conversationWrites.set(id, tail);
+    void tail.then(() => {
+      if (this.conversationWrites.get(id) === tail) this.conversationWrites.delete(id);
+    });
+    return result;
+  }
+  /** Writes the conversation as it is when its turn comes; a conversation deleted meanwhile is not brought back. */
+  persistConversation(conversation) {
+    return this.enqueueConversationTask(conversation.id, async () => {
+      if (!this.conversations.includes(conversation)) return;
+      await this.storage.sessions.saveConversation(conversation);
+    });
   }
   /** Returns the current active conversation. */
   getActiveConversation() {
@@ -22863,23 +22914,27 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
    * `attach` is the first write of a snapshot; `update` replaces an existing one.
    */
   async writeSnapshot(conversationId, messageId, next) {
-    var _a;
     const conversation = this.conversations.find((c) => c.id === conversationId);
-    const index = (_a = conversation == null ? void 0 : conversation.messages.findIndex((message) => message.id === messageId)) != null ? _a : -1;
-    if (!conversation || index === -1) return false;
-    const snapshot = next(conversation.messages[index].learningSnapshot);
-    if (!snapshot) return false;
-    const messages = conversation.messages.map((message, i) => i === index ? { ...message, learningSnapshot: snapshot } : message);
-    const candidate = { ...conversation, messages, updatedAt: Date.now() };
-    try {
-      await this.storage.sessions.saveConversation(candidate);
-    } catch (error) {
-      console.error("[ObsidianCopilot] Failed to persist learning snapshot:", error);
-      return false;
-    }
-    Object.assign(conversation, { messages, updatedAt: candidate.updatedAt });
-    for (const listener of this.snapshotListeners) listener(conversationId, messageId, snapshot);
-    return true;
+    if (!conversation || !conversation.messages.some((message) => message.id === messageId)) return false;
+    return this.enqueueConversationTask(conversationId, async () => {
+      if (!this.conversations.includes(conversation)) return false;
+      const current = conversation.messages.find((message) => message.id === messageId);
+      if (!current) return false;
+      const snapshot = next(current.learningSnapshot);
+      if (!snapshot) return false;
+      const withSnapshot = (messages) => messages.map((message) => message.id === messageId ? { ...message, learningSnapshot: snapshot } : message);
+      const candidate = { ...conversation, messages: withSnapshot(conversation.messages), updatedAt: Date.now() };
+      try {
+        await this.storage.sessions.saveConversation(candidate);
+      } catch (error) {
+        console.error("[ObsidianCopilot] Failed to persist learning snapshot:", error);
+        return false;
+      }
+      if (!this.conversations.includes(conversation) || !conversation.messages.some((message) => message.id === messageId)) return false;
+      Object.assign(conversation, { messages: withSnapshot(conversation.messages), updatedAt: candidate.updatedAt });
+      for (const listener of this.snapshotListeners) listener(conversationId, messageId, snapshot);
+      return true;
+    });
   }
   /** First persistence of a completed message's snapshot; false means nothing restart-safe exists. */
   attachLearningSnapshot(conversationId, messageId, snapshot) {

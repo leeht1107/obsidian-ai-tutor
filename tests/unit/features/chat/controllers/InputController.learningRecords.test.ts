@@ -29,9 +29,16 @@ interface Harness {
   replies: Array<string | Error>;
   prompts: string[];
   files: Map<string, string>;
+  imageManager: { clearImages: jest.Mock };
 }
 
-function harness(opts: { attachResult?: boolean } = {}): Harness {
+function harness(opts: {
+  attachResult?: boolean;
+  images?: any[];
+  externalContexts?: string[];
+  /** Awaited inside every vault.read, so a test can hold the fingerprint re-check open. */
+  readGate?: () => Promise<void>;
+} = {}): Harness {
   const state = new ChatState();
   state.currentConversationId = 'conv-1';
   const replies: Array<string | Error> = [];
@@ -47,6 +54,12 @@ function harness(opts: { attachResult?: boolean } = {}): Harness {
   const resetSession = jest.fn();
   let pending = '';
   const contentEl = {};
+  const imageManager = {
+    hasImages: () => (opts.images?.length ?? 0) > 0,
+    getAttachedImages: () => opts.images ?? [],
+    clearImages: jest.fn(),
+    setImages: jest.fn(),
+  };
   const vaultFiles = new Map<string, TFile>();
 
   const deps = {
@@ -58,10 +71,16 @@ function harness(opts: { attachResult?: boolean } = {}): Harness {
             if (!vaultFiles.has(path)) vaultFiles.set(path, Object.assign(new TFile(), { path }));
             return vaultFiles.get(path);
           },
-          read: async (file: TFile) => files.get(file.path) as string,
+          read: async (file: TFile) => {
+            await opts.readGate?.();
+            return files.get(file.path) as string;
+          },
           adapter: {
             exists: async (p: string) => files.has(p),
-            read: async (p: string) => files.get(p) as string,
+            read: async (p: string) => {
+              await opts.readGate?.();
+              return files.get(p) as string;
+            },
             stat: async (p: string) => ({ size: (files.get(p) ?? '').length }),
             list: async () => ({ files: [], folders: [] }),
           },
@@ -122,10 +141,10 @@ function harness(opts: { attachResult?: boolean } = {}): Harness {
       shouldSendCurrentNote: jest.fn().mockReturnValue(true),
       transformContextMentions: (t: string) => t,
     }) as any,
-    getImageContextManager: () => ({ hasImages: () => false, getAttachedImages: () => [], clearImages: jest.fn(), setImages: jest.fn() }) as any,
+    getImageContextManager: () => imageManager as any,
     getSlashCommandManager: () => null,
     getWebSearchToggle: () => ({ isEnabled: () => false }),
-    getExternalContextSelector: () => null,
+    getExternalContextSelector: () => (opts.externalContexts ? { getExternalContexts: () => opts.externalContexts as string[] } : null),
     getInstructionModeManager: () => null,
     getInstructionRefineService: () => null,
     getTitleGenerationService: () => null,
@@ -134,7 +153,7 @@ function harness(opts: { attachResult?: boolean } = {}): Harness {
     generateId: (() => { let n = 0; return () => `m${++n}`; })(),
     resetContextMeter: jest.fn(),
   } as InputControllerDeps;
-  return { deps, controller: new InputController(deps), state, attach, createNew, resetSession, replies, prompts, files };
+  return { deps, controller: new InputController(deps), state, attach, createNew, resetSession, replies, prompts, files, imageManager };
 }
 
 const quizInit = (total = 2) => ({
@@ -247,6 +266,8 @@ describe('completed Socratic', () => {
     ['fenced marker', '예시:\n```\n##SOCRATIC_SUMMARY##\n### 요약\n```\n계속해요'],
     ['quoted marker', '> ##SOCRATIC_SUMMARY##\n> ### 요약'],
     ['cut-off marker', '##SOCRATIC_SUMMARY##'],
+    ['four-space indented code', '코드 예시입니다:\n\n    ##SOCRATIC_SUMMARY##\n    ### 발견의 여정 요약\n    이 문장은 코드 예시다.'],
+    ['tab indented code', '코드 예시입니다:\n\n\t##SOCRATIC_SUMMARY##\n\t### 발견의 여정 요약\n\t이 문장은 코드 예시다.'],
   ])('does not treat a %s as completion', async (_name, reply) => {
     const h = harness();
     h.replies.push('첫 질문', reply);
@@ -433,5 +454,178 @@ describe('save and optional review are independent', () => {
     expect(second).toMatchObject({ mode: 'socratic', origin: 'quiz-review' });
     expect(second.completionMessageId).not.toBe(first.completionMessageId);
     expect(second.pendingSave).toBeUndefined();
+  });
+});
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+describe('learning setup stays bound to the conversation that started it', () => {
+  const SOURCE = '과목A/노트.md';
+  const quizResult = {
+    mode: 'quiz', prompt: 'quiz prompt A', displayContent: '/quiz · 노트', sourceInstruction: 'src', hasSourceNotes: true,
+    sourcePaths: [SOURCE], sourceFingerprints: { [SOURCE]: sha256('본문') }, totalQuestions: 2, focusText: '',
+    difficulty: '중', enableWebSearch: false, questionStyle: 'material',
+  };
+  const socraticResult = {
+    mode: 'socratic', prompt: 'socratic prompt A', displayContent: '/socratic · 노트', sourceInstruction: 'src', hasSourceNotes: true,
+    sourcePaths: [SOURCE], sourceFingerprints: { [SOURCE]: sha256('본문') }, focusText: '',
+    recordPaths: [] as string[], recordFingerprints: {} as Record<string, string>, referenceOnly: false,
+  };
+  const RECORD = '---\ntype: ai-tutor-learning-record\nformatVersion: 1\nrecordId: "r1"\n---\n\n# 기록\n';
+  const RECORD_PATH = '.ai-tutor/learning-records/a.md';
+
+  /** What ConversationController.switchTo does to the view state once streaming is not locked. */
+  const switchToB = (h: Harness) => {
+    h.state.currentConversationId = 'conv-B';
+    h.state.messages = [{ id: 'b1', role: 'user', content: 'B PRIVATE HISTORY', timestamp: 1 }];
+  };
+  const queryOf = (h: Harness) => (h.deps.plugin as any).agentService.query as jest.Mock;
+  const modalReturns = (result: object, during?: () => void) =>
+    jest.spyOn(LearningSetupModal.prototype, 'openAndWait').mockImplementation(async () => {
+      during?.();
+      return result as any;
+    });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('positive control: /quiz with no conversation change starts the Quiz in the initiating conversation', async () => {
+    const h = harness();
+    h.files.set(SOURCE, '본문');
+    h.replies.push(QUESTION(1, 2));
+    modalReturns(quizResult);
+    await h.controller.sendMessage({ content: '/quiz' });
+    expect(h.prompts).toHaveLength(1);
+    expect(h.state.quizSession?.totalQuestions).toBe(2);
+    expect(h.state.currentConversationId).toBe('conv-1');
+  });
+
+  it('/quiz: switching conversations while the source re-check is awaited aborts without sending B history', async () => {
+    const gate = deferred();
+    const started = deferred();
+    const h = harness({ readGate: () => { started.resolve(); return gate.promise; } });
+    h.files.set(SOURCE, '본문');
+    h.replies.push(QUESTION(1, 2));
+    modalReturns(quizResult);
+    const sending = h.controller.sendMessage({ content: '/quiz' });
+    await started.promise;
+    switchToB(h);
+    gate.resolve();
+    await sending;
+
+    expect(queryOf(h)).not.toHaveBeenCalled();
+    expect(h.state.quizSession).toBeNull();
+    expect(h.state.currentConversationId).toBe('conv-B');
+    expect(h.state.messages.map((m) => m.content)).toEqual(['B PRIVATE HISTORY']);
+    expect((Notice as any).messages.join('\n')).toContain('대화');
+  });
+
+  it('/socratic: switching conversations while the source re-check is awaited aborts', async () => {
+    const gate = deferred();
+    const started = deferred();
+    const h = harness({ readGate: () => { started.resolve(); return gate.promise; } });
+    h.files.set(SOURCE, '본문');
+    h.replies.push('첫 질문');
+    modalReturns(socraticResult);
+    const sending = h.controller.sendMessage({ content: '/socratic' });
+    await started.promise;
+    switchToB(h);
+    gate.resolve();
+    await sending;
+
+    expect(queryOf(h)).not.toHaveBeenCalled();
+    expect(h.state.socraticSession).toBeNull();
+    expect(h.state.messages.map((m) => m.content)).toEqual(['B PRIVATE HISTORY']);
+  });
+
+  it('/socratic saved-record start: switching during the record re-check never opens a fresh conversation or sends', async () => {
+    const gate = deferred();
+    const started = deferred();
+    const h = harness({ readGate: () => { started.resolve(); return gate.promise; } });
+    h.files.set(RECORD_PATH, RECORD);
+    h.files.set(SOURCE, '본문');
+    h.replies.push('첫 질문');
+    modalReturns({
+      ...socraticResult, sourcePaths: [], sourceFingerprints: {}, entry: 'review',
+      recordPaths: [RECORD_PATH], recordFingerprints: { [RECORD_PATH]: sha256(RECORD) },
+    });
+    const sending = h.controller.sendMessage({ content: '/socratic' });
+    await started.promise;
+    switchToB(h);
+    gate.resolve();
+    await sending;
+
+    expect(h.createNew).not.toHaveBeenCalled();
+    expect(queryOf(h)).not.toHaveBeenCalled();
+    expect(h.state.messages.map((m) => m.content)).toEqual(['B PRIVATE HISTORY']);
+  });
+
+  it.each([['/quiz', quizResult], ['/socratic', socraticResult]])('%s: a conversation change while the setup modal is open aborts', async (command, result) => {
+    const h = harness();
+    h.files.set(SOURCE, '본문');
+    h.replies.push('q');
+    modalReturns(result, () => switchToB(h));
+    await h.controller.sendMessage({ content: command });
+    expect(queryOf(h)).not.toHaveBeenCalled();
+    expect(h.state.quizSession).toBeNull();
+    expect(h.state.socraticSession).toBeNull();
+    expect(h.state.messages.map((m) => m.content)).toEqual(['B PRIVATE HISTORY']);
+  });
+});
+
+describe('live Quiz review does not carry unrelated sidecars', () => {
+  const IMAGE = { id: 'img1', name: 'other.png', mediaType: 'image/png', data: 'AAAA', size: 4, source: 'paste' };
+  const lastQuery = (h: Harness) => ((h.deps.plugin as any).agentService.query as jest.Mock).mock.calls.at(-1) as unknown[];
+
+  async function finishedQuizWithSidecars() {
+    const images: any[] = [];
+    const externalContexts: string[] = [];
+    const h = harness({ images, externalContexts });
+    await runQuiz(h, '### 정답 확인\n\n### 학습 요약 (AI 초안)\n- 요약');
+    const final = h.state.messages[h.state.messages.length - 1];
+    // Only now does the student put something unrelated in the composer / context selector.
+    images.push(IMAGE);
+    externalContexts.push('private/other-project.md');
+    h.imageManager.clearImages.mockClear();
+    return { h, final, images, externalContexts };
+  }
+
+  it('positive control: an ordinary message still carries the composer image and external context', async () => {
+    const h = harness({ images: [IMAGE], externalContexts: ['private/other-project.md'] });
+    h.replies.push('ok');
+    await h.controller.sendMessage({ content: '그냥 질문' });
+    const [, images, , options] = lastQuery(h) as [string, unknown[], unknown, { externalContextPaths?: string[] }];
+    expect(images).toEqual([IMAGE]);
+    expect(options.externalContextPaths).toEqual(['private/other-project.md']);
+  });
+
+  it('sends the review without the pending image or the current external context, and leaves the composer intact', async () => {
+    const { h, final, images } = await finishedQuizWithSidecars();
+    h.replies.push('복습 첫 질문');
+    expect(await h.controller.startQuizReview(final.id)).toBe(true);
+
+    const [, sentImages, previous, options] = lastQuery(h) as [string, unknown, Array<{ id: string }>, { externalContextPaths?: string[] }];
+    expect(sentImages).toBeUndefined();
+    expect(options.externalContextPaths).toBeUndefined();
+    const reviewUser = h.state.messages.find((m) => m.role === 'user' && m.content.includes('이 Quiz에서'));
+    expect(reviewUser?.images).toBeUndefined();
+    // The true Quiz transcript still travels.
+    expect(previous.map((m) => m.id)).toContain(final.id);
+    expect(h.state.socraticSession?.quizReview).toBe(true);
+    // The student's pending input is neither consumed nor cleared.
+    expect(h.imageManager.clearImages).not.toHaveBeenCalled();
+    expect(images).toEqual([IMAGE]);
+  });
+
+  it('keeps external contexts out of the later turns of the review as well', async () => {
+    const { h, final } = await finishedQuizWithSidecars();
+    h.replies.push('복습 첫 질문', '다음 질문');
+    await h.controller.startQuizReview(final.id);
+    await h.controller.sendMessage({ content: '내 답' });
+    const [, , , options] = lastQuery(h) as [string, unknown, unknown, { externalContextPaths?: string[] }];
+    expect(options.externalContextPaths).toBeUndefined();
   });
 });

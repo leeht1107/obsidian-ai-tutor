@@ -1,4 +1,11 @@
-import { LearningRecordSaveService, sha256 } from '../../../../../src/core/learning/records';
+import {
+  discoverRecords,
+  LearningRecordSaveService,
+  MAX_RECORD_FILE_BYTES,
+  parseRecordSummary,
+  recordProblem,
+  sha256,
+} from '../../../../../src/core/learning/records';
 import { MemoryFs, MemoryHost, quizSnapshot } from './helpers';
 
 const MARKDOWN = '---\ntype: ai-tutor-learning-record\nformatVersion: 1\nrecordId: "lr-1"\n---\n\n# 기록\n';
@@ -152,5 +159,64 @@ describe('LearningRecordSaveService', () => {
     await service.save(request());
     expect(fs.files.get('.ai-tutor/learning-records/other.md')).toBe('keep');
     expect(fs.files.get('과목A/노트1.md')).toBe('course');
+  });
+});
+
+describe('an edited record must stay a record the vault can find again', () => {
+  const INVALID: Array<[string, string]> = [
+    ['no frontmatter at all', '# 내가 편집한 기록\n\n본문만 남김'],
+    ['recordId deleted', MARKDOWN.replace('recordId: "lr-1"\n', '')],
+    ['recordId emptied', MARKDOWN.replace('"lr-1"', '""')],
+    ['recordId no longer a JSON string', MARKDOWN.replace('"lr-1"', 'lr-1')],
+    ['type deleted', MARKDOWN.replace('type: ai-tutor-learning-record\n', '')],
+    ['type changed', MARKDOWN.replace('ai-tutor-learning-record', 'note')],
+    ['formatVersion changed', MARKDOWN.replace('formatVersion: 1', 'formatVersion: 2')],
+    ['too large to be discovered again', `${MARKDOWN}${'x'.repeat(MAX_RECORD_FILE_BYTES)}`],
+  ];
+
+  it.each(INVALID)('%s: rejects before the intent is staged or any file is created', async (_name, markdown) => {
+    const { fs, host, service } = setup();
+    expect(await service.save(request({ markdown }))).toEqual({ kind: 'rejected', reason: 'invalid-record' });
+    expect(fs.createCalls).toBe(0);
+    expect(fs.files.size).toBe(0);
+    expect(host.commits).toBe(0);
+    expect(host.snapshot?.pendingSave).toBeUndefined();
+    expect(host.snapshot?.saved).toBeUndefined();
+  });
+
+  it('also rejects when the student chose to save again after an unresolved attempt', async () => {
+    const { fs, host, service } = setup();
+    expect(await service.save(request({ markdown: '# 본문만', freshChoice: true }))).toEqual({ kind: 'rejected', reason: 'invalid-record' });
+    expect(fs.createCalls).toBe(0);
+    expect(host.commits).toBe(0);
+  });
+
+  it('positive control: an edited but still valid record is saved with exactly the approved bytes and is discoverable', async () => {
+    const { fs, service } = setup();
+    const edited = MARKDOWN.replace('# 기록', '# 내가 고친 제목\n\n내 메모');
+    const outcome = await service.save(request({ markdown: edited }));
+    expect(outcome).toMatchObject({ kind: 'saved', path: PATH, recordId: 'lr-1' });
+    expect(fs.files.get(PATH)).toBe(edited);
+    const found = await discoverRecords(fs, '.ai-tutor/learning-records');
+    expect(found.records.map((r) => [r.path, r.recordId])).toEqual([[PATH, 'lr-1']]);
+  });
+
+  it('keeps read-only reconciliation of an earlier attempt independent of the new check', async () => {
+    const { fs, host, service } = setup();
+    expect(await service.save(request())).toMatchObject({ kind: 'saved' });
+    expect(await service.save(request({ markdown: '# 본문만' }))).toEqual({ kind: 'already-saved', path: PATH });
+    expect(fs.createCalls).toBe(1);
+    expect(host.snapshot?.saved?.path).toBe(PATH);
+  });
+
+  it('recordProblem agrees with parseRecordSummary on what counts as a record', () => {
+    for (const [, markdown] of INVALID) {
+      const summary = parseRecordSummary('p.md', markdown, new TextEncoder().encode(markdown).length);
+      const tooLarge = new TextEncoder().encode(markdown).length > MAX_RECORD_FILE_BYTES;
+      expect(recordProblem(markdown)).not.toBeNull();
+      expect(summary === null || tooLarge).toBe(true);
+    }
+    expect(recordProblem(MARKDOWN)).toBeNull();
+    expect(parseRecordSummary('p.md', MARKDOWN, MARKDOWN.length)).not.toBeNull();
   });
 });

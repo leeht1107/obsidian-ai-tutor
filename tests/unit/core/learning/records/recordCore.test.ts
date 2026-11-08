@@ -4,6 +4,7 @@ import {
   buildRecordDraft,
   discoverRecords,
   escapeRecordText,
+  MAX_RECORD_FILE_BYTES,
   MAX_SELECTED_RECORD_BYTES,
   normalizeVaultPath,
   parseRecordSummary,
@@ -209,5 +210,63 @@ describe('record context', () => {
     fs.files.set(`${FOLDER}/a.md`, 'not a record');
     await expect(readRecordBodies(fs, [`${FOLDER}/a.md`])).rejects.toThrow('형식');
     await expect(readRecordBodies(fs, ['../x.md'])).rejects.toThrow('경로');
+  });
+
+  describe('bounded fresh read (F6)', () => {
+    const big = (extra: number) => record('big', 'x'.repeat(extra));
+
+    function traced(fs: MemoryFs): string[] {
+      const order: string[] = [];
+      const read = fs.read.bind(fs);
+      const stat = fs.stat.bind(fs);
+      fs.read = async (path) => { order.push('read'); return read(path); };
+      fs.stat = async (path) => { order.push('stat'); return stat(path); };
+      return order;
+    }
+
+    it('checks the size before reading the file and never reads one over MAX_RECORD_FILE_BYTES', async () => {
+      const fs = new MemoryFs();
+      fs.files.set(`${FOLDER}/a.md`, big(MAX_RECORD_FILE_BYTES));
+      const order = traced(fs);
+      await expect(readRecordBodies(fs, [`${FOLDER}/a.md`])).rejects.toThrow('너무 큽니다');
+      expect(order).toEqual(['stat']);
+    });
+
+    it('positive control: a normal record is statted first, then read, and is unchanged', async () => {
+      const fs = new MemoryFs();
+      fs.files.set(`${FOLDER}/a.md`, record('aa'));
+      const order = traced(fs);
+      const [body] = await readRecordBodies(fs, [`${FOLDER}/a.md`]);
+      expect(order).toEqual(['stat', 'read']);
+      expect(body.recordId).toBe('aa');
+    });
+
+    it('rejects a record that is exactly one byte over and accepts one exactly at the limit', async () => {
+      const fs = new MemoryFs();
+      const base = Buffer.byteLength(record('lim'));
+      fs.files.set(`${FOLDER}/at.md`, record('lim', 'x'.repeat(MAX_RECORD_FILE_BYTES - base)));
+      fs.files.set(`${FOLDER}/over.md`, record('lim', 'x'.repeat(MAX_RECORD_FILE_BYTES - base + 1)));
+      expect(Buffer.byteLength(fs.files.get(`${FOLDER}/at.md`) as string)).toBe(MAX_RECORD_FILE_BYTES);
+      await expect(readRecordBodies(fs, [`${FOLDER}/at.md`])).resolves.toHaveLength(1);
+      await expect(readRecordBodies(fs, [`${FOLDER}/over.md`])).rejects.toThrow('너무 큽니다');
+    });
+
+    it('still refuses a file that grew between the size check and the read (a stat is not an atomic bound)', async () => {
+      const fs = new MemoryFs();
+      fs.files.set(`${FOLDER}/a.md`, record('aa'));
+      const read = fs.read.bind(fs);
+      fs.read = async (path) => {
+        fs.files.set(path, big(MAX_RECORD_FILE_BYTES));
+        return read(path);
+      };
+      await expect(readRecordBodies(fs, [`${FOLDER}/a.md`])).rejects.toThrow('너무 큽니다');
+    });
+
+    it('does not silently drop or truncate the other selected records', async () => {
+      const fs = new MemoryFs();
+      fs.files.set(`${FOLDER}/a.md`, record('aa'));
+      fs.files.set(`${FOLDER}/b.md`, big(MAX_RECORD_FILE_BYTES));
+      await expect(readRecordBodies(fs, [`${FOLDER}/a.md`, `${FOLDER}/b.md`])).rejects.toThrow('너무 큽니다');
+    });
   });
 });

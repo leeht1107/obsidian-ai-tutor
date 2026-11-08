@@ -99,7 +99,9 @@ export class LearningRecordController {
       case 'rejected':
         new Notice(outcome.reason === 'intent-not-acknowledged'
           ? '저장 기록을 안전하게 남기지 못해 노트를 만들지 않았습니다.'
-          : '저장할 수 없는 요청입니다.');
+          : outcome.reason === 'invalid-record'
+            ? '학습 기록 형식(머리말의 type, formatVersion, recordId)이 맞지 않아 저장하지 않았습니다.'
+            : '저장할 수 없는 요청입니다.');
         break;
     }
   }
