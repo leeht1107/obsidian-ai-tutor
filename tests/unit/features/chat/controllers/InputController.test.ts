@@ -577,6 +577,46 @@ describe('InputController - Message Queue', () => {
       expect(deps.state.messages[1].requestOutcome).toBe('failed');
     });
 
+    // spar 02 F7: slash expansion ran inline bash before the review gate made the turn
+    // read-only, so `!\`printf … > note.md\`` could rewrite the note with no hunk accepted.
+    it.each([
+      ['a Copilot allowlist with Bash', 'copilot', ['view', 'bash'], 'active.md', false],
+      ['no allowlist', 'claude', undefined, 'active.md', false],
+      ['no current note (unchanged policy)', 'claude', undefined, null, true],
+    ] as const)('inline bash on a current-note review turn with %s', async (_label, provider, allowedTools, notePath, enabled) => {
+      deps.plugin.settings.permissionMode = 'agent';
+      (deps.plugin.settings as any).selectedProvider = provider;
+      (deps.plugin.settings as any).blanketWriteAcknowledged = [provider];
+      (deps.plugin.settings as any).enableInlineBash = true;
+      let seenBashOptions: any;
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'fix', args: [] }),
+        expandCommand: jest.fn().mockImplementation((_cmd: any, _args: any, options: any) => {
+          seenBashOptions = options.bash;
+          return Promise.resolve({ expandedPrompt: 'expanded', allowedTools, errors: [] });
+        }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{
+        id: 'fix', name: 'fix', content: "다듬어 줘\n!`printf 'x' > note.md`", ...(allowedTools ? { allowedTools: [...allowedTools] } : {}),
+      }];
+      (controller as any).readEditReviewBase = jest.fn().mockResolvedValue('# 강의\n');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue(notePath),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(notePath !== null),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+
+      await controller.sendMessage({ content: '/fix' });
+
+      expect(slashCommandManager.expandCommand).toHaveBeenCalled();
+      expect(seenBashOptions.enabled).toBe(enabled);
+    });
+
     it('does not enable inline bash when a Copilot slash allowlist omits Bash', async () => {
       deps.plugin.settings.permissionMode = 'agent';
       (deps.plugin.settings as any).selectedProvider = 'copilot';

@@ -18768,6 +18768,7 @@ var InputController = class {
     const isolatedLearning = Boolean(((_r = state.socraticSession) == null ? void 0 : _r.quizReview) || ((_s = state.socraticSession) == null ? void 0 : _s.recordEntry));
     const shouldSendCurrentNote = !isolatedLearning && ((_t = fileContextManager == null ? void 0 : fileContextManager.shouldSendCurrentNote(currentNotePath)) != null ? _t : false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
+    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath && this.shouldReviewEdits(currentNotePath, learningRequest));
     let slashTemplateCurrentNoteScope = false;
     const displayContent = content;
     let queryOptions;
@@ -18798,7 +18799,7 @@ var InputController = class {
                   // The raw setting is not enough: a provider still awaiting blanket-write
                   // consent (reachable by switching providers while in Agent) must also keep
                   // bash read-only, or it runs with full authority while the toggle shows Ask.
-                  enabled: !learningRequest && slashAllowsInlineBash(parsedAllowedTools) && plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
+                  enabled: !learningRequest && !editReviewIntended && slashAllowsInlineBash(parsedAllowedTools) && plugin.settings.enableInlineBash && resolveEffectivePermissionMode(
                     plugin.settings.permissionMode,
                     plugin.settings.selectedProvider,
                     plugin.settings.blanketWriteAcknowledged
@@ -18848,7 +18849,6 @@ ${content}
     if (editorContext) {
       promptToSend = prependEditorContext(promptToSend, editorContext);
     }
-    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath && this.shouldReviewEdits(currentNotePath, learningRequest));
     const editReviewBase = editReviewIntended && currentNotePath ? await this.readEditReviewBase(currentNotePath) : null;
     if (editReviewIntended) queryOptions = { ...queryOptions, readOnly: true };
     if (editReviewBase !== null && currentNotePath) {

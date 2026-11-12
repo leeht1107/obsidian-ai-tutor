@@ -698,6 +698,11 @@ export class InputController {
     const shouldSendCurrentNote = !isolatedLearning
       && (fileContextManager?.shouldSendCurrentNote(currentNotePath) ?? false);
     const rawCurrentNoteScope = this.shouldUseCurrentNoteOnlyScope(content);
+    // Agent mode on a note: the CLI runs read-only and proposes a revised note; the student
+    // accepts blocks on the review card and the plugin writes only those (edit-review/).
+    // Decided before slash expansion, whose inline bash would otherwise write first (spar 02 F7).
+    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath
+      && this.shouldReviewEdits(currentNotePath, learningRequest));
     let slashTemplateCurrentNoteScope = false;
 
     // Check for slash command and expand it
@@ -735,6 +740,7 @@ export class InputController {
                 // consent (reachable by switching providers while in Agent) must also keep
                 // bash read-only, or it runs with full authority while the toggle shows Ask.
                 enabled: !learningRequest
+                  && !editReviewIntended
                   && slashAllowsInlineBash(parsedAllowedTools)
                   && plugin.settings.enableInlineBash
                   && resolveEffectivePermissionMode(
@@ -809,10 +815,6 @@ export class InputController {
       promptToSend = prependEditorContext(promptToSend, editorContext);
     }
 
-    // Agent mode on a note: the CLI runs read-only and proposes a revised note; the student
-    // accepts blocks on the review card and the plugin writes only those (edit-review/).
-    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath
-      && this.shouldReviewEdits(currentNotePath, learningRequest));
     const editReviewBase = editReviewIntended && currentNotePath
       ? await this.readEditReviewBase(currentNotePath)
       : null;
