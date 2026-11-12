@@ -150,6 +150,11 @@ export class ObsidianCopilotView extends ItemView {
 
     this.initializeControllers();
     this.wireEventHandlers();
+    this.renderer.setEditReviewHandlers({
+      onChange: () => { void this.conversationController?.save(); },
+      resend: (request) => { void this.inputController?.sendMessage({ content: request }); },
+      isBusy: () => this.state.isStreaming,
+    });
 
     this.selectionController?.start();
 

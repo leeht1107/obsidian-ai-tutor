@@ -721,6 +721,7 @@ describe('InputController - Message Queue', () => {
       (deps.plugin.settings as any).allowUnsafeAgyAgent = allowUnsafe;
       (arrange as () => void)();
       (controller as any).readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
+      (controller as any).readEditReviewBase = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
       deps.getFileContextManager = () => ({
         startSession: jest.fn(),
         getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
@@ -739,13 +740,11 @@ describe('InputController - Message Queue', () => {
       expect(promptSeen).toContain('ACTIVE NOTE BODY');
     });
 
-    it('keeps agy path-only when it is really dispatched in agent mode', async () => {
-      (deps.plugin.settings as any).selectedProvider = 'agy';
+    it('stays read-only when the note cannot be read for review', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
       (deps.plugin.settings as any).permissionMode = 'agent';
-      (deps.plugin.settings as any).blanketWriteAcknowledged = ['agy'];
-      (deps.plugin.settings as any).allowUnsafeAgyAgent = true;
-      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
-      (controller as any).readCurrentNoteContent = readCurrentNoteContent;
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['claude'];
+      (controller as any).readEditReviewBase = jest.fn().mockResolvedValue(null);
       deps.getFileContextManager = () => ({
         startSession: jest.fn(),
         getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
@@ -753,11 +752,70 @@ describe('InputController - Message Queue', () => {
         markCurrentNoteSent: jest.fn(),
         transformContextMentions: (text: string) => text,
       }) as any;
-      deps.plugin.agentService.query = jest.fn().mockImplementation(() => createMockStream([{ type: 'done' }]));
+      let optionsSeen: any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation((_p: string, _i: unknown, _h: unknown, options: unknown) => {
+        optionsSeen = options;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '제목 고쳐 줘' });
+
+      expect(optionsSeen.readOnly).toBe(true);
+    });
+
+    it('sends the note body exactly as the review base, untouched by mention rewriting', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'claude';
+      (deps.plugin.settings as any).permissionMode = 'agent';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['claude'];
+      const body = '# 제목\n참고: @ref.md\n';
+      (controller as any).readEditReviewBase = jest.fn().mockResolvedValue(body);
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text.replace(/@ref\.md/g, 'ref.md'),
+      }) as any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string) => {
+        promptSeen = prompt;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '@ref.md 참고해서 제목 고쳐 줘' });
+
+      expect(promptSeen).toContain('참고: @ref.md');
+    });
+
+    it('sends the note body with the edit-review instruction and read-only in agent mode', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'agy';
+      (deps.plugin.settings as any).permissionMode = 'agent';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['agy'];
+      (deps.plugin.settings as any).allowUnsafeAgyAgent = true;
+      const readCurrentNoteContent = jest.fn().mockResolvedValue('ACTIVE NOTE BODY');
+      (controller as any).readEditReviewBase = readCurrentNoteContent;
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let promptSeen = '';
+      let optionsSeen: any;
+      deps.plugin.agentService.query = jest.fn().mockImplementation((prompt: string, _images: unknown, _history: unknown, options: unknown) => {
+        promptSeen = prompt;
+        optionsSeen = options;
+        return createMockStream([{ type: 'done' }]);
+      });
 
       await controller.sendMessage({ content: '이 내용이 뭐야?' });
 
-      expect(readCurrentNoteContent).not.toHaveBeenCalled();
+      // Agent mode no longer lets the CLI write: it proposes, the student accepts blocks.
+      expect(readCurrentNoteContent).toHaveBeenCalledWith('active.md');
+      expect(promptSeen).toContain('<edit_review>');
+      expect(promptSeen).toContain('ACTIVE NOTE BODY');
+      expect(optionsSeen.readOnly).toBe(true);
     });
 
     it('does not read a current note the user excluded, even for agy in ask mode', async () => {

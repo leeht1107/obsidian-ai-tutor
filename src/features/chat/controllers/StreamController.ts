@@ -39,6 +39,7 @@ import {
   updateToolCallResult,
   updateWriteEditWithDiff,
 } from '../../../ui';
+import { readProposalIntoReview } from '../../edit-review/editReview';
 import type { MessageRenderer } from '../rendering/MessageRenderer';
 import type { AsyncSubagentManager } from '../services/AsyncSubagentManager';
 import type { ChatState } from '../state/ChatState';
@@ -427,9 +428,13 @@ export class StreamController {
   /** Finalizes the current text block. */
   async finalizeCurrentTextBlock(msg?: ChatMessage): Promise<void> {
     const { state, renderer } = this.deps;
-    const finalizedText = msg?.role === 'assistant'
+    let finalizedText = msg?.role === 'assistant'
       ? normalizeQuizMarkdown(state.currentTextContent)
       : state.currentTextContent;
+    // An Agent-mode edit proposal carries a full copy of the note; the review card shows it instead.
+    if (msg?.editReview && finalizedText) {
+      finalizedText = readProposalIntoReview(msg.editReview, finalizedText) ?? finalizedText;
+    }
     if (msg && finalizedText) {
       msg.contentBlocks = msg.contentBlocks || [];
       msg.contentBlocks.push({ type: 'text', content: finalizedText });

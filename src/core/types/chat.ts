@@ -84,6 +84,29 @@ export interface SocraticTurnMeta {
   isSummary: boolean;
 }
 
+/** One changed block of an Agent-mode edit proposal, in 0-based original-line coordinates. */
+export interface ReviewHunk {
+  id: string;
+  /** First original line this hunk replaces (for a pure insert: the line it goes before). */
+  oldStart: number;
+  oldLines: string[];
+  newLines: string[];
+}
+
+/** Agent-mode edit review attached to the assistant turn that proposed it. */
+export interface EditReviewState {
+  notePath: string;
+  /** The exact note text the CLI was given; apply refuses when the note no longer matches. */
+  base: string;
+  /** The student's request, re-sent as a new turn when the note changed before apply. */
+  request: string;
+  hunks: ReviewHunk[];
+  decisions: Record<string, 'accepted' | 'rejected'>;
+  /** awaiting: answer not read yet; pending: student is reviewing. */
+  status: 'awaiting' | 'pending' | 'applied' | 'malformed' | 'too_large';
+  appliedIds?: string[];
+}
+
 /** Chat message with content, tool calls, and attachments. */
 export interface ChatMessage {
   id: string;
@@ -117,6 +140,8 @@ export interface ChatMessage {
   learningSnapshot?: CompletedLearningSnapshot;
   /** Whether this assistant turn finished; failed or interrupted partials are not replayed as answers. */
   requestOutcome?: 'completed' | 'failed' | 'interrupted';
+  /** Agent-mode edit proposal for the current note; absent when the turn proposed no edit. */
+  editReview?: EditReviewState;
 }
 
 /** Persisted conversation with messages and session state. */

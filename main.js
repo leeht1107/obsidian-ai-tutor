@@ -3380,11 +3380,11 @@ async function removeSkill(app, skillName, providerId, host) {
   try {
     const skillPath = path16.join(skillsRoot, skillName);
     if (!fs13.existsSync(skillPath)) {
-      new import_obsidian28.Notice(`Skill "${skillName}" not found`);
+      new import_obsidian29.Notice(`Skill "${skillName}" not found`);
       return false;
     }
     fs13.rmSync(skillPath, { recursive: true });
-    new import_obsidian28.Notice(`Skill "${skillName}" removed`);
+    new import_obsidian29.Notice(`Skill "${skillName}" removed`);
     return true;
   } catch (error) {
     console.error(`Failed to remove skill "${skillName}":`, error);
@@ -3406,7 +3406,7 @@ async function installObsidianSkills(app, providerId, host) {
       writeBundledSkill(skillsBasePath, "obsidian-markdown", OBSIDIAN_MARKDOWN_SKILL),
       writeBundledSkill(skillsBasePath, "json-canvas", JSON_CANVAS_SKILL)
     ].filter((result) => result === "kept").length;
-    new import_obsidian28.Notice(kept > 0 ? `\uAC19\uC740 \uC774\uB984\uC758 \uC2A4\uD0AC\uC774 \uC774\uBBF8 \uC788\uC5B4 ${kept}\uAC1C\uB294 \uADF8\uB300\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.` : "\u2705 Obsidian \uC2A4\uD0AC\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.");
+    new import_obsidian29.Notice(kept > 0 ? `\uAC19\uC740 \uC774\uB984\uC758 \uC2A4\uD0AC\uC774 \uC774\uBBF8 \uC788\uC5B4 ${kept}\uAC1C\uB294 \uADF8\uB300\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.` : "\u2705 Obsidian \uC2A4\uD0AC\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.");
     return true;
   } catch (error) {
     console.error("Failed to install Obsidian Skills:", error);
@@ -3437,7 +3437,7 @@ async function uninstallObsidianSkills(app, providerId, host) {
       if (!fs13.existsSync(file) || !isPluginOwnedSkill(fs13.readFileSync(file, "utf-8"))) continue;
       fs13.rmSync(path16.join(skillsBasePath, name), { recursive: true });
     }
-    new import_obsidian28.Notice("Obsidian Skills removed");
+    new import_obsidian29.Notice("Obsidian Skills removed");
     return true;
   } catch (error) {
     console.error("Failed to uninstall Obsidian Skills:", error);
@@ -3452,7 +3452,7 @@ async function uninstallObsidianSkills(app, providerId, host) {
 }
 async function getRepoDefaultBranch(owner, repo) {
   try {
-    const response = await (0, import_obsidian28.requestUrl)({
+    const response = await (0, import_obsidian29.requestUrl)({
       url: `https://api.github.com/repos/${owner}/${repo}`,
       throw: false
     });
@@ -3467,7 +3467,7 @@ async function getRepoDefaultBranch(owner, repo) {
 }
 async function checkRawUrl(url) {
   try {
-    const res = await (0, import_obsidian28.requestUrl)({ url, throw: false });
+    const res = await (0, import_obsidian29.requestUrl)({ url, throw: false });
     return res.status === 200;
   } catch (e) {
     return false;
@@ -3549,7 +3549,7 @@ async function collectFolderFiles(folder, listDir, maxFiles = MAX_SKILL_FILES) {
 }
 async function listGitHubDir(folder, dirPath) {
   const url = `https://api.github.com/repos/${folder.owner}/${folder.repo}/contents/${dirPath}?ref=${folder.ref}`;
-  const response = await (0, import_obsidian28.requestUrl)({ url, throw: false });
+  const response = await (0, import_obsidian29.requestUrl)({ url, throw: false });
   if (response.status === 403 || response.status === 429) {
     throw new Error("GitHub is rate-limiting this computer. Wait an hour, or install the skill folder by hand.");
   }
@@ -3562,13 +3562,13 @@ async function listGitHubDir(folder, dirPath) {
 }
 async function installSkillFolder(folder, providerId, vaultPath) {
   var _a, _b, _c;
-  new import_obsidian28.Notice(`Reading ${folder.dir}...`);
+  new import_obsidian29.Notice(`Reading ${folder.dir}...`);
   const files = await collectFolderFiles(folder, (dirPath) => listGitHubDir(folder, dirPath));
   const manifestFile = files.find((file) => file.relativePath === "SKILL.md");
   if (((_a = manifestFile.size) != null ? _a : 0) > MAX_SKILL_BYTES) {
     throw new Error(`That folder's SKILL.md is too large to install (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
   }
-  const manifest = await (0, import_obsidian28.requestUrl)({ url: manifestFile.downloadUrl, throw: false });
+  const manifest = await (0, import_obsidian29.requestUrl)({ url: manifestFile.downloadUrl, throw: false });
   if (manifest.status !== 200) throw new Error(`Failed to download SKILL.md (status ${manifest.status}).`);
   if (manifest.arrayBuffer.byteLength > MAX_SKILL_BYTES) {
     throw new Error(`That folder's SKILL.md is too large to install (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
@@ -3595,7 +3595,7 @@ async function installSkillFolder(folder, providerId, vaultPath) {
   }
   fs13.mkdirSync(stagingDir, { recursive: true });
   try {
-    new import_obsidian28.Notice(`Downloading ${files.length} files...`);
+    new import_obsidian29.Notice(`Downloading ${files.length} files...`);
     let bytes = manifest.arrayBuffer.byteLength;
     for (const file of files) {
       const target = resolveSkillFilePath(stagingDir, file.relativePath);
@@ -3605,7 +3605,7 @@ async function installSkillFolder(folder, providerId, vaultPath) {
         if (bytes + ((_c = file.size) != null ? _c : 0) > MAX_SKILL_BYTES) {
           throw new Error(`That folder is too large to install as one skill (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
         }
-        const response = await (0, import_obsidian28.requestUrl)({ url: file.downloadUrl, throw: false });
+        const response = await (0, import_obsidian29.requestUrl)({ url: file.downloadUrl, throw: false });
         if (response.status !== 200) {
           throw new Error(`Failed to download ${file.relativePath} (status ${response.status}).`);
         }
@@ -3638,13 +3638,13 @@ async function installSkillFolder(folder, providerId, vaultPath) {
         fs13.rmSync(replacedDir, { recursive: true, force: true });
         fs13.renameSync(backupDir, replacedDir);
       } else {
-        new import_obsidian28.Notice(`Your previous copy is in "${REPLACING_PREFIX}${skillName}" \u2014 "${REPLACED_PREFIX}${skillName}" was already taken.`);
+        new import_obsidian29.Notice(`Your previous copy is in "${REPLACING_PREFIX}${skillName}" \u2014 "${REPLACED_PREFIX}${skillName}" was already taken.`);
       }
     }
   } finally {
     fs13.rmSync(stagingDir, { recursive: true, force: true });
   }
-  new import_obsidian28.Notice(`\u2705 Skill "${skillName}" installed (${files.length} files).`);
+  new import_obsidian29.Notice(`\u2705 Skill "${skillName}" installed (${files.length} files).`);
   return true;
 }
 async function installSkillFromUrl(app, url, providerId, host) {
@@ -3672,7 +3672,7 @@ async function installSkillFromUrl(app, url, providerId, host) {
           rawUrl = rawUrl.replace(/\/$/, "") + "/SKILL.md";
         }
       } else {
-        new import_obsidian28.Notice("Searching for SKILL.md in repository...");
+        new import_obsidian29.Notice("Searching for SKILL.md in repository...");
         const foundUrl = await findSkillInRepo(url);
         if (foundUrl) {
           rawUrl = foundUrl;
@@ -3681,8 +3681,8 @@ async function installSkillFromUrl(app, url, providerId, host) {
         }
       }
     }
-    new import_obsidian28.Notice(`Downloading skill from ${rawUrl}...`);
-    const response = await (0, import_obsidian28.requestUrl)({ url: rawUrl });
+    new import_obsidian29.Notice(`Downloading skill from ${rawUrl}...`);
+    const response = await (0, import_obsidian29.requestUrl)({ url: rawUrl });
     if (response.status !== 200) {
       throw new Error(`Failed to download skill (Status: ${response.status}). Please check the URL.`);
     }
@@ -3704,7 +3704,7 @@ async function installSkillFromUrl(app, url, providerId, host) {
       fs13.mkdirSync(skillDir, { recursive: true });
     }
     fs13.writeFileSync(path16.join(skillDir, "SKILL.md"), content, "utf-8");
-    new import_obsidian28.Notice(`\u2705 Skill "${skillName}" installed successfully!`);
+    new import_obsidian29.Notice(`\u2705 Skill "${skillName}" installed successfully!`);
     return true;
   } catch (error) {
     console.error("Failed to install skill from URL:", error);
@@ -3720,11 +3720,11 @@ ${error instanceof Error ? (_a = error.stack) != null ? _a : error.message : Str
     return false;
   }
 }
-var fs13, import_obsidian28, os8, path16, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
+var fs13, import_obsidian29, os8, path16, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
 var init_ObsidianSkillsInstaller = __esm({
   "src/features/skills/ObsidianSkillsInstaller.ts"() {
     fs13 = __toESM(require("fs"));
-    import_obsidian28 = require("obsidian");
+    import_obsidian29 = require("obsidian");
     os8 = __toESM(require("os"));
     path16 = __toESM(require("path"));
     init_FailureReport();
@@ -4040,11 +4040,11 @@ __export(SecretMoveNoticeModal_exports, {
 function showSecretMoveNotice(app) {
   new SecretMoveNoticeModal(app).open();
 }
-var import_obsidian31, SecretMoveNoticeModal;
+var import_obsidian32, SecretMoveNoticeModal;
 var init_SecretMoveNoticeModal = __esm({
   "src/ui/modals/SecretMoveNoticeModal.ts"() {
-    import_obsidian31 = require("obsidian");
-    SecretMoveNoticeModal = class extends import_obsidian31.Modal {
+    import_obsidian32 = require("obsidian");
+    SecretMoveNoticeModal = class extends import_obsidian32.Modal {
       onOpen() {
         const { contentEl } = this;
         contentEl.empty();
@@ -4063,7 +4063,7 @@ var init_SecretMoveNoticeModal = __esm({
           text: "\uD55C \uAC00\uC9C0 \uB354 \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uAE4C\uC9C0 \uC774 \uAE08\uACE0\uB97C OneDrive\xB7Dropbox\xB7GitHub \uAC19\uC740 \uACF3\uC5D0 \uC62C\uB9B0 \uC801\uC774 \uC788\uB2E4\uBA74, \uC608\uC804 \uC0AC\uBCF8\uC774\uB098 \uBC84\uC804 \uAE30\uB85D \uC548\uC5D0\uB294 \uC778\uC99D \uC815\uBCF4\uAC00 \uADF8\uB300\uB85C \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uBC29\uAE08\uC758 \uC774\uB3D9\uC740 \uC9C0\uAE08 \uD30C\uC77C\uB9CC \uC815\uB9AC\uD558\uBBC0\uB85C, \uADF8\uB7F0 \uC801\uC774 \uC788\uB2E4\uBA74 \uD574\uB2F9 \uD1A0\uD070\xB7API \uD0A4\uB97C \uBC1C\uAE09\uCC98\uC5D0\uC11C \uD3D0\uAE30\uD558\uACE0 \uC0C8\uB85C \uC7AC\uBC1C\uAE09\uBC1B\uC73C\uC2DC\uAE38 \uAD8C\uD569\uB2C8\uB2E4.",
           cls: "setting-item-description"
         });
-        new import_obsidian31.Setting(contentEl).addButton(
+        new import_obsidian32.Setting(contentEl).addButton(
           (button) => button.setButtonText("\uC54C\uACA0\uC2B5\uB2C8\uB2E4").setCta().onClick(() => this.close())
         );
       }
@@ -4080,7 +4080,7 @@ __export(main_exports, {
   default: () => ObsidianCopilotPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian32 = require("obsidian");
+var import_obsidian33 = require("obsidian");
 
 // src/assets/icon.ts
 var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Obsidian AI Tutor">
@@ -7777,7 +7777,7 @@ var ObsidianRecordFs = class {
 };
 
 // src/features/chat/ObsidianCopilotView.ts
-var import_obsidian27 = require("obsidian");
+var import_obsidian28 = require("obsidian");
 
 // src/core/commands/SlashCommandManager.ts
 var import_child_process7 = require("child_process");
@@ -11161,12 +11161,12 @@ var ExternalContextSelector = class {
   }
   updateDisplay() {
     if (!this.iconEl || !this.badgeEl) return;
-    const count = this.externalContextPaths.length;
-    if (count > 0) {
+    const count2 = this.externalContextPaths.length;
+    if (count2 > 0) {
       this.iconEl.addClass("active");
-      this.iconEl.setAttribute("title", `${count} external reference folder${count > 1 ? "s" : ""} (click to add more)`);
-      if (count > 1) {
-        this.badgeEl.setText(String(count));
+      this.iconEl.setAttribute("title", `${count2} external reference folder${count2 > 1 ? "s" : ""} (click to add more)`);
+      if (count2 > 1) {
+        this.badgeEl.setText(String(count2));
         this.badgeEl.addClass("visible");
       } else {
         this.badgeEl.removeClass("visible");
@@ -14569,8 +14569,8 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
   }
   renderQuizSettings() {
     new import_obsidian13.Setting(this.contentEl).setName("\uBB38\uC81C \uC218").addDropdown((dropdown) => {
-      for (const count of ["3", "4", "5", "6", "7", "8", "9", "10"]) {
-        dropdown.addOption(count, `${count}\uBB38\uC81C`);
+      for (const count2 of ["3", "4", "5", "6", "7", "8", "9", "10"]) {
+        dropdown.addOption(count2, `${count2}\uBB38\uC81C`);
       }
       dropdown.setValue(this.questionCount).onChange((value) => {
         this.questionCount = value;
@@ -14643,9 +14643,9 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
   summaryText() {
     if (this.mode !== "socratic") return "";
     if (this.isRecordsSource()) {
-      const count = this.selectedRecordPaths.size;
+      const count2 = this.selectedRecordPaths.size;
       const action = this.entry === "continue" ? "\uB0A8\uC740 \uC9C8\uBB38\uC744 \uC774\uC5B4\uC11C" : "\uAE30\uB85D\uC744 \uB2E4\uC2DC \uC77D\uACE0";
-      return `\uC9C0\uB09C \uAE30\uB85D\uC73C\uB85C \uBCF5\uC2B5 \xB7 \uAE30\uB85D ${count}\uAC1C \u2014 \uACE0\uB978 \uAE30\uB85D\uB9CC \uBCF4\uB0B4\uACE0 ${action} \uC18C\uD06C\uB77C\uD14C\uC2A4\uC2DD \uC9C8\uBB38\uC744 \uD569\uB2C8\uB2E4. \uC790\uB8CC \uC5C6\uC774 \uC790\uAE30 \uC124\uBA85\uC744 \uB3D5\uB294 \uCC38\uACE0\uC6A9\uC774\uBA70 \uC0AC\uC2E4 \uC5EC\uBD80\uB294 \uCC44\uC810\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
+      return `\uC9C0\uB09C \uAE30\uB85D\uC73C\uB85C \uBCF5\uC2B5 \xB7 \uAE30\uB85D ${count2}\uAC1C \u2014 \uACE0\uB978 \uAE30\uB85D\uB9CC \uBCF4\uB0B4\uACE0 ${action} \uC18C\uD06C\uB77C\uD14C\uC2A4\uC2DD \uC9C8\uBB38\uC744 \uD569\uB2C8\uB2E4. \uC790\uB8CC \uC5C6\uC774 \uC790\uAE30 \uC124\uBA85\uC744 \uB3D5\uB294 \uCC38\uACE0\uC6A9\uC774\uBA70 \uC0AC\uC2E4 \uC5EC\uBD80\uB294 \uCC44\uC810\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
     }
     const { hasSourceNotes, paths } = this.buildScope();
     return `\uC790\uB8CC\uB85C \uC0C8\uB85C \uD559\uC2B5 \xB7 \uD559\uC2B5 \uC790\uB8CC ${hasSourceNotes ? paths.length : 0}\uAC1C \u2014 \uC120\uD0DD\uD55C \uC790\uB8CC\uB9CC \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uAE30\uB85D\uC740 \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
@@ -15118,11 +15118,11 @@ function renderStoredAskUserQuestion(parentEl, toolCall) {
 // src/ui/renderers/DiffRenderer.ts
 var MAX_DIFF_LINE_COMPARISONS = 2e5;
 function countLines(text) {
-  let count = 1;
+  let count2 = 1;
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === "\n") count++;
+    if (text[i] === "\n") count2++;
   }
-  return count;
+  return count2;
 }
 function shouldSkipLineDiff(oldText, newText, maxComparisons = MAX_DIFF_LINE_COMPARISONS) {
   return countLines(oldText) * countLines(newText) > maxComparisons;
@@ -15388,7 +15388,7 @@ function getResultPreview(result, maxLines, maxLength) {
   };
 }
 function countNonEmptyLines(text) {
-  let count = 0;
+  let count2 = 0;
   let lineStart = 0;
   for (let i = 0; i <= text.length; i++) {
     if (i === text.length || text[i] === "\n") {
@@ -15397,12 +15397,12 @@ function countNonEmptyLines(text) {
         lineEnd--;
       }
       if (text.slice(lineStart, lineEnd).trim() !== "") {
-        count++;
+        count2++;
       }
       lineStart = i + 1;
     }
   }
-  return count;
+  return count2;
 }
 function parseWebSearchResult(result) {
   const linksMatch = result.match(/Links:\s*(\[[\s\S]*\])/);
@@ -17176,7 +17176,7 @@ var ConversationController = class {
 };
 
 // src/features/chat/controllers/InputController.ts
-var import_obsidian23 = require("obsidian");
+var import_obsidian24 = require("obsidian");
 init_providerRegistry();
 
 // src/core/security/BlocklistChecker.ts
@@ -17272,8 +17272,378 @@ function appendMarkdownSnippet(existingPrompt, snippet) {
   return existingPrompt + separator + trimmedSnippet;
 }
 
-// src/features/chat/rendering/MessageRenderer.ts
+// src/features/edit-review/editReview.ts
+var EDIT_PROPOSAL_BEGIN = "<<<REVISED_NOTE>>>";
+var EDIT_PROPOSAL_END = "<<<END_REVISED_NOTE>>>";
+function buildEditProposalInstruction(notePath) {
+  return [
+    "<edit_review>",
+    `You are helping a student with the note "${notePath}". Do not edit files and do not use tools that write.`,
+    "If the request asks to change this note, reply with a short summary of the changes, then the COMPLETE revised note,",
+    `exactly once, between a line ${EDIT_PROPOSAL_BEGIN} and a line ${EDIT_PROPOSAL_END}.`,
+    "Copy every line you do not need to change exactly as it is. Put nothing else inside the markers.",
+    "If the request does not ask to change the note, answer normally and do not write the markers.",
+    "The student reviews each changed block and only accepted blocks are written to the note.",
+    "</edit_review>"
+  ].join("\n");
+}
+function count(text, needle) {
+  return text.split(needle).length - 1;
+}
+function extractEditProposal(answer) {
+  const begins = count(answer, EDIT_PROPOSAL_BEGIN);
+  const ends = count(answer, EDIT_PROPOSAL_END);
+  if (begins === 0 && ends === 0) return { kind: "none" };
+  const start = answer.indexOf(EDIT_PROPOSAL_BEGIN);
+  const end = answer.indexOf(EDIT_PROPOSAL_END);
+  if (begins !== 1 || ends !== 1 || end < start) return { kind: "malformed" };
+  const revised = answer.slice(start + EDIT_PROPOSAL_BEGIN.length, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+  const outside = [answer.slice(0, start).trim(), answer.slice(end + EDIT_PROPOSAL_END.length).trim()];
+  return { kind: "proposal", revised, displayText: outside.filter(Boolean).join("\n\n") };
+}
+function splitNote(text) {
+  var _a;
+  const lines = [];
+  const endings = [];
+  const pattern = /\r?\n/g;
+  let from = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    lines.push(text.slice(from, match.index));
+    endings.push(match[0]);
+    from = match.index + match[0].length;
+  }
+  if (from < text.length) {
+    lines.push(text.slice(from));
+    endings.push("");
+  }
+  return { lines, endings, eol: (_a = endings.find((e) => e !== "")) != null ? _a : "\n" };
+}
+function isTooLargeToReview(original, revised) {
+  return shouldSkipLineDiff(original, revised);
+}
+function forwardLineDiff(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const suffix = Array.from({ length: m + 1 }, () => new Uint32Array(n + 1));
+  for (let i2 = m - 1; i2 >= 0; i2--) {
+    for (let j2 = n - 1; j2 >= 0; j2--) {
+      suffix[i2][j2] = a[i2] === b[j2] ? suffix[i2 + 1][j2 + 1] + 1 : Math.max(suffix[i2 + 1][j2], suffix[i2][j2 + 1]);
+    }
+  }
+  const ops = [];
+  let i = 0;
+  let j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && a[i] === b[j]) {
+      ops.push({ type: "equal", text: a[i] });
+      i++;
+      j++;
+    } else if (j < n && (i === m || suffix[i][j + 1] >= suffix[i + 1][j])) {
+      ops.push({ type: "insert", text: b[j] });
+      j++;
+    } else {
+      ops.push({ type: "delete", text: a[i] });
+      i++;
+    }
+  }
+  return ops;
+}
+function buildReviewHunks(original, revised) {
+  const oldLines = splitNote(original).lines;
+  const newLines = splitNote(revised).lines;
+  const hunks = [];
+  let oldIndex = 0;
+  let current = null;
+  for (const line of forwardLineDiff(oldLines, newLines)) {
+    if (line.type === "equal") {
+      current = null;
+      oldIndex += 1;
+      continue;
+    }
+    if (!current) {
+      current = { id: `h${hunks.length + 1}`, oldStart: oldIndex, oldLines: [], newLines: [] };
+      hunks.push(current);
+    }
+    if (line.type === "delete") {
+      current.oldLines.push(line.text);
+      oldIndex += 1;
+    } else {
+      current.newLines.push(line.text);
+    }
+  }
+  return hunks;
+}
+function applyReviewHunks(original, hunks, acceptedIds) {
+  var _a, _b;
+  const note = splitNote(original);
+  const rows = note.lines.map((text, i) => ({ text, end: note.endings[i], added: false }));
+  const finalEnding = note.endings.length > 0 ? note.endings[note.endings.length - 1] : "";
+  const accepted = hunks.filter((h) => acceptedIds.includes(h.id)).sort((a, b) => b.oldStart - a.oldStart);
+  for (const h of accepted) {
+    const inherited = h.oldLines.length > 0 ? (_a = rows[h.oldStart]) == null ? void 0 : _a.end : (_b = rows[h.oldStart - 1]) == null ? void 0 : _b.end;
+    const end = inherited || note.eol;
+    rows.splice(h.oldStart, h.oldLines.length, ...h.newLines.map((text) => ({ text, end, added: true })));
+  }
+  return rows.map((row, i) => {
+    if (i === rows.length - 1 && row.added) return row.text + finalEnding;
+    if (i === rows.length - 1) return row.text + row.end;
+    return row.text + (row.end || note.eol);
+  }).join("");
+}
+function sameNote(a, b) {
+  return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
+}
+function toEditorChanges(base, hunks, acceptedIds) {
+  const { lines, endings } = splitNote(base);
+  const finalNewline = endings.length > 0 && endings[endings.length - 1] !== "";
+  const starts = [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    starts.push(offset);
+    offset += lines[i].length + endings[i].length;
+  }
+  const startOf = (i) => i < lines.length ? starts[i] : base.length;
+  return hunks.filter((h) => acceptedIds.includes(h.id)).sort((a, b) => b.oldStart - a.oldStart).map((h) => {
+    const end = h.oldStart + h.oldLines.length;
+    if (end < lines.length || finalNewline) {
+      return { from: startOf(h.oldStart), to: startOf(end), text: h.newLines.map((l) => `${l}
+`).join("") };
+    }
+    if (h.oldLines.length === 0) {
+      return { from: base.length, to: base.length, text: (base === "" ? "" : "\n") + h.newLines.join("\n") };
+    }
+    return { from: startOf(h.oldStart), to: base.length, text: h.newLines.join("\n") };
+  });
+}
+var PROPOSAL_FALLBACK_TEXT = "\uC218\uC815\uC548\uC744 \uB9CC\uB4E4\uC5C8\uC5B4\uC694. \uC544\uB798\uC5D0\uC11C \uBE14\uB85D\uB9C8\uB2E4 \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
+function readProposalIntoReview(review, answer) {
+  if (review.status !== "awaiting") return null;
+  const extracted = extractEditProposal(answer);
+  if (extracted.kind === "none") return null;
+  if (extracted.kind === "malformed") {
+    review.status = "malformed";
+    return null;
+  }
+  if (isTooLargeToReview(review.base, extracted.revised)) {
+    review.status = "too_large";
+    return extracted.displayText || PROPOSAL_FALLBACK_TEXT;
+  }
+  review.hunks = buildReviewHunks(review.base, extracted.revised);
+  review.status = "pending";
+  return extracted.displayText || PROPOSAL_FALLBACK_TEXT;
+}
+
+// src/features/edit-review/liveNote.ts
 var import_obsidian22 = require("obsidian");
+function markdownViews(app, path17) {
+  return app.workspace.getLeavesOfType("markdown").map((leaf) => leaf.view).filter((view) => {
+    var _a;
+    return view instanceof import_obsidian22.MarkdownView && ((_a = view.file) == null ? void 0 : _a.path) === path17;
+  });
+}
+function findOpenEditors(app, path17) {
+  return markdownViews(app, path17).filter((view) => {
+    var _a;
+    return ((_a = view.getMode) == null ? void 0 : _a.call(view)) !== "preview";
+  }).map((view) => view.editor);
+}
+function readingBufferAhead(app, path17, current) {
+  return markdownViews(app, path17).filter((view) => {
+    var _a;
+    return ((_a = view.getMode) == null ? void 0 : _a.call(view)) === "preview";
+  }).some((view) => !sameNote(view.editor.getValue(), current));
+}
+async function readLiveNote(app, path17) {
+  const editors = findOpenEditors(app, path17);
+  if (editors.length > 0) return editors[0].getValue();
+  const file = app.vault.getAbstractFileByPath(path17);
+  if (!(file instanceof import_obsidian22.TFile)) return null;
+  try {
+    return await app.vault.read(file);
+  } catch (e) {
+    return null;
+  }
+}
+async function applyToLiveNote(app, path17, base, hunks, acceptedIds) {
+  const editors = findOpenEditors(app, path17);
+  if (editors.length > 0) {
+    const before = editors[0].getValue();
+    if (!editors.every((e) => sameNote(e.getValue(), base)) || before.includes("\r")) return { kind: "stale" };
+    const expected = applyReviewHunks(before, hunks, acceptedIds);
+    const editor = editors[0];
+    editor.transaction({
+      changes: toEditorChanges(before, hunks, acceptedIds).map((c) => ({
+        from: editor.offsetToPos(c.from),
+        to: editor.offsetToPos(c.to),
+        text: c.text
+      }))
+    });
+    const after = editor.getValue();
+    if (after === expected) return { kind: "applied", undoable: true };
+    return after === before ? { kind: "not_applied" } : { kind: "check_note" };
+  }
+  const file = app.vault.getAbstractFileByPath(path17);
+  if (!(file instanceof import_obsidian22.TFile)) return { kind: "missing" };
+  let stale = false;
+  await app.vault.process(file, (current) => {
+    if (findOpenEditors(app, path17).length > 0 || readingBufferAhead(app, path17, current) || !sameNote(current, base)) {
+      stale = true;
+      return current;
+    }
+    return applyReviewHunks(current, hunks, acceptedIds);
+  });
+  return stale ? { kind: "stale" } : { kind: "applied", undoable: false };
+}
+
+// src/features/edit-review/EditReviewCard.ts
+var MESSAGES = {
+  malformed: "\uC218\uC815\uC548\uC744 \uC77D\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB178\uD2B8\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC558\uC5B4\uC694. \uAC19\uC740 \uC694\uCCAD\uC744 \uD55C \uBC88 \uB354 \uBCF4\uB0B4 \uC8FC\uC138\uC694.",
+  too_large: "\uB178\uD2B8\uAC00 \uB108\uBB34 \uAE38\uC5B4 \uBE14\uB85D\uBCC4\uB85C \uBE44\uAD50\uD560 \uC218 \uC5C6\uC5B4\uC694. \uB178\uD2B8\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC558\uC5B4\uC694. \uACE0\uCE60 \uBD80\uBD84\uC744 \uC120\uD0DD\uD55C \uB4A4 \uB2E4\uC2DC \uC694\uCCAD\uD574 \uC8FC\uC138\uC694.",
+  noChange: "AI\uAC00 \uBCF4\uB0B8 \uC218\uC815\uC548\uC774 \uC9C0\uAE08 \uB178\uD2B8\uC640 \uAC19\uC544\uC11C \uBC14\uAFC0 \uACF3\uC774 \uC5C6\uC5B4\uC694.",
+  missing: "\uB178\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC5B4\uC694. \uC774\uB984\uC774 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC0AD\uC81C\uB410\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+  stale: "\uC218\uC815\uC548\uC744 \uB9CC\uB4E0 \uB4A4 \uB178\uD2B8\uAC00 \uBC14\uB00C\uC5C8\uC5B4\uC694. \uADF8\uB798\uC11C \uC544\uBB34\uAC83\uB3C4 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uC9C0\uAE08 \uB178\uD2B8\uB85C \uC0C8 \uC218\uC815\uC548\uC744 \uBC1B\uC544 \uC8FC\uC138\uC694.",
+  not_applied: "\uC801\uC6A9\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB178\uD2B8\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC558\uC5B4\uC694.",
+  check_note: "\uC801\uC6A9 \uACB0\uACFC\uAC00 \uC608\uC0C1\uACFC \uB2EC\uB77C\uC694. \uB178\uD2B8\uB97C \uD655\uC778\uD558\uACE0, \uD544\uC694\uD558\uBA74 Ctrl/Cmd+Z\uB85C \uB418\uB3CC\uB824 \uC8FC\uC138\uC694.",
+  failed: "\uB178\uD2B8\uC5D0 \uC4F0\uC9C0 \uBABB\uD588\uC5B4\uC694. \uB178\uD2B8\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC558\uC5B4\uC694."
+};
+function hunkTitle(h) {
+  const first = h.oldStart + 1;
+  if (h.oldLines.length === 0) return h.oldStart === 0 ? "\uB9E8 \uC55E\uC5D0 \uCD94\uAC00" : `${h.oldStart}\uD589 \uB4A4\uC5D0 \uCD94\uAC00`;
+  const last = h.oldStart + h.oldLines.length;
+  const range = first === last ? `${first}\uD589` : `${first}\u2013${last}\uD589`;
+  return h.newLines.length === 0 ? `${range} \uC0AD\uC81C` : `${range} \uC218\uC815`;
+}
+function renderLines(el, cls, sign, lines) {
+  for (const text of lines) {
+    const row = el.createDiv({ cls: `ocop-edit-review-line ${cls}` });
+    row.createSpan({ cls: "ocop-edit-review-sign", text: sign });
+    row.createSpan({ cls: "ocop-edit-review-text", text: text === "" ? "\xA0" : text });
+  }
+}
+function renderEditReviewCard(parentEl, review, deps) {
+  const card = parentEl.createDiv({ cls: "ocop-edit-review" });
+  let banner = null;
+  let appliedUndoable = false;
+  let busy = false;
+  const notice = (text, cls = "ocop-edit-review-notice") => card.createDiv({ cls, text });
+  const draw = () => {
+    var _a, _b, _c;
+    card.empty();
+    if (review.status === "malformed" || review.status === "too_large") {
+      notice(MESSAGES[review.status]);
+      return;
+    }
+    if (review.status !== "pending" && review.status !== "applied") return;
+    if (review.hunks.length === 0) {
+      notice(MESSAGES.noChange);
+      return;
+    }
+    const head = card.createDiv({ cls: "ocop-edit-review-head" });
+    head.createSpan({ cls: "ocop-edit-review-file", text: review.notePath });
+    const added = review.hunks.reduce((n, h) => n + h.newLines.length, 0);
+    const removed = review.hunks.reduce((n, h) => n + h.oldLines.length, 0);
+    const stats = head.createSpan({ cls: "ocop-edit-review-stats" });
+    stats.createSpan({ cls: "ocop-edit-review-added", text: `+${added}` });
+    stats.createSpan({ cls: "ocop-edit-review-removed", text: ` \u2212${removed}` });
+    stats.createSpan({ text: ` \xB7 \uBE14\uB85D ${review.hunks.length}\uAC1C` });
+    const locked = review.status === "applied" || busy;
+    if (review.status === "applied") {
+      const n = (_b = (_a = review.appliedIds) == null ? void 0 : _a.length) != null ? _b : 0;
+      const undo = appliedUndoable ? " \uB418\uB3CC\uB9AC\uB824\uBA74 \uB178\uD2B8\uC5D0\uC11C Ctrl/Cmd+Z\uB97C \uB204\uB974\uC138\uC694." : "";
+      notice(`${n}\uAC1C \uBE14\uB85D\uC744 \uB178\uD2B8\uC5D0 \uC801\uC6A9\uD588\uC5B4\uC694. \uAC70\uBD80\uD588\uAC70\uB098 \uACE0\uB974\uC9C0 \uC54A\uC740 \uBE14\uB85D\uC740 \uB4E4\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC5B4\uC694.${undo}`, "ocop-edit-review-done");
+    }
+    if (banner) {
+      const bar = card.createDiv({ cls: "ocop-edit-review-banner" });
+      bar.createSpan({ text: banner.text });
+      if (banner.offerResend) {
+        const again = bar.createEl("button", { text: "\uC0C8 \uC218\uC815\uC548 \uBC1B\uAE30", cls: "ocop-edit-review-btn" });
+        again.type = "button";
+        again.addEventListener("click", () => {
+          if (deps.isBusy()) return;
+          deps.resend(review.request);
+        });
+      }
+    }
+    const baseLines = review.base.replace(/\r\n/g, "\n").split("\n");
+    for (const h of review.hunks) {
+      const decision = review.decisions[h.id];
+      const block = card.createDiv({ cls: "ocop-edit-review-hunk" });
+      block.dataset.state = decision != null ? decision : "pending";
+      const bar = block.createDiv({ cls: "ocop-edit-review-hunk-bar" });
+      const label = review.status === "applied" ? ((_c = review.appliedIds) == null ? void 0 : _c.includes(h.id)) ? "\uC801\uC6A9\uB428" : "\uC801\uC6A9 \uC548 \uD568" : decision === "accepted" ? "\uC801\uC6A9 \uC608\uC815" : decision === "rejected" ? "\uAC70\uBD80" : "\uAC80\uD1A0 \uC804";
+      bar.createSpan({ text: `${hunkTitle(h)} \xB7 ${label}` });
+      if (!locked) {
+        const btns = bar.createDiv({ cls: "ocop-edit-review-btns" });
+        for (const [value, text] of [["accepted", "\u2713 \uC801\uC6A9"], ["rejected", "\u2715 \uAC70\uBD80"]]) {
+          const btn = btns.createEl("button", { text, cls: `ocop-edit-review-btn is-${value}` });
+          btn.type = "button";
+          btn.setAttribute("aria-pressed", String(decision === value));
+          btn.addEventListener("click", () => {
+            if (review.decisions[h.id] === value) delete review.decisions[h.id];
+            else review.decisions[h.id] = value;
+            deps.onChange();
+            draw();
+          });
+        }
+      }
+      const lines = block.createDiv({ cls: "ocop-edit-review-lines" });
+      const before = h.oldStart > 0 ? baseLines[h.oldStart - 1] : void 0;
+      if (before !== void 0 && (h.oldLines.length === 0 || h.newLines.length === 0)) renderLines(lines, "is-context", " ", [before]);
+      renderLines(lines, "is-removed", "\u2212", h.oldLines);
+      renderLines(lines, "is-added", "+", h.newLines);
+    }
+    if (review.status === "applied") return;
+    const foot = card.createDiv({ cls: "ocop-edit-review-foot" });
+    const bulk = foot.createDiv({ cls: "ocop-edit-review-btns" });
+    for (const [value, text] of [["accepted", "\uBAA8\uB450 \u2713"], ["rejected", "\uBAA8\uB450 \u2715"]]) {
+      const btn = bulk.createEl("button", { text, cls: "ocop-edit-review-btn" });
+      btn.type = "button";
+      btn.disabled = locked;
+      btn.addEventListener("click", () => {
+        for (const h of review.hunks) review.decisions[h.id] = value;
+        deps.onChange();
+        draw();
+      });
+    }
+    const acceptedIds = review.hunks.filter((h) => review.decisions[h.id] === "accepted").map((h) => h.id);
+    const undecided = review.hunks.filter((h) => !review.decisions[h.id]).length;
+    const apply = foot.createEl("button", {
+      cls: "ocop-edit-review-btn mod-cta",
+      text: undecided > 0 ? `\uC120\uD0DD\uD55C \uBCC0\uACBD \uC801\uC6A9 (${acceptedIds.length}\uAC1C, \uAC80\uD1A0 \uC804 ${undecided}\uAC1C \uC81C\uC678)` : `\uC120\uD0DD\uD55C \uBCC0\uACBD \uC801\uC6A9 (${acceptedIds.length}\uAC1C)`
+    });
+    apply.type = "button";
+    apply.disabled = locked || acceptedIds.length === 0;
+    apply.addEventListener("click", () => {
+      void applyAccepted(acceptedIds);
+    });
+  };
+  const applyAccepted = async (acceptedIds) => {
+    busy = true;
+    banner = null;
+    draw();
+    try {
+      const result = await applyToLiveNote(deps.app, review.notePath, review.base, review.hunks, acceptedIds);
+      if (result.kind === "applied") {
+        review.status = "applied";
+        review.appliedIds = acceptedIds;
+        appliedUndoable = result.undoable;
+        deps.onChange();
+      } else {
+        banner = { text: MESSAGES[result.kind], offerResend: result.kind === "stale" };
+      }
+    } catch (e) {
+      console.error("[ObsidianCopilot] Edit review apply failed:", e);
+      banner = { text: MESSAGES.failed, offerResend: false };
+    } finally {
+      busy = false;
+      draw();
+    }
+  };
+  draw();
+}
+
+// src/features/chat/rendering/MessageRenderer.ts
+var import_obsidian23 = require("obsidian");
 
 // src/core/images/imageLoader.ts
 var fs12 = __toESM(require("fs"));
@@ -17485,10 +17855,21 @@ function renderLearningRecordActions(contentEl, msg) {
 }
 var MessageRenderer = class {
   constructor(app, component, messagesEl) {
+    this.editReviewHandlers = {
+      onChange: () => {
+      },
+      resend: () => {
+      },
+      isBusy: () => true
+    };
     this.app = app;
     this.component = component;
     this.messagesEl = messagesEl;
     registerFileLinkHandler(this.app, this.messagesEl, this.component);
+  }
+  /** Wires stored review cards to saving and to sending a fresh request. */
+  setEditReviewHandlers(handlers) {
+    this.editReviewHandlers = handlers;
   }
   /** Sets the messages container element. */
   setMessagesEl(el) {
@@ -17669,6 +18050,9 @@ var MessageRenderer = class {
     }
     if (msg.quizReviewAvailable) {
       renderQuizReviewButton(contentEl, msg.id);
+    }
+    if (msg.editReview && msg.editReview.status !== "awaiting") {
+      renderEditReviewCard(contentEl, msg.editReview, { app: this.app, ...this.editReviewHandlers });
     }
     renderLearningRecordActions(contentEl, msg);
   }
@@ -17857,7 +18241,7 @@ var MessageRenderer = class {
    */
   async renderContent(el, markdown) {
     el.empty();
-    await import_obsidian22.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
+    await import_obsidian23.MarkdownRenderer.renderMarkdown(markdown, el, "", this.component);
     el.querySelectorAll("pre").forEach((pre) => {
       var _a, _b;
       if ((_a = pre.parentElement) == null ? void 0 : _a.classList.contains("ocop-code-wrapper")) return;
@@ -17897,13 +18281,13 @@ var MessageRenderer = class {
       cls: "ocop-msg-copy-btn",
       attr: { "aria-label": "Copy message", type: "button" }
     });
-    (0, import_obsidian22.setIcon)(btn, "copy");
+    (0, import_obsidian23.setIcon)(btn, "copy");
     btn.addEventListener("click", () => {
       void navigator.clipboard.writeText(msg.content).then(() => {
-        (0, import_obsidian22.setIcon)(btn, "check");
+        (0, import_obsidian23.setIcon)(btn, "check");
         btn.classList.add("is-copied");
         setTimeout(() => {
-          (0, import_obsidian22.setIcon)(btn, "copy");
+          (0, import_obsidian23.setIcon)(btn, "copy");
           btn.classList.remove("is-copied");
         }, 1500);
       });
@@ -17988,16 +18372,16 @@ var InputController = class {
     var _a, _b;
     const { state } = this.deps;
     if (state.isStreaming || state.quizSession || state.socraticSession) {
-      new import_obsidian23.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian24.Notice("\uC9C4\uD589 \uC911\uC778 \uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uD034\uC988 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
       return false;
     }
     const finalTurn = state.messages.find((message) => message.id === messageId && message.quizReviewAvailable);
     if (!finalTurn) {
-      new import_obsidian23.Notice("\uC774 Quiz\uC758 \uBCF5\uC2B5\uC740 \uC774\uBBF8 \uC2DC\uC791\uD588\uAC70\uB098 \uB354 \uC774\uC0C1 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian24.Notice("\uC774 Quiz\uC758 \uBCF5\uC2B5\uC740 \uC774\uBBF8 \uC2DC\uC791\uD588\uAC70\uB098 \uB354 \uC774\uC0C1 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return true;
     }
     if (state.currentConversationId && this.deps.plugin.getLearningRecordSaveService().isSaving(state.currentConversationId, messageId)) {
-      new import_obsidian23.Notice("\uD559\uC2B5 \uAE30\uB85D \uC800\uC7A5\uC774 \uB05D\uB09C \uB4A4 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian24.Notice("\uD559\uC2B5 \uAE30\uB85D \uC800\uC7A5\uC774 \uB05D\uB09C \uB4A4 \uBCF5\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
       return false;
     }
     const conversationId = state.currentConversationId;
@@ -18112,20 +18496,20 @@ var InputController = class {
     try {
       for (const [path17, fingerprint] of Object.entries((_a = result.sourceFingerprints) != null ? _a : {})) {
         const file = plugin.app.vault.getAbstractFileByPath(path17);
-        if (!(file instanceof import_obsidian23.TFile) || sha256(await plugin.app.vault.read(file)) !== fingerprint) {
-          new import_obsidian23.Notice(`\uC120\uD0DD\uD55C \uC790\uB8CC\uAC00 \uC2DC\uC791 \uC9C1\uC804\uC5D0 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4: ${path17}. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
+        if (!(file instanceof import_obsidian24.TFile) || sha256(await plugin.app.vault.read(file)) !== fingerprint) {
+          new import_obsidian24.Notice(`\uC120\uD0DD\uD55C \uC790\uB8CC\uAC00 \uC2DC\uC791 \uC9C1\uC804\uC5D0 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4: ${path17}. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
           return false;
         }
       }
       if (result.mode === "socratic" && ((_b = result.recordPaths) == null ? void 0 : _b.length)) {
         const bodies = await readRecordBodies(new ObsidianRecordFs(plugin.app), result.recordPaths);
         if (bodies.some((body) => body.fingerprint !== result.recordFingerprints[body.path])) {
-          new import_obsidian23.Notice("\uC120\uD0DD\uD55C \uD559\uC2B5 \uAE30\uB85D\uC774 \uBBF8\uB9AC\uBCF4\uAE30 \uC774\uD6C4 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+          new import_obsidian24.Notice("\uC120\uD0DD\uD55C \uD559\uC2B5 \uAE30\uB85D\uC774 \uBBF8\uB9AC\uBCF4\uAE30 \uC774\uD6C4 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
           return false;
         }
       }
     } catch (e) {
-      new import_obsidian23.Notice("\uC120\uD0DD\uD55C \uC790\uB8CC\uB098 \uAE30\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD574 \uC2DC\uC791\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian24.Notice("\uC120\uD0DD\uD55C \uC790\uB8CC\uB098 \uAE30\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD574 \uC2DC\uC791\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
       return false;
     }
     return true;
@@ -18147,7 +18531,7 @@ var InputController = class {
   }
   stillInConversation(conversationId) {
     if (this.deps.state.currentConversationId === conversationId) return true;
-    new import_obsidian23.Notice("\uD559\uC2B5\uC744 \uC2DC\uC791\uD55C \uB300\uD654\uC5D0\uC11C \uB2E4\uB978 \uB300\uD654\uB85C \uC62E\uACA8 \uC2DC\uC791\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+    new import_obsidian24.Notice("\uD559\uC2B5\uC744 \uC2DC\uC791\uD55C \uB300\uD654\uC5D0\uC11C \uB2E4\uB978 \uB300\uD654\uB85C \uC62E\uACA8 \uC2DC\uC791\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
     return false;
   }
   async sendLearningSetupResult(result, options, initiatingConversationId = this.deps.state.currentConversationId) {
@@ -18177,7 +18561,7 @@ var InputController = class {
     }
     if (result.entry) {
       if (!await this.startFreshConversation()) {
-        new import_obsidian23.Notice("\uC0C8 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC9C4\uD589 \uC911\uC778 \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+        new import_obsidian24.Notice("\uC0C8 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC9C4\uD589 \uC911\uC778 \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
         return;
       }
       sharedOptions.promptPrefix = void 0;
@@ -18230,7 +18614,7 @@ var InputController = class {
     );
     const isLearningCommand = !(options == null ? void 0 : options.skipLearningCommand) && (mentionedLearningCommand !== null || content === "/quiz" || content.startsWith("/quiz ") || content === "/socratic" || content.startsWith("/socratic "));
     if (state.isStreaming && (isLearningCommand || quizSessionInit || socraticSessionInit)) {
-      new import_obsidian23.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+      new import_obsidian24.Notice("\uD604\uC7AC \uC751\uB2F5\uC774 \uB05D\uB09C \uB4A4 \uD559\uC2B5\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
       return;
     }
     if (!(options == null ? void 0 : options.skipLearningCommand) && ((mentionedLearningCommand == null ? void 0 : mentionedLearningCommand.mode) === "quiz" || content === "/quiz" || content.startsWith("/quiz "))) {
@@ -18428,7 +18812,7 @@ var InputController = class {
               });
               content = result.expandedPrompt;
               if (result.errors.length > 0) {
-                new import_obsidian23.Notice(formatSlashCommandWarnings(result.errors));
+                new import_obsidian24.Notice(formatSlashCommandWarnings(result.errors));
               }
               if (result.allowedTools !== void 0 || result.model) {
                 slashAllowedToolsRequested = result.allowedTools !== void 0;
@@ -18464,7 +18848,21 @@ ${content}
     if (editorContext) {
       promptToSend = prependEditorContext(promptToSend, editorContext);
     }
-    if (shouldSendCurrentNote && currentNotePath) {
+    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath && this.shouldReviewEdits(currentNotePath, learningRequest, slashAllowedToolsRequested));
+    const editReviewBase = editReviewIntended && currentNotePath ? await this.readEditReviewBase(currentNotePath) : null;
+    if (editReviewIntended) queryOptions = { ...queryOptions, readOnly: true };
+    if (editReviewBase !== null && currentNotePath) {
+      assistantMsg.editReview = {
+        notePath: currentNotePath,
+        base: editReviewBase,
+        request: content,
+        hunks: [],
+        decisions: {},
+        status: "awaiting"
+      };
+      queryOptions = { ...queryOptions, readOnly: true };
+      currentNoteForMessage = currentNotePath;
+    } else if (shouldSendCurrentNote && currentNotePath) {
       if (shouldForceCurrentNoteScope) {
         const currentNoteContent = await currentNoteContentPromise;
         if (currentNoteContent !== null) {
@@ -18536,6 +18934,12 @@ ${promptToSend}`;
     if (containsMentions && fileContextManager) {
       promptToSend = fileContextManager.transformContextMentions(promptToSend);
     }
+    if (assistantMsg.editReview && editReviewBase !== null) {
+      const { notePath } = assistantMsg.editReview;
+      promptToSend = `${buildEditProposalInstruction(notePath)}
+
+${prependCurrentNoteContent(promptToSend, notePath, editReviewBase)}`;
+    }
     const externalContextSelector = this.deps.getExternalContextSelector();
     const externalContextPaths = ((_v = state.socraticSession) == null ? void 0 : _v.quizReview) ? void 0 : externalContextSelector == null ? void 0 : externalContextSelector.getExternalContexts();
     if (externalContextPaths && externalContextPaths.length > 0) {
@@ -18574,6 +18978,22 @@ ${promptToSend}`;
         streamController.finalizeCurrentThinkingBlock(assistantMsg);
         await streamController.finalizeCurrentTextBlock(assistantMsg);
         assistantMsg.requestOutcome = streamOutcome;
+        if (assistantMsg.editReview) {
+          if (assistantMsg.editReview.status === "awaiting" || streamOutcome !== "completed") {
+            delete assistantMsg.editReview;
+          } else if (contentEl) {
+            renderEditReviewCard(contentEl, assistantMsg.editReview, {
+              app: plugin.app,
+              onChange: () => {
+                void conversationController.save();
+              },
+              resend: (request) => {
+                void this.sendMessage({ content: request });
+              },
+              isBusy: () => state.isStreaming
+            });
+          }
+        }
         if (streamOutcome !== "completed" && quizRequest) {
           assistantMsg.quizQuestion = null;
         }
@@ -18705,7 +19125,7 @@ ${promptToSend}`;
   async attachCompletedSnapshot(assistantMsg, snapshot, contentEl) {
     const acknowledged = await this.deps.plugin.attachLearningSnapshot(snapshot.conversationId, assistantMsg.id, snapshot);
     if (!acknowledged) {
-      new import_obsidian23.Notice("\uD559\uC2B5 \uAE30\uB85D \uCD08\uC548\uC744 \uC548\uC804\uD558\uAC8C \uC800\uC7A5\uD558\uC9C0 \uBABB\uD574 \uC774\uBC88\uC5D0\uB294 \uAE30\uB85D \uC800\uC7A5\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian24.Notice("\uD559\uC2B5 \uAE30\uB85D \uCD08\uC548\uC744 \uC548\uC804\uD558\uAC8C \uC800\uC7A5\uD558\uC9C0 \uBABB\uD574 \uC774\uBC88\uC5D0\uB294 \uAE30\uB85D \uC800\uC7A5\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return;
     }
     assistantMsg.learningSnapshot = snapshot;
@@ -18715,9 +19135,18 @@ ${promptToSend}`;
     const trimmed = content.trim();
     return CURRENT_NOTE_ONLY_PATTERNS.some((pattern) => pattern.test(trimmed));
   }
+  /** Agent mode on a Markdown note outside learning sessions and slash tool restrictions. */
+  shouldReviewEdits(notePath, learningRequest, slashAllowedToolsRequested) {
+    const { plugin, state } = this.deps;
+    return plugin.settings.permissionMode === "agent" && notePath.toLowerCase().endsWith(".md") && !learningRequest && !slashAllowedToolsRequested && !state.quizSession && !state.socraticSession;
+  }
+  /** The note as the student sees it (open editor buffer, else file): the base of an edit review. */
+  readEditReviewBase(notePath) {
+    return readLiveNote(this.deps.plugin.app, notePath);
+  }
   async readCurrentNoteContent(notePath) {
     const file = this.deps.plugin.app.vault.getAbstractFileByPath(notePath);
-    if (!(file instanceof import_obsidian23.TFile)) {
+    if (!(file instanceof import_obsidian24.TFile)) {
       return null;
     }
     try {
@@ -18768,7 +19197,7 @@ ${promptToSend}`;
     const { state } = this.deps;
     const queued = state.queuedMessage;
     if (!queued) {
-      new import_obsidian23.Notice(failureMessage);
+      new import_obsidian24.Notice(failureMessage);
       return;
     }
     this.clearQueuedMessage();
@@ -18791,10 +19220,10 @@ ${inputEl.value}` : queued.content;
           imageContextManager.setImages([...queued.images, ...drafted]);
         }
       }
-      new import_obsidian23.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.`);
+      new import_obsidian24.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.`);
     } catch (error) {
       console.error("[ObsidianCopilot] Failed to restore the queued message:", error);
-      new import_obsidian23.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
+      new import_obsidian24.Notice(`${failureMessage} \uB300\uAE30 \uC911\uC774\uB358 \uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uCC3D\uC73C\uB85C \uBAA8\uB450 \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD588\uC73C\uB2C8 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
     }
   }
   /**
@@ -18878,7 +19307,7 @@ ${inputEl.value}` : queued.content;
       }
     ).catch((error) => {
       console.error("[InputController] Title generation failed:", error instanceof Error ? error.message : error);
-      new import_obsidian23.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
+      new import_obsidian24.Notice("\uC81C\uBAA9 \uC0DD\uC131 \uC2E4\uD328");
     });
   }
   // ============================================
@@ -18950,7 +19379,7 @@ ${inputEl.value}` : queued.content;
             const currentPrompt = plugin.settings.systemPrompt;
             plugin.settings.systemPrompt = appendMarkdownSnippet(currentPrompt, finalInstruction);
             await plugin.saveSettings();
-            new import_obsidian23.Notice("Instruction added to custom system prompt");
+            new import_obsidian24.Notice("Instruction added to custom system prompt");
             instructionModeManager == null ? void 0 : instructionModeManager.clear();
           },
           onReject: () => {
@@ -18967,7 +19396,7 @@ ${inputEl.value}` : queued.content;
               if (result2.error === "Cancelled") {
                 return;
               }
-              new import_obsidian23.Notice(result2.error || "Failed to process response");
+              new import_obsidian24.Notice(result2.error || "Failed to process response");
               modal == null ? void 0 : modal.showError(result2.error || "Failed to process response");
               return;
             }
@@ -18993,7 +19422,7 @@ ${inputEl.value}` : queued.content;
           instructionModeManager == null ? void 0 : instructionModeManager.clear();
           return;
         }
-        new import_obsidian23.Notice(result.error || "Failed to refine instruction");
+        new import_obsidian24.Notice(result.error || "Failed to refine instruction");
         modal.showError(result.error || "Failed to refine instruction");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
         return;
@@ -19003,13 +19432,13 @@ ${inputEl.value}` : queued.content;
       } else if (result.refinedInstruction) {
         modal.showConfirmation(result.refinedInstruction);
       } else {
-        new import_obsidian23.Notice("No instruction received");
+        new import_obsidian24.Notice("No instruction received");
         modal.showError("No instruction received");
         instructionModeManager == null ? void 0 : instructionModeManager.clear();
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      new import_obsidian23.Notice(`Error: ${errorMsg}`);
+      new import_obsidian24.Notice(`Error: ${errorMsg}`);
       modal == null ? void 0 : modal.showError(errorMsg);
       instructionModeManager == null ? void 0 : instructionModeManager.clear();
     }
@@ -19170,7 +19599,7 @@ var NavigationController = class {
 };
 
 // src/features/chat/controllers/SelectionController.ts
-var import_obsidian24 = require("obsidian");
+var import_obsidian25 = require("obsidian");
 var SELECTION_POLL_INTERVAL = 250;
 var SelectionController = class {
   constructor(app, indicatorEl, inputEl) {
@@ -19206,7 +19635,7 @@ var SelectionController = class {
   /** Polls editor selection and updates stored selection. */
   poll() {
     var _a, _b, _c, _d;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian24.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian25.MarkdownView);
     if (!view) return;
     const editor = view.editor;
     const editorView = editor.cm;
@@ -19584,8 +20013,12 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
   }
   /** Finalizes the current text block. */
   async finalizeCurrentTextBlock(msg) {
+    var _a;
     const { state, renderer } = this.deps;
-    const finalizedText = (msg == null ? void 0 : msg.role) === "assistant" ? normalizeQuizMarkdown(state.currentTextContent) : state.currentTextContent;
+    let finalizedText = (msg == null ? void 0 : msg.role) === "assistant" ? normalizeQuizMarkdown(state.currentTextContent) : state.currentTextContent;
+    if ((msg == null ? void 0 : msg.editReview) && finalizedText) {
+      finalizedText = (_a = readProposalIntoReview(msg.editReview, finalizedText)) != null ? _a : finalizedText;
+    }
     if (msg && finalizedText) {
       msg.contentBlocks = msg.contentBlocks || [];
       msg.contentBlocks.push({ type: "text", content: finalizedText });
@@ -19916,11 +20349,11 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
 };
 
 // src/features/chat/controllers/LearningRecordController.ts
-var import_obsidian26 = require("obsidian");
+var import_obsidian27 = require("obsidian");
 
 // src/ui/modals/LearningRecordSaveModal.ts
-var import_obsidian25 = require("obsidian");
-var LearningRecordSaveModal = class extends import_obsidian25.Modal {
+var import_obsidian26 = require("obsidian");
+var LearningRecordSaveModal = class extends import_obsidian26.Modal {
   constructor(app, input) {
     super(app);
     this.input = input;
@@ -20014,12 +20447,12 @@ var LearningRecordController = class {
     const snapshot = plugin.getLearningSnapshot(conversationId, messageId);
     const conversation = plugin.getConversationById(conversationId);
     if (!snapshot || !conversation) {
-      new import_obsidian26.Notice("\uC774 \uD559\uC2B5\uC758 \uAE30\uB85D \uCD08\uC548\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      new import_obsidian27.Notice("\uC774 \uD559\uC2B5\uC758 \uAE30\uB85D \uCD08\uC548\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return null;
     }
     const service = plugin.getLearningRecordSaveService();
     if (service.isSaving(conversationId, messageId)) {
-      new import_obsidian26.Notice("\uC800\uC7A5\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4.");
+      new import_obsidian27.Notice("\uC800\uC7A5\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4.");
       return null;
     }
     const earlier = await service.inspect(conversationId, messageId);
@@ -20063,30 +20496,30 @@ var LearningRecordController = class {
   async reveal(path17) {
     try {
       await this.plugin.app.workspace.openLinkText(path17, "", false);
-      new import_obsidian26.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
+      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
     } catch (e) {
-      new import_obsidian26.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
+      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
     }
   }
   report(outcome) {
     switch (outcome.kind) {
       case "saved":
-        new import_obsidian26.Notice(`\uD559\uC2B5 \uAE30\uB85D\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4: ${outcome.path}`);
+        new import_obsidian27.Notice(`\uD559\uC2B5 \uAE30\uB85D\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4: ${outcome.path}`);
         break;
       case "already-saved":
-        new import_obsidian26.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${outcome.path}`);
+        new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${outcome.path}`);
         break;
       case "saved-link-failed":
-        new import_obsidian26.Notice(`\uB178\uD2B8\uB294 \uC800\uC7A5\uB410\uC9C0\uB9CC \uB300\uD654 \uAE30\uB85D\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${outcome.path}. \uB2E4\uC2DC \uB20C\uB7EC \uC5F0\uACB0\uB9CC \uBCF5\uAD6C\uD560 \uC218 \uC788\uACE0, \uB178\uD2B8\uB97C \uB610 \uB9CC\uB4E4\uC9C0\uB294 \uC54A\uC2B5\uB2C8\uB2E4.`);
+        new import_obsidian27.Notice(`\uB178\uD2B8\uB294 \uC800\uC7A5\uB410\uC9C0\uB9CC \uB300\uD654 \uAE30\uB85D\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${outcome.path}. \uB2E4\uC2DC \uB20C\uB7EC \uC5F0\uACB0\uB9CC \uBCF5\uAD6C\uD560 \uC218 \uC788\uACE0, \uB178\uD2B8\uB97C \uB610 \uB9CC\uB4E4\uC9C0\uB294 \uC54A\uC2B5\uB2C8\uB2E4.`);
         break;
       case "conflict":
-        new import_obsidian26.Notice(`\uAC19\uC740 \uC704\uCE58\uC5D0 \uB2E4\uB978 \uB0B4\uC6A9\uC758 \uD30C\uC77C\uC774 \uC788\uC5B4 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${outcome.path}`);
+        new import_obsidian27.Notice(`\uAC19\uC740 \uC704\uCE58\uC5D0 \uB2E4\uB978 \uB0B4\uC6A9\uC758 \uD30C\uC77C\uC774 \uC788\uC5B4 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${outcome.path}`);
         break;
       case "needs-fresh-choice":
-        new import_obsidian26.Notice(`\uC800\uC7A5 \uACB0\uACFC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4(\uD30C\uC77C \uC5C6\uC74C): ${outcome.path}. \uC790\uB3D9\uC73C\uB85C \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+        new import_obsidian27.Notice(`\uC800\uC7A5 \uACB0\uACFC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4(\uD30C\uC77C \uC5C6\uC74C): ${outcome.path}. \uC790\uB3D9\uC73C\uB85C \uB2E4\uC2DC \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
         break;
       case "rejected":
-        new import_obsidian26.Notice(outcome.reason === "intent-not-acknowledged" ? "\uC800\uC7A5 \uAE30\uB85D\uC744 \uC548\uC804\uD558\uAC8C \uB0A8\uAE30\uC9C0 \uBABB\uD574 \uB178\uD2B8\uB97C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : outcome.reason === "invalid-record" ? "\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD(\uBA38\uB9AC\uB9D0\uC758 type, formatVersion, recordId)\uC774 \uB9DE\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC800\uC7A5\uD560 \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
+        new import_obsidian27.Notice(outcome.reason === "intent-not-acknowledged" ? "\uC800\uC7A5 \uAE30\uB85D\uC744 \uC548\uC804\uD558\uAC8C \uB0A8\uAE30\uC9C0 \uBABB\uD574 \uB178\uD2B8\uB97C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : outcome.reason === "invalid-record" ? "\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD(\uBA38\uB9AC\uB9D0\uC758 type, formatVersion, recordId)\uC774 \uB9DE\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC800\uC7A5\uD560 \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
         break;
     }
   }
@@ -20913,7 +21346,7 @@ var ChatState = class {
 async function dispatchLearningSetup(inputController, mode) {
   await (inputController == null ? void 0 : inputController.sendMessage({ content: `/${mode}` }));
 }
-var ObsidianCopilotView = class extends import_obsidian27.ItemView {
+var ObsidianCopilotView = class extends import_obsidian28.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.selectionController = null;
@@ -20993,6 +21426,17 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
     this.renderer = new MessageRenderer(this.plugin.app, this, this.messagesEl);
     this.initializeControllers();
     this.wireEventHandlers();
+    this.renderer.setEditReviewHandlers({
+      onChange: () => {
+        var _a2;
+        void ((_a2 = this.conversationController) == null ? void 0 : _a2.save());
+      },
+      resend: (request) => {
+        var _a2;
+        void ((_a2 = this.inputController) == null ? void 0 : _a2.sendMessage({ content: request }));
+      },
+      isBusy: () => this.state.isStreaming
+    });
     (_a = this.selectionController) == null ? void 0 : _a.start();
     await ((_b = this.conversationController) == null ? void 0 : _b.createNew());
   }
@@ -21029,7 +21473,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
     const headerActions = header.createDiv({ cls: "ocop-header-actions" });
     const historyContainer = headerActions.createDiv({ cls: "ocop-history-container" });
     const trigger = historyContainer.createDiv({ cls: "ocop-header-btn" });
-    (0, import_obsidian27.setIcon)(trigger, "history");
+    (0, import_obsidian28.setIcon)(trigger, "history");
     trigger.setAttribute("aria-label", "Chat history");
     this.historyDropdown = historyContainer.createDiv({ cls: "ocop-history-menu" });
     trigger.addEventListener("click", (e) => {
@@ -21038,7 +21482,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
       (_a = this.conversationController) == null ? void 0 : _a.toggleHistoryDropdown();
     });
     const newBtn = headerActions.createDiv({ cls: "ocop-header-btn" });
-    (0, import_obsidian27.setIcon)(newBtn, "plus");
+    (0, import_obsidian28.setIcon)(newBtn, "plus");
     newBtn.setAttribute("aria-label", "New conversation");
     newBtn.addEventListener("click", () => {
       var _a;
@@ -21132,7 +21576,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
         });
         if (!accepted) return false;
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian27.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian28.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uBAA8\uB4DC\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           return false;
         }
         if (this.plugin.getPermissionAuthorityEpoch() !== authorityEpoch || this.plugin.settings.selectedProvider !== provider) return false;
@@ -21196,7 +21640,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
       cls: "ocop-send-btn",
       attr: { type: "button", "aria-label": "Send message", title: "Send message" }
     });
-    (0, import_obsidian27.setIcon)(sendButton, "arrow-up");
+    (0, import_obsidian28.setIcon)(sendButton, "arrow-up");
     sendButton.addEventListener("click", () => {
       var _a;
       void ((_a = this.inputController) == null ? void 0 : _a.sendMessage());
@@ -21512,7 +21956,7 @@ var ObsidianCopilotView = class extends import_obsidian27.ItemView {
     }
     if (attached > 0) (_a = this.renderer) == null ? void 0 : _a.scrollToBottomIfNeeded();
     if (unresolved.length > 0) {
-      new import_obsidian27.Notice(`\uBCF4\uAD00\uD568\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uB294 \uD30C\uC77C\uC785\uB2C8\uB2E4: ${unresolved.join(", ")}`, 5e3);
+      new import_obsidian28.Notice(`\uBCF4\uAD00\uD568\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uB294 \uD30C\uC77C\uC785\uB2C8\uB2E4: ${unresolved.join(", ")}`, 5e3);
     }
   }
   generateId() {
@@ -21605,7 +22049,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
         var _a2;
         event.stopPropagation();
         if (isBusy()) {
-          new import_obsidian27.Notice(PROVIDER_BUSY_NOTICE);
+          new import_obsidian28.Notice(PROVIDER_BUSY_NOTICE);
           return;
         }
         if (ready) {
@@ -21631,7 +22075,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     if (isBusy()) {
-      new import_obsidian27.Notice(PROVIDER_BUSY_NOTICE);
+      new import_obsidian28.Notice(PROVIDER_BUSY_NOTICE);
       return;
     }
     if (popover.hasClass("is-visible")) close();
@@ -21649,7 +22093,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
 
 // src/features/settings/ObsidianCopilotSettings.ts
 var fs14 = __toESM(require("fs"));
-var import_obsidian30 = require("obsidian");
+var import_obsidian31 = require("obsidian");
 init_providerRegistry();
 init_providerConnection();
 init_ErrorLog();
@@ -21659,7 +22103,7 @@ init_path();
 init_ObsidianSkillsInstaller();
 
 // src/features/settings/errorLogCopy.ts
-var import_obsidian29 = require("obsidian");
+var import_obsidian30 = require("obsidian");
 init_ErrorLog();
 init_FailureReport();
 async function copyRecentErrors(adapter, host, clipboard = typeof navigator === "undefined" ? void 0 : navigator.clipboard) {
@@ -21676,7 +22120,7 @@ async function copyRecentErrors(adapter, host, clipboard = typeof navigator === 
     });
     return;
   }
-  new import_obsidian29.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  new import_obsidian30.Notice(entries.length > 0 ? `\uCD5C\uADFC \uC624\uB958 ${entries.length}\uAC74\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.` : "\uAE30\uB85D\uB41C \uC624\uB958\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
 }
 
 // src/features/settings/keyboardNavigation.ts
@@ -21757,7 +22201,7 @@ function getHotkeyForCommand(app, commandId) {
   if (!hotkeys || hotkeys.length === 0) return null;
   return hotkeys.map(formatHotkey).join(", ");
 }
-var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab {
+var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     /**
@@ -21779,13 +22223,13 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     var _a, _b;
     const descriptor = getProviderDescriptor(providerId);
     const stored = (_b = (_a = this.plugin.providerConnections) == null ? void 0 : _a[providerId]) == null ? void 0 : _b.state;
-    const row = new import_obsidian30.Setting(containerEl).setName(descriptor.label).setDesc(connectionLabel(stored));
+    const row = new import_obsidian31.Setting(containerEl).setName(descriptor.label).setDesc(connectionLabel(stored));
     row.addButton((button) => {
       const label = (state) => state === "connected" ? "\uB2E4\uC2DC \uC5F0\uACB0" : "\uC5F0\uACB0";
       button.setButtonText(label(stored));
       button.onClick(async () => {
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian30.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian31.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           return;
         }
         const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
@@ -21823,7 +22267,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       await this.plugin.saveSettings();
     };
     if (defaultModelSource(provider) === "copilot-catalog") {
-      new import_obsidian30.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc("\uCC44\uD305\uACFC \uC778\uB77C\uC778 \uD3B8\uC9D1\uC5D0 \uC4F8 GitHub Copilot \uBAA8\uB378\uC785\uB2C8\uB2E4.").addDropdown((dropdown) => {
+      new import_obsidian31.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc("\uCC44\uD305\uACFC \uC778\uB77C\uC778 \uD3B8\uC9D1\uC5D0 \uC4F8 GitHub Copilot \uBAA8\uB378\uC785\uB2C8\uB2E4.").addDropdown((dropdown) => {
         for (const model of COPILOT_MODELS) {
           dropdown.addOption(model.value, `${model.label} - ${model.costLabel}`);
         }
@@ -21832,7 +22276,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       return;
     }
     const stored = ((_b = (_a = this.plugin.settings.providerModels) == null ? void 0 : _a[provider]) == null ? void 0 : _b.trim()) || "";
-    const row = new import_obsidian30.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc(`${descriptor.label}\uC5D0 \uBCF4\uB0BC \uBAA8\uB378\uC785\uB2C8\uB2E4. \uBE44\uC6CC \uB450\uBA74 CLI \uAE30\uBCF8\uAC12\uC744 \uC501\uB2C8\uB2E4.`);
+    const row = new import_obsidian31.Setting(containerEl).setName("\uAE30\uBCF8 \uBAA8\uB378").setDesc(`${descriptor.label}\uC5D0 \uBCF4\uB0BC \uBAA8\uB378\uC785\uB2C8\uB2E4. \uBE44\uC6CC \uB450\uBA74 CLI \uAE30\uBCF8\uAC12\uC744 \uC501\uB2C8\uB2E4.`);
     const showList = (options) => {
       row.controlEl.empty();
       row.addDropdown((dropdown) => {
@@ -21903,7 +22347,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       });
     }
     const skillsInstalled = isObsidianSkillsInstalled(this.app, skillProvider);
-    new import_obsidian30.Setting(skillsContentEl).setName("Obsidian context skills").setDesc(
+    new import_obsidian31.Setting(skillsContentEl).setName("Obsidian context skills").setDesc(
       skillsInstalled ? `\uC124\uCE58\uB428 - ${getProviderDescriptor(skillProvider).label}\uAC00 Obsidian \uBB38\uBC95\uC744 \uC774\uD574\uD569\uB2C8\uB2E4.` : "\uC124\uCE58 \uC548 \uB428 - \uB300\uBD80\uBD84\uC758 \uD559\uC0DD\uC5D0\uAC8C \uAD8C\uC7A5\uD569\uB2C8\uB2E4."
     ).addButton((button) => {
       if (skillsInstalled) {
@@ -21927,7 +22371,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     });
     let skillUrl = "";
     let textInput = null;
-    new import_obsidian30.Setting(skillsContentEl).setName("Install custom skill from GitHub").setDesc(`${getProviderDescriptor(skillProvider).label}\uC758 \uC2A4\uD0AC \uD3F4\uB354\uB85C \uBC1B\uC2B5\uB2C8\uB2E4. \uC2A4\uD0AC \uD3F4\uB354 \uC8FC\uC18C(.../tree/main/skills/docx)\uB97C \uB123\uC73C\uBA74 \uB538\uB9B0 \uC2A4\uD06C\uB9BD\uD2B8\uAE4C\uC9C0 \uBC1B\uACE0, \uC800\uC7A5\uC18C\uB098 SKILL.md \uC8FC\uC18C\uB294 \uADF8 \uD30C\uC77C \uD55C \uC7A5\uB9CC \uBC1B\uC2B5\uB2C8\uB2E4.`).addText((text) => {
+    new import_obsidian31.Setting(skillsContentEl).setName("Install custom skill from GitHub").setDesc(`${getProviderDescriptor(skillProvider).label}\uC758 \uC2A4\uD0AC \uD3F4\uB354\uB85C \uBC1B\uC2B5\uB2C8\uB2E4. \uC2A4\uD0AC \uD3F4\uB354 \uC8FC\uC18C(.../tree/main/skills/docx)\uB97C \uB123\uC73C\uBA74 \uB538\uB9B0 \uC2A4\uD06C\uB9BD\uD2B8\uAE4C\uC9C0 \uBC1B\uACE0, \uC800\uC7A5\uC18C\uB098 SKILL.md \uC8FC\uC18C\uB294 \uADF8 \uD30C\uC77C \uD55C \uC7A5\uB9CC \uBC1B\uC2B5\uB2C8\uB2E4.`).addText((text) => {
       textInput = text.inputEl;
       text.setPlaceholder("https://github.com/username/repo").onChange(async (value) => {
         skillUrl = value;
@@ -21935,7 +22379,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     }).addButton((button) => {
       button.setButtonText("Install").setCta().onClick(async () => {
         if (!skillUrl) {
-          new import_obsidian30.Notice("Please enter a URL");
+          new import_obsidian31.Notice("Please enter a URL");
           return;
         }
         button.setButtonText("Installing...").setDisabled(true);
@@ -21976,7 +22420,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     for (const suggestion of SKILL_SUGGESTIONS) {
       const chipEl = suggestionsEl.createDiv({ cls: "ocop-skill-chip" });
       const iconEl = chipEl.createSpan({ cls: "ocop-skill-chip-icon" });
-      (0, import_obsidian30.setIcon)(iconEl, suggestion.icon);
+      (0, import_obsidian31.setIcon)(iconEl, suggestion.icon);
       chipEl.createSpan({ text: suggestion.label });
       chipEl.addEventListener("click", () => {
         if (textInput) {
@@ -22028,23 +22472,23 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     this.probes = new AbortController();
     containerEl.empty();
     containerEl.addClass("ocop-settings");
-    new import_obsidian30.Setting(containerEl).setName("Quick Start").setHeading();
+    new import_obsidian31.Setting(containerEl).setName("Quick Start").setHeading();
     containerEl.createDiv({
       cls: "setting-item-description",
       text: "Start here: choose your default model and install Obsidian context support."
     });
-    new import_obsidian30.Setting(containerEl).setName("What should Obsidian AI Tutor call you?").setDesc("Your name for personalized greetings (leave empty for generic greetings)").addText(
+    new import_obsidian31.Setting(containerEl).setName("What should Obsidian AI Tutor call you?").setDesc("Your name for personalized greetings (leave empty for generic greetings)").addText(
       (text) => text.setPlaceholder("Enter your name").setValue(this.plugin.settings.userName).onChange(async (value) => {
         this.plugin.settings.userName = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian30.Setting(containerEl).setName("AI provider").setDesc("Choose one official CLI; only the selected provider is used for requests.").addDropdown((dropdown) => {
+    new import_obsidian31.Setting(containerEl).setName("AI provider").setDesc("Choose one official CLI; only the selected provider is used for requests.").addDropdown((dropdown) => {
       for (const provider of PROVIDERS) dropdown.addOption(provider.id, provider.label);
       dropdown.setValue(this.plugin.settings.selectedProvider).onChange(async (value) => {
         var _a;
         if (this.plugin.isBashExpansionInFlight()) {
-          new import_obsidian30.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+          new import_obsidian31.Notice("\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
           dropdown.setValue(this.plugin.settings.selectedProvider);
           return;
         }
@@ -22059,7 +22503,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     for (const provider of PROVIDERS) {
       this.renderProviderConnectionRow(containerEl, provider.id);
     }
-    new import_obsidian30.Setting(containerEl).setName("\uC124\uCE58 \uB9C8\uBC95\uC0AC").setDesc("\uC5EC\uB7EC AI\uB97C \uD55C \uBC88\uC5D0 \uC124\uCE58\uD558\uACE0 \uB85C\uADF8\uC778\uD569\uB2C8\uB2E4. \uAE30\uBCF8\uC73C\uB85C \uC4F8 AI\uB294 \uB9C8\uC9C0\uB9C9\uC5D0 \uACE0\uB985\uB2C8\uB2E4.").addButton((button) => {
+    new import_obsidian31.Setting(containerEl).setName("\uC124\uCE58 \uB9C8\uBC95\uC0AC").setDesc("\uC5EC\uB7EC AI\uB97C \uD55C \uBC88\uC5D0 \uC124\uCE58\uD558\uACE0 \uB85C\uADF8\uC778\uD569\uB2C8\uB2E4. \uAE30\uBCF8\uC73C\uB85C \uC4F8 AI\uB294 \uB9C8\uC9C0\uB9C9\uC5D0 \uACE0\uB985\uB2C8\uB2E4.").addButton((button) => {
       button.setButtonText("\uC5F4\uAE30");
       button.onClick(async () => {
         const { SetupWizardModal: SetupWizardModal2 } = await Promise.resolve().then(() => (init_SetupWizardModal(), SetupWizardModal_exports));
@@ -22076,7 +22520,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     const pathProvider = this.plugin.settings.selectedProvider;
     const pathDescriptor = getProviderDescriptor(pathProvider);
     const storedCliPath = getConfiguredProviderCliPath(this.plugin.settings, pathProvider);
-    const cliPathSetting = new import_obsidian30.Setting(containerEl).setName(`${pathDescriptor.label} \uC2E4\uD589 \uACBD\uB85C`).setDesc(`\uC790\uB3D9\uC73C\uB85C \uCC3E\uC73C\uBA74 \uBE44\uC6CC \uB450\uC138\uC694. \uBABB \uCC3E\uC744 \uB54C\uB9CC "which ${pathDescriptor.command}" \uACB0\uACFC\uB97C \uBD99\uC5EC \uB123\uC2B5\uB2C8\uB2E4.`);
+    const cliPathSetting = new import_obsidian31.Setting(containerEl).setName(`${pathDescriptor.label} \uC2E4\uD589 \uACBD\uB85C`).setDesc(`\uC790\uB3D9\uC73C\uB85C \uCC3E\uC73C\uBA74 \uBE44\uC6CC \uB450\uC138\uC694. \uBABB \uCC3E\uC744 \uB54C\uB9CC "which ${pathDescriptor.command}" \uACB0\uACFC\uB97C \uBD99\uC5EC \uB123\uC2B5\uB2C8\uB2E4.`);
     const cliPathValidationEl = containerEl.createDiv({ cls: "ocop-cli-path-validation" });
     cliPathValidationEl.style.color = "var(--text-error)";
     cliPathValidationEl.style.fontSize = "0.85em";
@@ -22140,7 +22584,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       cls: "setting-item-description",
       text: "Control how chat behaves day to day without touching advanced system settings."
     });
-    new import_obsidian30.Setting(chatContentEl).setName("Excluded tags").setDesc("Notes with these tags will not auto-load as context (one per line, without #)").addTextArea((text) => {
+    new import_obsidian31.Setting(chatContentEl).setName("Excluded tags").setDesc("Notes with these tags will not auto-load as context (one per line, without #)").addTextArea((text) => {
       text.setPlaceholder("system\nprivate\ndraft").setValue(this.plugin.settings.excludedTags.join("\n")).onChange(async (value) => {
         this.plugin.settings.excludedTags = value.split(/\r?\n/).map((entry) => entry.trim().replace(/^#/, "")).filter((entry) => entry.length > 0);
         await this.plugin.saveSettings();
@@ -22148,14 +22592,14 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       text.inputEl.rows = 4;
       text.inputEl.cols = 30;
     });
-    new import_obsidian30.Setting(chatContentEl).setName("Media folder").setDesc("Folder containing attachments/images. Leave empty for vault root.").addText((text) => {
+    new import_obsidian31.Setting(chatContentEl).setName("Media folder").setDesc("Folder containing attachments/images. Leave empty for vault root.").addText((text) => {
       text.setPlaceholder("attachments").setValue(this.plugin.settings.mediaFolder).onChange(async (value) => {
         this.plugin.settings.mediaFolder = value.trim();
         await this.plugin.saveSettings();
       });
       text.inputEl.addClass("ocop-settings-media-input");
     });
-    new import_obsidian30.Setting(chatContentEl).setName("\uD559\uC2B5 \uAE30\uB85D \uC800\uC7A5 \uC704\uCE58").setDesc("\uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uC800\uC7A5\uD558\uB294 \uAE30\uB85D \uB178\uD2B8\uAC00 \uB9CC\uB4E4\uC5B4\uC9C8 \uBCF4\uAD00\uD568 \uB0B4 \uD3F4\uB354\uC785\uB2C8\uB2E4. \uC800\uC7A5\uD560 \uB54C\uB9C8\uB2E4 \uC704\uCE58\uC640 \uB0B4\uC6A9\uC744 \uBCF4\uC5EC \uB4DC\uB9AC\uACE0 \uD5C8\uB77D\uC744 \uBC1B\uC73C\uBA70, \uD3F4\uB354\uB97C \uBC14\uAFD4\uB3C4 \uC774\uBBF8 \uC800\uC7A5\uB41C \uAE30\uB85D\uC740 \uC62E\uAE30\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.").addText((text) => {
+    new import_obsidian31.Setting(chatContentEl).setName("\uD559\uC2B5 \uAE30\uB85D \uC800\uC7A5 \uC704\uCE58").setDesc("\uD559\uC2B5\uC774 \uB05D\uB09C \uB4A4 \uC800\uC7A5\uD558\uB294 \uAE30\uB85D \uB178\uD2B8\uAC00 \uB9CC\uB4E4\uC5B4\uC9C8 \uBCF4\uAD00\uD568 \uB0B4 \uD3F4\uB354\uC785\uB2C8\uB2E4. \uC800\uC7A5\uD560 \uB54C\uB9C8\uB2E4 \uC704\uCE58\uC640 \uB0B4\uC6A9\uC744 \uBCF4\uC5EC \uB4DC\uB9AC\uACE0 \uD5C8\uB77D\uC744 \uBC1B\uC73C\uBA70, \uD3F4\uB354\uB97C \uBC14\uAFD4\uB3C4 \uC774\uBBF8 \uC800\uC7A5\uB41C \uAE30\uB85D\uC740 \uC62E\uAE30\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.").addText((text) => {
       text.setPlaceholder(DEFAULT_LEARNING_RECORDS_FOLDER).setValue(this.plugin.settings.learningRecordsFolder).onChange(async (value) => {
         const folder = normalizeVaultPath(value);
         if (!folder) {
@@ -22168,13 +22612,13 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       });
       text.inputEl.addClass("ocop-settings-media-input");
     });
-    new import_obsidian30.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy receives an instruction not to search when Web is off, but its CLI may still search; the first affected request shows a notice.").addToggle(
+    new import_obsidian31.Setting(chatContentEl).setName("Web search").setDesc("Controls Web search for normal chat and Socratic mode. Quiz uses Web by difficulty (\uD558/\uC911 off, \uC0C1 on). Agy receives an instruction not to search when Web is off, but its CLI may still search; the first affected request shows a notice.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableWebSearch).onChange(async (value) => {
         this.plugin.settings.enableWebSearch = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian30.Setting(chatContentEl).setName("Auto-generate conversation titles").setDesc("Automatically generate conversation titles after the first exchange.").addToggle(
+    new import_obsidian31.Setting(chatContentEl).setName("Auto-generate conversation titles").setDesc("Automatically generate conversation titles after the first exchange.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableAutoTitleGeneration).onChange(async (value) => {
         this.plugin.settings.enableAutoTitleGeneration = value;
         await this.plugin.saveSettings();
@@ -22182,7 +22626,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       })
     );
     if (this.plugin.settings.enableAutoTitleGeneration && this.plugin.settings.selectedProvider === "copilot") {
-      new import_obsidian30.Setting(chatContentEl).setName("Title generation model").setDesc("Model used for auto-generating conversation titles.").addDropdown((dropdown) => {
+      new import_obsidian31.Setting(chatContentEl).setName("Title generation model").setDesc("Model used for auto-generating conversation titles.").addDropdown((dropdown) => {
         dropdown.addOption("", "Auto");
         for (const model of COPILOT_MODELS) {
           dropdown.addOption(model.value, model.label);
@@ -22207,18 +22651,18 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       },
       baseAriaLabel: "Advanced settings"
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("Workflows & Shortcuts").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("Workflows & Shortcuts").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "Configure optional workflow presets and keyboard shortcuts once you are comfortable with the basics."
     });
     const inlineEditCommandId = "obsidian-ai-tutor:inline-edit";
     const inlineEditHotkey = getHotkeyForCommand(this.app, inlineEditCommandId);
-    new import_obsidian30.Setting(advancedContentEl).setName("Inline edit hotkey").setDesc(inlineEditHotkey ? `Current: ${inlineEditHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(inlineEditHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
+    new import_obsidian31.Setting(advancedContentEl).setName("Inline edit hotkey").setDesc(inlineEditHotkey ? `Current: ${inlineEditHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(inlineEditHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
     const openChatCommandId = "obsidian-ai-tutor:open-view";
     const openChatHotkey = getHotkeyForCommand(this.app, openChatCommandId);
-    new import_obsidian30.Setting(advancedContentEl).setName("Open chat hotkey").setDesc(openChatHotkey ? `Current: ${openChatHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(openChatHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
-    new import_obsidian30.Setting(advancedContentEl).setName("Workflow Presets").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("Open chat hotkey").setDesc(openChatHotkey ? `Current: ${openChatHotkey}` : "No hotkey set. Click to configure.").addButton((button) => button.setButtonText(openChatHotkey ? "Change" : "Set hotkey").onClick(() => openHotkeySettings(this.app)));
+    new import_obsidian31.Setting(advancedContentEl).setName("Workflow Presets").setHeading();
     const slashCommandsDesc = advancedContentEl.createDiv({ cls: "ocop-slash-settings-desc" });
     slashCommandsDesc.createEl("p", {
       text: "Create custom prompt templates triggered by /command. Use $ARGUMENTS for all arguments, $1/$2 for positional args, @file for file content, and !`bash` for command output.",
@@ -22226,24 +22670,24 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     });
     const slashCommandsContainer = advancedContentEl.createDiv({ cls: "ocop-slash-commands-container" });
     new SlashCommandSettings(slashCommandsContainer, this.plugin);
-    new import_obsidian30.Setting(advancedContentEl).setName("Safety & Permissions").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("Safety & Permissions").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "The toggle below is the main safety control for beginners. Detailed allow/block rules are in Advanced."
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("\uC778\uB77C\uC778 Bash \uBA85\uB839 \uCC28\uB2E8").setDesc("\uC2AC\uB798\uC2DC \uBA85\uB839 \uC548\uC758 !`\uBA85\uB839` \uC2E4\uD589\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. AI\uAC00 \uC2A4\uC2A4\uB85C \uC2E4\uD589\uD558\uB294 \uBA85\uB839\uC740 \uB9C9\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 AI\uC758 \uAD8C\uD55C\uC740 Ask/Agent \uD1A0\uAE00\uB85C \uC870\uC808\uD558\uC138\uC694.").addToggle(
+    new import_obsidian31.Setting(advancedContentEl).setName("\uC778\uB77C\uC778 Bash \uBA85\uB839 \uCC28\uB2E8").setDesc("\uC2AC\uB798\uC2DC \uBA85\uB839 \uC548\uC758 !`\uBA85\uB839` \uC2E4\uD589\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. AI\uAC00 \uC2A4\uC2A4\uB85C \uC2E4\uD589\uD558\uB294 \uBA85\uB839\uC740 \uB9C9\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 AI\uC758 \uAD8C\uD55C\uC740 Ask/Agent \uD1A0\uAE00\uB85C \uC870\uC808\uD558\uC138\uC694.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableBlocklist).onChange(async (value) => {
         this.plugin.settings.enableBlocklist = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian30.Setting(advancedContentEl).setName("Enable inline bash in slash commands").setDesc("Allow !`command` syntax in workflow presets to execute shell commands. Disabled by default for security \u2014 enable only if you trust your slash command sources.").addToggle(
+    new import_obsidian31.Setting(advancedContentEl).setName("Enable inline bash in slash commands").setDesc("Allow !`command` syntax in workflow presets to execute shell commands. Disabled by default for security \u2014 enable only if you trust your slash command sources.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableInlineBash).onChange(async (value) => {
         this.plugin.settings.enableInlineBash = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian30.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uCC44\uD305\uC5D0\uC11C Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C \uB728\uB294 \uD655\uC778 \uCC3D\uC5D0\uC11C \uD5C8\uC6A9\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCF1C\uC9D1\uB2C8\uB2E4. \uB044\uBA74 Agy\uB294 Ask(\uC77D\uAE30 \uC804\uC6A9)\uB85C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
+    new import_obsidian31.Setting(advancedContentEl).setName("Agy \uC704\uD5D8 Agent \uBAA8\uB4DC \uD5C8\uC6A9").setDesc("\uCC44\uD305\uC5D0\uC11C Agy\uB97C Agent\uB85C \uBC14\uAFC0 \uB54C \uB728\uB294 \uD655\uC778 \uCC3D\uC5D0\uC11C \uD5C8\uC6A9\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCF1C\uC9D1\uB2C8\uB2E4. \uB044\uBA74 Agy\uB294 Ask(\uC77D\uAE30 \uC804\uC6A9)\uB85C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4.").addToggle((toggle) => {
       var _a;
       return toggle.setValue((_a = this.plugin.settings.allowUnsafeAgyAgent) != null ? _a : false).onChange(async (value) => {
         if (!value) {
@@ -22264,7 +22708,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     const platformKey = getCurrentPlatformKey();
     const isWindows4 = platformKey === "windows";
     const platformLabel = isWindows4 ? "Windows" : "Unix";
-    new import_obsidian30.Setting(advancedContentEl).setName(`Blocked commands (${platformLabel})`).setDesc(`Patterns to block on ${platformLabel} (one per line). Supports regex.`).addTextArea((text) => {
+    new import_obsidian31.Setting(advancedContentEl).setName(`Blocked commands (${platformLabel})`).setDesc(`Patterns to block on ${platformLabel} (one per line). Supports regex.`).addTextArea((text) => {
       const placeholder = isWindows4 ? "del /s /q\nrd /s /q\nRemove-Item -Recurse -Force" : "rm -rf\nchmod 777\nmkfs";
       text.setPlaceholder(placeholder).setValue(this.plugin.settings.blockedCommands[platformKey].join("\n")).onChange(async (value) => {
         this.plugin.settings.blockedCommands[platformKey] = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
@@ -22274,7 +22718,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       text.inputEl.cols = 40;
     });
     if (isWindows4) {
-      new import_obsidian30.Setting(advancedContentEl).setName("Blocked commands (Unix/Git Bash)").setDesc("Unix patterns also blocked on Windows because Git Bash can invoke them.").addTextArea((text) => {
+      new import_obsidian31.Setting(advancedContentEl).setName("Blocked commands (Unix/Git Bash)").setDesc("Unix patterns also blocked on Windows because Git Bash can invoke them.").addTextArea((text) => {
         text.setPlaceholder("rm -rf\nchmod 777\nmkfs").setValue(this.plugin.settings.blockedCommands.unix.join("\n")).onChange(async (value) => {
           this.plugin.settings.blockedCommands.unix = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
           await this.plugin.saveSettings();
@@ -22283,7 +22727,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
         text.inputEl.cols = 40;
       });
     }
-    new import_obsidian30.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin \u2014 the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.").addTextArea((text) => {
+    new import_obsidian31.Setting(advancedContentEl).setName("Allowed export paths").setDesc("Guidance given to the AI for exporting files outside the vault (one per line). Not enforced by the plugin \u2014 the CLI process can write anywhere it has OS permission to. Supports ~ for home directory.").addTextArea((text) => {
       const placeholder = process.platform === "win32" ? "~/Desktop\n~/Downloads\n%TEMP%" : "~/Desktop\n~/Downloads\n/tmp";
       text.setPlaceholder(placeholder).setValue(this.plugin.settings.allowedExportPaths.join("\n")).onChange(async (value) => {
         this.plugin.settings.allowedExportPaths = value.split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
@@ -22317,7 +22761,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
           this.display();
         });
       }
-      new import_obsidian30.Setting(advancedContentEl).setName("Clear all approved actions").setDesc("Remove all permanently approved actions").addButton(
+      new import_obsidian31.Setting(advancedContentEl).setName("Clear all approved actions").setDesc("Remove all permanently approved actions").addButton(
         (button) => button.setButtonText("Clear all").setWarning().onClick(async () => {
           this.plugin.settings.permissions = [];
           await this.plugin.saveSettings();
@@ -22325,18 +22769,18 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
         })
       );
     }
-    new import_obsidian30.Setting(advancedContentEl).setName("Authentication & Environment").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("Authentication & Environment").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: `\uB300\uBD80\uBD84\uC758 \uD559\uC0DD\uC740 \uADF8\uB300\uB85C \uB450\uBA74 \uB429\uB2C8\uB2E4. ${getProviderDescriptor(this.plugin.settings.selectedProvider).label} \uB85C\uADF8\uC778\uC774 \uC774\uBBF8 \uB05D\uB0AC\uB2E4\uBA74 \uC190\uB308 \uD544\uC694\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("GitHub token").setDesc("\uC120\uD0DD \uC0AC\uD56D\uC785\uB2C8\uB2E4. \uC785\uB825\uD558\uBA74 Copilot \uC2E4\uD589 \uC2DC COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN\uC73C\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4. \uD1A0\uD070\uC740 \uAE08\uACE0\uAC00 \uC544\uB2C8\uB77C \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uC800\uC7A5\uB418\uBBC0\uB85C, \uAE08\uACE0\uB97C \uACF5\uC720\uD558\uAC70\uB098 \uD074\uB77C\uC6B0\uB4DC\uC5D0 \uC62C\uB824\uB3C4 \uD568\uAED8 \uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C\uB294 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.").addText(
+    new import_obsidian31.Setting(advancedContentEl).setName("GitHub token").setDesc("\uC120\uD0DD \uC0AC\uD56D\uC785\uB2C8\uB2E4. \uC785\uB825\uD558\uBA74 Copilot \uC2E4\uD589 \uC2DC COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN\uC73C\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4. \uD1A0\uD070\uC740 \uAE08\uACE0\uAC00 \uC544\uB2C8\uB77C \uC774 \uCEF4\uD4E8\uD130 \uC548\uC5D0\uB9CC \uC800\uC7A5\uB418\uBBC0\uB85C, \uAE08\uACE0\uB97C \uACF5\uC720\uD558\uAC70\uB098 \uD074\uB77C\uC6B0\uB4DC\uC5D0 \uC62C\uB824\uB3C4 \uD568\uAED8 \uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uCEF4\uD4E8\uD130\uC5D0\uC11C\uB294 \uB2E4\uC2DC \uC785\uB825\uD574\uC57C \uD569\uB2C8\uB2E4.").addText(
       (text) => text.setPlaceholder("github_pat_...").setValue(this.plugin.settings.githubToken).onChange(async (value) => {
         this.plugin.settings.githubToken = value.trim();
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian30.Setting(advancedContentEl).setName("Custom variables").setDesc("\uC120\uD0DD\uD55C provider\uC758 CLI\uC5D0 \uB118\uAE38 \uD658\uACBD \uBCC0\uC218\uC785\uB2C8\uB2E4 (KEY=VALUE, \uD55C \uC904\uC5D0 \uD558\uB098).").addTextArea((text) => {
+    new import_obsidian31.Setting(advancedContentEl).setName("Custom variables").setDesc("\uC120\uD0DD\uD55C provider\uC758 CLI\uC5D0 \uB118\uAE38 \uD658\uACBD \uBCC0\uC218\uC785\uB2C8\uB2E4 (KEY=VALUE, \uD55C \uC904\uC5D0 \uD558\uB098).").addTextArea((text) => {
       text.setPlaceholder("HTTPS_PROXY=http://proxy.school.ac.kr:8080\nLANG=ko_KR.UTF-8").setValue(this.plugin.settings.environmentVariables).onChange(async (value) => {
         await this.plugin.applyEnvironmentVariables(value);
       });
@@ -22346,24 +22790,24 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
     });
     const envSnippetsContainer = advancedContentEl.createDiv({ cls: "ocop-env-snippets-container" });
     new EnvSnippetManager(envSnippetsContainer, this.plugin);
-    new import_obsidian30.Setting(advancedContentEl).setName("\uBB38\uC81C \uAE30\uB85D").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("\uBB38\uC81C \uAE30\uB85D").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       // The failures that matter most are on machines nobody here can reach, and
       // a student cannot be asked to open a terminal to retrieve them.
       text: `\uC624\uB958\uAC00 \uC0DD\uAE30\uBA74 \uC790\uB3D9\uC73C\uB85C \uBCF4\uAD00\uD568\uC758 ${ERROR_LOG_PATH} \uC5D0 \uAE30\uB85D\uB429\uB2C8\uB2E4. \uC778\uC99D \uD1A0\uD070 \uAC19\uC740 \uBE44\uBC00 \uAC12\uC740 \uAC00\uB824\uC11C \uC800\uC7A5\uD569\uB2C8\uB2E4.`
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
+    new import_obsidian31.Setting(advancedContentEl).setName("\uCD5C\uADFC \uC624\uB958 \uBCF5\uC0AC").setDesc("\uBC84\uD2BC\uC744 \uB204\uB974\uBA74 \uCD5C\uADFC \uC624\uB958 \uAE30\uB85D\uC774 \uBCF5\uC0AC\uB429\uB2C8\uB2E4. \uADF8\uB300\uB85C \uC120\uC0DD\uB2D8\uAED8 \uBD99\uC5EC\uB123\uC5B4 \uC8FC\uC138\uC694.").addButton(
       (button) => button.setButtonText("\uBCF5\uC0AC").onClick(async () => {
         await copyRecentErrors(this.plugin.storage.getAdapter(), this.plugin);
       })
     );
-    new import_obsidian30.Setting(advancedContentEl).setName("Advanced & Developer").setHeading();
+    new import_obsidian31.Setting(advancedContentEl).setName("Advanced & Developer").setHeading();
     advancedContentEl.createDiv({
       cls: "setting-item-description",
       text: "Only change these if you know why you need them. They are preserved here for power users and debugging."
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("Custom system prompt").setDesc("\uC120\uD0DD\uD55C provider\uC758 \uAE30\uBCF8 \uD504\uB86C\uD504\uD2B8 \uB4A4\uC5D0 \uBD99\uB294 \uCD94\uAC00 \uC9C0\uC2DC\uC785\uB2C8\uB2E4.").addTextArea((text) => {
+    new import_obsidian31.Setting(advancedContentEl).setName("Custom system prompt").setDesc("\uC120\uD0DD\uD55C provider\uC758 \uAE30\uBCF8 \uD504\uB86C\uD504\uD2B8 \uB4A4\uC5D0 \uBD99\uB294 \uCD94\uAC00 \uC9C0\uC2DC\uC785\uB2C8\uB2E4.").addTextArea((text) => {
       text.setPlaceholder("Add custom instructions here...").setValue(this.plugin.settings.systemPrompt).onChange(async (value) => {
         this.plugin.settings.systemPrompt = value;
         await this.plugin.saveSettings();
@@ -22371,7 +22815,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
       text.inputEl.rows = 6;
       text.inputEl.cols = 50;
     });
-    new import_obsidian30.Setting(advancedContentEl).setName("Vim-style navigation mappings").setDesc('One mapping per line. Format: "map <key> <action>" (actions: scrollUp, scrollDown, focusInput).').addTextArea((text) => {
+    new import_obsidian31.Setting(advancedContentEl).setName("Vim-style navigation mappings").setDesc('One mapping per line. Format: "map <key> <action>" (actions: scrollUp, scrollDown, focusInput).').addTextArea((text) => {
       let pendingValue = buildNavMappingText(this.plugin.settings.keyboardNavigation);
       let saveTimeout = null;
       const commitValue = async (showError) => {
@@ -22382,7 +22826,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
         const result = parseNavMappings(pendingValue);
         if (!result.settings) {
           if (showError) {
-            new import_obsidian30.Notice(`Invalid navigation mappings: ${result.error}`);
+            new import_obsidian31.Notice(`Invalid navigation mappings: ${result.error}`);
             pendingValue = buildNavMappingText(this.plugin.settings.keyboardNavigation);
             text.setValue(pendingValue);
           }
@@ -22416,7 +22860,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian30.PluginSettingTab
 };
 
 // src/main.ts
-var ObsidianCopilotPlugin = class extends import_obsidian32.Plugin {
+var ObsidianCopilotPlugin = class extends import_obsidian33.Plugin {
   constructor() {
     super(...arguments);
     this.conversations = [];
@@ -22480,7 +22924,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       if (next !== this.providerConnections) this.persistProviderConnections(next);
     };
     this.agentService.onPermissionNotice = (message) => {
-      new import_obsidian32.Notice(message);
+      new import_obsidian33.Notice(message);
     };
     void this.agentService.prewarmCapabilities();
     this.app.workspace.onLayoutReady(() => {
@@ -22488,7 +22932,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       void this.installBundledSkillsOnce();
       void this.finishSecretMove();
     });
-    (0, import_obsidian32.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
+    (0, import_obsidian33.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
     this.registerView(
       VIEW_TYPE_OBSIDIAN_COPILOT,
       (leaf) => new ObsidianCopilotView(leaf, this)
@@ -22526,7 +22970,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
         const modal = new InlineEditModal(this.app, this, editContext, notePath);
         const result = await modal.openAndWait();
         if (result.decision === "accept" && result.editedText !== void 0) {
-          new import_obsidian32.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
+          new import_obsidian33.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
         }
       }
     });
@@ -22542,7 +22986,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
           if (chatView == null ? void 0 : chatView.fileContextManager) {
             const normalizedPath = activeFile.path.replace(/\\/g, "/");
             chatView.fileContextManager.attachFileFromCommand(normalizedPath);
-            new import_obsidian32.Notice(`Attached: ${activeFile.name}`);
+            new import_obsidian33.Notice(`Attached: ${activeFile.name}`);
           }
         }).catch((error) => {
           console.error("[ObsidianCopilot] Failed to activate view for file attach:", error);
@@ -22748,7 +23192,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     await this.saveSettings();
     if (envText !== this.runtimeEnvironmentVariables) {
       if (!this.hasNotifiedEnvChange) {
-        new import_obsidian32.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
+        new import_obsidian33.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
         this.hasNotifiedEnvChange = true;
       }
     } else {

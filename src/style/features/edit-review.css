@@ -1,0 +1,76 @@
+/* Agent-mode edit review card (src/features/edit-review/EditReviewCard.ts) */
+.ocop-edit-review {
+  margin-top: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  font-size: var(--font-ui-small);
+}
+
+.ocop-edit-review-head,
+.ocop-edit-review-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.ocop-edit-review-head { border-bottom: 1px solid var(--background-modifier-border); }
+.ocop-edit-review-foot { border-top: 1px solid var(--background-modifier-border); }
+.ocop-edit-review-file { font-weight: var(--font-semibold); overflow-wrap: anywhere; }
+.ocop-edit-review-stats { font-family: var(--font-monospace); font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.ocop-edit-review-added { color: var(--color-green); }
+.ocop-edit-review-removed { color: var(--color-red); }
+
+.ocop-edit-review-notice,
+.ocop-edit-review-banner,
+.ocop-edit-review-done {
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ocop-edit-review-notice { color: var(--text-muted); }
+.ocop-edit-review-banner { background: rgba(var(--color-yellow-rgb), 0.15); color: var(--text-normal); }
+.ocop-edit-review-done { background: rgba(var(--color-green-rgb), 0.12); color: var(--text-normal); }
+
+.ocop-edit-review-hunk + .ocop-edit-review-hunk { border-top: 1px solid var(--background-modifier-border); }
+
+.ocop-edit-review-hunk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.ocop-edit-review-hunk[data-state="accepted"] .ocop-edit-review-hunk-bar { color: var(--color-green); }
+.ocop-edit-review-hunk[data-state="rejected"] .ocop-edit-review-hunk-bar { color: var(--color-red); }
+.ocop-edit-review-hunk[data-state="rejected"] .ocop-edit-review-lines { opacity: 0.5; }
+
+.ocop-edit-review-lines { font-family: var(--font-monospace); overflow-x: auto; }
+
+.ocop-edit-review-line {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ocop-edit-review-sign { text-align: center; color: var(--text-faint); user-select: none; }
+.ocop-edit-review-line.is-removed { background: rgba(var(--color-red-rgb), 0.12); color: var(--color-red); }
+.ocop-edit-review-line.is-added { background: rgba(var(--color-green-rgb), 0.12); color: var(--color-green); }
+.ocop-edit-review-line.is-context { color: var(--text-faint); }
+
+.ocop-edit-review-btns { display: flex; gap: 6px; }
+.ocop-edit-review-btn { font-size: var(--font-ui-smaller); padding: 2px 8px; height: auto; }
+.ocop-edit-review-btn.is-accepted[aria-pressed="true"] { background: rgba(var(--color-green-rgb), 0.2); color: var(--color-green); }
+.ocop-edit-review-btn.is-rejected[aria-pressed="true"] { background: rgba(var(--color-red-rgb), 0.2); color: var(--color-red); }

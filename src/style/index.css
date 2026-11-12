@@ -35,6 +35,7 @@
 @import "./features/image-modal.css";
 @import "./features/inline-edit.css";
 @import "./features/diff.css";
+@import "./features/edit-review.css";
 @import "./features/slash-commands.css";
 
 /* Modals */

@@ -56,6 +56,9 @@ import {
   resolveSlashAllowedTools,
   slashAllowsInlineBash,
 } from '../../../utils/slashCommand';
+import { buildEditProposalInstruction } from '../../edit-review/editReview';
+import { renderEditReviewCard } from '../../edit-review/EditReviewCard';
+import { readLiveNote } from '../../edit-review/liveNote';
 import { type MessageRenderer, renderLearningRecordActions, renderQuizReviewButton } from '../rendering/MessageRenderer';
 import type { InstructionRefineService } from '../services/InstructionRefineService';
 import type { TitleGenerationService } from '../services/TitleGenerationService';
@@ -806,7 +809,25 @@ export class InputController {
       promptToSend = prependEditorContext(promptToSend, editorContext);
     }
 
-    if (shouldSendCurrentNote && currentNotePath) {
+    // Agent mode on a note: the CLI runs read-only and proposes a revised note; the student
+    // accepts blocks on the review card and the plugin writes only those (edit-review/).
+    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath
+      && this.shouldReviewEdits(currentNotePath, learningRequest, slashAllowedToolsRequested));
+    const editReviewBase = editReviewIntended && currentNotePath
+      ? await this.readEditReviewBase(currentNotePath)
+      : null;
+    // A review turn never hands the CLI write access, even when the note could not be read.
+    if (editReviewIntended) queryOptions = { ...queryOptions, readOnly: true };
+
+    if (editReviewBase !== null && currentNotePath) {
+      // The note body itself is attached after mention rewriting below, so the CLI reads
+      // exactly the text the review compares against.
+      assistantMsg.editReview = {
+        notePath: currentNotePath, base: editReviewBase, request: content, hunks: [], decisions: {}, status: 'awaiting',
+      };
+      queryOptions = { ...queryOptions, readOnly: true };
+      currentNoteForMessage = currentNotePath;
+    } else if (shouldSendCurrentNote && currentNotePath) {
       if (shouldForceCurrentNoteScope) {
         const currentNoteContent = await currentNoteContentPromise;
         if (currentNoteContent !== null) {
@@ -888,6 +909,11 @@ ${promptToSend}`;
       promptToSend = fileContextManager.transformContextMentions(promptToSend);
     }
 
+    if (assistantMsg.editReview && editReviewBase !== null) {
+      const { notePath } = assistantMsg.editReview;
+      promptToSend = `${buildEditProposalInstruction(notePath)}\n\n${prependCurrentNoteContent(promptToSend, notePath, editReviewBase)}`;
+    }
+
 
     // Add external context paths to query
     const externalContextSelector = this.deps.getExternalContextSelector();
@@ -938,6 +964,19 @@ ${promptToSend}`;
         streamController.finalizeCurrentThinkingBlock(assistantMsg);
         await streamController.finalizeCurrentTextBlock(assistantMsg);
         assistantMsg.requestOutcome = streamOutcome;
+        if (assistantMsg.editReview) {
+          // No proposal (an ordinary answer) or an unfinished turn leaves nothing to review.
+          if (assistantMsg.editReview.status === 'awaiting' || streamOutcome !== 'completed') {
+            delete assistantMsg.editReview;
+          } else if (contentEl) {
+            renderEditReviewCard(contentEl, assistantMsg.editReview, {
+              app: plugin.app,
+              onChange: () => { void conversationController.save(); },
+              resend: (request) => { void this.sendMessage({ content: request }); },
+              isBusy: () => state.isStreaming,
+            });
+          }
+        }
         if (streamOutcome !== 'completed' && quizRequest) {
           // Keep partial output visible, but don't let replay turn it into an answer target.
           assistantMsg.quizQuestion = null;
@@ -1112,6 +1151,22 @@ ${promptToSend}`;
   private shouldUseCurrentNoteOnlyScope(content: string): boolean {
     const trimmed = content.trim();
     return CURRENT_NOTE_ONLY_PATTERNS.some((pattern) => pattern.test(trimmed));
+  }
+
+  /** Agent mode on a Markdown note outside learning sessions and slash tool restrictions. */
+  private shouldReviewEdits(notePath: string, learningRequest: boolean, slashAllowedToolsRequested: boolean): boolean {
+    const { plugin, state } = this.deps;
+    return plugin.settings.permissionMode === 'agent'
+      && notePath.toLowerCase().endsWith('.md')
+      && !learningRequest
+      && !slashAllowedToolsRequested
+      && !state.quizSession
+      && !state.socraticSession;
+  }
+
+  /** The note as the student sees it (open editor buffer, else file): the base of an edit review. */
+  private readEditReviewBase(notePath: string): Promise<string | null> {
+    return readLiveNote(this.deps.plugin.app, notePath);
   }
 
   private async readCurrentNoteContent(notePath: string): Promise<string | null> {

@@ -278,6 +278,22 @@ describe('StreamController - Text Content', () => {
     });
   });
 
+  describe('Agent-mode edit review', () => {
+    it('stores the hunks and shows the summary instead of the note copy', async () => {
+      const msg = createTestMessage();
+      msg.editReview = { notePath: 'n.md', base: 'a\nb\n', request: 'r', hunks: [], decisions: {}, status: 'awaiting' };
+      deps.state.currentContentEl = createMockElement();
+      deps.state.currentTextEl = createMockElement();
+      deps.state.currentTextContent = '한 줄을 고쳤어요.\n<<<REVISED_NOTE>>>\nA\nb\n<<<END_REVISED_NOTE>>>';
+
+      await controller.finalizeCurrentTextBlock(msg);
+
+      expect(msg.contentBlocks?.[0]).toEqual({ type: 'text', content: '한 줄을 고쳤어요.' });
+      expect(msg.editReview.status).toBe('pending');
+      expect(msg.editReview.hunks).toEqual([{ id: 'h1', oldStart: 0, oldLines: ['a'], newLines: ['A'] }]);
+    });
+  });
+
   describe('Quiz formatting normalization', () => {
     it('normalizes duplicated 문제 markers and removes answer prompt clutter', async () => {
       const msg = createTestMessage();

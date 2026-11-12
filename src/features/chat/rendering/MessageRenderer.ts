@@ -22,6 +22,7 @@ import {
 } from '../../../ui';
 import { processFileLinks, registerFileLinkHandler } from '../../../utils/fileLink';
 import { markMentions } from '../../../utils/mentionDisplay';
+import { type EditReviewCardDeps, renderEditReviewCard } from '../../edit-review/EditReviewCard';
 
 /** Render content function type for callbacks. */
 export type RenderContentFn = (el: HTMLElement, markdown: string) => Promise<void>;
@@ -76,6 +77,17 @@ export class MessageRenderer {
 
     // Register delegated click handler for file links
     registerFileLinkHandler(this.app, this.messagesEl, this.component);
+  }
+
+  private editReviewHandlers: Omit<EditReviewCardDeps, 'app'> = {
+    onChange: () => {},
+    resend: () => {},
+    isBusy: () => true,
+  };
+
+  /** Wires stored review cards to saving and to sending a fresh request. */
+  setEditReviewHandlers(handlers: Omit<EditReviewCardDeps, 'app'>): void {
+    this.editReviewHandlers = handlers;
   }
 
   /** Sets the messages container element. */
@@ -295,6 +307,9 @@ export class MessageRenderer {
     }
     if (msg.quizReviewAvailable) {
       renderQuizReviewButton(contentEl, msg.id);
+    }
+    if (msg.editReview && msg.editReview.status !== 'awaiting') {
+      renderEditReviewCard(contentEl, msg.editReview, { app: this.app, ...this.editReviewHandlers });
     }
     renderLearningRecordActions(contentEl, msg);
   }
