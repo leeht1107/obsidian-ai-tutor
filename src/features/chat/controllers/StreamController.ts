@@ -428,13 +428,14 @@ export class StreamController {
   /** Finalizes the current text block. */
   async finalizeCurrentTextBlock(msg?: ChatMessage): Promise<void> {
     const { state, renderer } = this.deps;
-    let finalizedText = msg?.role === 'assistant'
-      ? normalizeQuizMarkdown(state.currentTextContent)
-      : state.currentTextContent;
-    // An Agent-mode edit proposal carries a full copy of the note; the review card shows it instead.
+    let finalizedText = state.currentTextContent;
+    // An Agent-mode edit proposal carries a full copy of the note; the review card shows it
+    // instead. Read it from the raw text: the quiz formatter below deletes and reformats
+    // lines, and inside the note copy that rewrote the student's own note (spar 01 F1).
     if (msg?.editReview && finalizedText) {
       finalizedText = readProposalIntoReview(msg.editReview, finalizedText) ?? finalizedText;
     }
+    if (msg?.role === 'assistant') finalizedText = normalizeQuizMarkdown(finalizedText);
     if (msg && finalizedText) {
       msg.contentBlocks = msg.contentBlocks || [];
       msg.contentBlocks.push({ type: 'text', content: finalizedText });

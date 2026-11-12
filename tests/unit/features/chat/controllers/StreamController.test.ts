@@ -292,6 +292,38 @@ describe('StreamController - Text Content', () => {
       expect(msg.editReview.status).toBe('pending');
       expect(msg.editReview.hunks).toEqual([{ id: 'h1', oldStart: 0, oldLines: ['a'], newLines: ['A'] }]);
     });
+
+    // spar 01 F1: the quiz formatter ran on the whole answer first, so a line like
+    // "(정답을 입력해 주세요)" or a "## 1/5번 문제" header in the student's own note was
+    // deleted or reformatted inside the note copy and fused into the student's real edit.
+    it.each([
+      ['an answer-prompt line', '# 시험 노트\n- 원가 이해\n(정답을 입력해 주세요)\n- 다음 주 복습\n', '- 원가 이해', '- 원가 구조 이해'],
+      ['a fenced answer-prompt line', '```\n(정답을 입력해 주세요)\n```\n- 원가 이해\n', '- 원가 이해', '- 원가 구조 이해'],
+      ['a quiz-style header', '## 1/5번 문제\n질문 문장\n- 원가 이해\n', '- 원가 이해', '- 원가 구조 이해'],
+    ])('keeps %s in the note copy untouched', async (_label, base, from, to) => {
+      const msg = createTestMessage();
+      msg.editReview = { notePath: 'n.md', base, request: 'r', hunks: [], decisions: {}, status: 'awaiting' };
+      deps.state.currentContentEl = createMockElement();
+      deps.state.currentTextEl = createMockElement();
+      deps.state.currentTextContent = `고쳤어요.\n<<<REVISED_NOTE>>>\n${base.replace(from, to)}<<<END_REVISED_NOTE>>>`;
+
+      await controller.finalizeCurrentTextBlock(msg);
+
+      const line = base.split('\n').indexOf(from);
+      expect(msg.editReview.hunks).toEqual([{ id: 'h1', oldStart: line, oldLines: [from], newLines: [to] }]);
+    });
+
+    it('still normalizes the chat summary around the note copy', async () => {
+      const msg = createTestMessage();
+      msg.editReview = { notePath: 'n.md', base: 'a\n', request: 'r', hunks: [], decisions: {}, status: 'awaiting' };
+      deps.state.currentContentEl = createMockElement();
+      deps.state.currentTextEl = createMockElement();
+      deps.state.currentTextContent = '고쳤어요.\n(정답을 입력해 주세요.)\n<<<REVISED_NOTE>>>\nA\n<<<END_REVISED_NOTE>>>';
+
+      await controller.finalizeCurrentTextBlock(msg);
+
+      expect(msg.contentBlocks?.[0]).toEqual({ type: 'text', content: '고쳤어요.' });
+    });
   });
 
   describe('Quiz formatting normalization', () => {

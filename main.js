@@ -20015,10 +20015,11 @@ ${this.formatAskUserQuestionFallback(parsedInput == null ? void 0 : parsedInput.
   async finalizeCurrentTextBlock(msg) {
     var _a;
     const { state, renderer } = this.deps;
-    let finalizedText = (msg == null ? void 0 : msg.role) === "assistant" ? normalizeQuizMarkdown(state.currentTextContent) : state.currentTextContent;
+    let finalizedText = state.currentTextContent;
     if ((msg == null ? void 0 : msg.editReview) && finalizedText) {
       finalizedText = (_a = readProposalIntoReview(msg.editReview, finalizedText)) != null ? _a : finalizedText;
     }
+    if ((msg == null ? void 0 : msg.role) === "assistant") finalizedText = normalizeQuizMarkdown(finalizedText);
     if (msg && finalizedText) {
       msg.contentBlocks = msg.contentBlocks || [];
       msg.contentBlocks.push({ type: "text", content: finalizedText });
