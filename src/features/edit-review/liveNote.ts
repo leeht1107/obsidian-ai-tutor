@@ -48,11 +48,18 @@ export async function readLiveNote(app: App, path: string): Promise<string | nul
 
 const SYNC_WAIT_MS = 500;
 
-/** True once every editor shows the same text as the first one, within SYNC_WAIT_MS. */
-async function editorsAgree(editors: Editor[]): Promise<boolean> {
-  const agree = () => editors.every((e) => e.getValue() === editors[0].getValue());
+/**
+ * True once every editor of the note open right now shows `expected`, within SYNC_WAIT_MS.
+ * The list is re-read each time, so a pane closed during the wait no longer counts, and the
+ * target is the applied text itself, so editors agreeing on something else is not success.
+ */
+async function editorsShow(app: App, path: string, expected: string): Promise<boolean> {
+  const done = () => {
+    const editors = findOpenEditors(app, path);
+    return editors.length > 0 && editors.every((e) => e.getValue() === expected);
+  };
   const deadline = Date.now() + SYNC_WAIT_MS;
-  while (!agree()) {
+  while (!done()) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -94,7 +101,7 @@ export async function applyToLiveNote(
     if (after !== expected) return after === before ? { kind: 'not_applied' } : { kind: 'check_note' };
     // Obsidian copies the change into the note's other editors a moment later (~15 ms in
     // the real-Obsidian self-test F3c). Only call it applied once they all agree.
-    return (await editorsAgree(editors)) ? { kind: 'applied', undoable: true } : { kind: 'check_note' };
+    return (await editorsShow(app, path, expected)) ? { kind: 'applied', undoable: true } : { kind: 'check_note' };
   }
 
   const file = app.vault.getAbstractFileByPath(path);

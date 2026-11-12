@@ -250,3 +250,32 @@ describe('applyToLiveNote — every open editor of the note', () => {
     await expect(applyToLiveNote(app, 'note.md', 'a\nb\n', hunks, ['h1'])).resolves.toEqual({ kind: 'check_note' });
   });
 });
+
+// spar 03 F9: the wait compared editors with each other, not with the applied text, and
+// kept the editor list from before the wait.
+describe('applyToLiveNote — agreement means the applied text', () => {
+  it('does not call it applied when the editors agree on the old text', async () => {
+    const file = Object.assign(new TFile(), { path: 'note.md' });
+    const first = fakeEditor('a\nb\n');
+    const second = fakeEditor('a\nb\n');
+    const view = (editor: any) => Object.assign(Object.create(MarkdownView.prototype), { editor, file, getMode: () => 'source' });
+    const app: any = { workspace: { getLeavesOfType: () => [{ view: view(first) }, { view: view(second) }] }, vault: { getAbstractFileByPath: () => file } };
+    const origTx = first.transaction;
+    first.transaction = (tx: any) => { origTx(tx); setTimeout(() => { first.value = 'a\nb\n'; }, 15); };
+    const hunks = buildReviewHunks('a\nb\n', 'a\nB\n');
+    await expect(applyToLiveNote(app, 'note.md', 'a\nb\n', hunks, ['h1'])).resolves.toEqual({ kind: 'check_note' });
+  });
+
+  it('stops waiting for a pane that was closed during the wait', async () => {
+    const file = Object.assign(new TFile(), { path: 'note.md' });
+    const first = fakeEditor('a\nb\n');
+    const second = fakeEditor('a\nb\n');
+    const view = (editor: any) => Object.assign(Object.create(MarkdownView.prototype), { editor, file, getMode: () => 'source' });
+    let leaves = [{ view: view(first) }, { view: view(second) }];
+    const app: any = { workspace: { getLeavesOfType: () => leaves }, vault: { getAbstractFileByPath: () => file } };
+    const origTx = first.transaction;
+    first.transaction = (tx: any) => { origTx(tx); setTimeout(() => { leaves = [leaves[0]]; }, 15); };
+    const hunks = buildReviewHunks('a\nb\n', 'a\nB\n');
+    await expect(applyToLiveNote(app, 'note.md', 'a\nb\n', hunks, ['h1'])).resolves.toEqual({ kind: 'applied', undoable: true });
+  });
+});

@@ -17465,10 +17465,13 @@ async function readLiveNote(app, path17) {
   }
 }
 var SYNC_WAIT_MS = 500;
-async function editorsAgree(editors) {
-  const agree = () => editors.every((e) => e.getValue() === editors[0].getValue());
+async function editorsShow(app, path17, expected) {
+  const done = () => {
+    const editors = findOpenEditors(app, path17);
+    return editors.length > 0 && editors.every((e) => e.getValue() === expected);
+  };
   const deadline = Date.now() + SYNC_WAIT_MS;
-  while (!agree()) {
+  while (!done()) {
     if (Date.now() >= deadline) return false;
     await new Promise((resolve7) => setTimeout(resolve7, 10));
   }
@@ -17490,7 +17493,7 @@ async function applyToLiveNote(app, path17, base, hunks, acceptedIds) {
     });
     const after = editor.getValue();
     if (after !== expected) return after === before ? { kind: "not_applied" } : { kind: "check_note" };
-    return await editorsAgree(editors) ? { kind: "applied", undoable: true } : { kind: "check_note" };
+    return await editorsShow(app, path17, expected) ? { kind: "applied", undoable: true } : { kind: "check_note" };
   }
   const file = app.vault.getAbstractFileByPath(path17);
   if (!(file instanceof import_obsidian22.TFile)) return { kind: "missing" };
