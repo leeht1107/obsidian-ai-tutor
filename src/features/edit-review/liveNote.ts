@@ -46,6 +46,19 @@ export async function readLiveNote(app: App, path: string): Promise<string | nul
   }
 }
 
+const SYNC_WAIT_MS = 500;
+
+/** True once every editor shows the same text as the first one, within SYNC_WAIT_MS. */
+async function editorsAgree(editors: Editor[]): Promise<boolean> {
+  const agree = () => editors.every((e) => e.getValue() === editors[0].getValue());
+  const deadline = Date.now() + SYNC_WAIT_MS;
+  while (!agree()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
+
 export type ApplyResult =
   | { kind: 'applied'; undoable: boolean }
   | { kind: 'stale' }
@@ -78,8 +91,10 @@ export async function applyToLiveNote(
       })),
     });
     const after = editor.getValue();
-    if (after === expected) return { kind: 'applied', undoable: true };
-    return after === before ? { kind: 'not_applied' } : { kind: 'check_note' };
+    if (after !== expected) return after === before ? { kind: 'not_applied' } : { kind: 'check_note' };
+    // Obsidian copies the change into the note's other editors a moment later (~15 ms in
+    // the real-Obsidian self-test F3c). Only call it applied once they all agree.
+    return (await editorsAgree(editors)) ? { kind: 'applied', undoable: true } : { kind: 'check_note' };
   }
 
   const file = app.vault.getAbstractFileByPath(path);

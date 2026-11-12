@@ -3,7 +3,7 @@ import { MarkdownView, TFile } from 'obsidian';
 import type { EditReviewState } from '@/core/types/chat';
 import { buildReviewHunks } from '@/features/edit-review/editReview';
 import { renderEditReviewCard } from '@/features/edit-review/EditReviewCard';
-import { readLiveNote } from '@/features/edit-review/liveNote';
+import { applyToLiveNote, readLiveNote } from '@/features/edit-review/liveNote';
 
 // Minimal Obsidian-style element: enough for createDiv/createSpan/createEl, empty, click.
 function el(tag = 'div', cls = '', text = ''): any {
@@ -217,4 +217,36 @@ it('shows a plain notice for a malformed proposal and offers no apply button', (
   renderEditReviewCard(root, { notePath: 'note.md', base: 'a\n', request: 'x', hunks: [], decisions: {}, status: 'malformed' }, { app: {} as any, onChange: jest.fn(), resend: jest.fn(), isBusy: () => false });
   expect(allText(root)).toContain('수정안을 읽지 못했어요');
   expect(button(root, '선택한 변경 적용')).toBeUndefined();
+});
+
+// spar 01/02 F3: "applied" used to be judged on the first editor only. Real Obsidian syncs
+// the other editors of the same note ~15 ms later (self-test F3c), so wait for every
+// editor to show the result before calling it applied.
+describe('applyToLiveNote — every open editor of the note', () => {
+  function twoEditorApp(second: any) {
+    const file = Object.assign(new TFile(), { path: 'note.md' });
+    const first = fakeEditor('a\nb\n');
+    const view = (editor: any) => Object.assign(Object.create(MarkdownView.prototype), { editor, file, getMode: () => 'source' });
+    const app: any = {
+      workspace: { getLeavesOfType: () => [{ view: view(first) }, { view: view(second) }] },
+      vault: { getAbstractFileByPath: () => file },
+    };
+    return { app, first };
+  }
+
+  it('reports applied once the other editor has synced', async () => {
+    const second = fakeEditor('a\nb\n');
+    const { app, first } = twoEditorApp(second);
+    const origTx = first.transaction;
+    first.transaction = (tx: any) => { origTx(tx); setTimeout(() => { second.value = first.value; }, 15); };
+    const hunks = buildReviewHunks('a\nb\n', 'a\nB\n');
+    await expect(applyToLiveNote(app, 'note.md', 'a\nb\n', hunks, ['h1'])).resolves.toEqual({ kind: 'applied', undoable: true });
+  });
+
+  it('asks the student to check the note when another editor never shows the result', async () => {
+    const second = fakeEditor('a\nb\n');
+    const { app } = twoEditorApp(second);
+    const hunks = buildReviewHunks('a\nb\n', 'a\nB\n');
+    await expect(applyToLiveNote(app, 'note.md', 'a\nb\n', hunks, ['h1'])).resolves.toEqual({ kind: 'check_note' });
+  });
 });
