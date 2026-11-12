@@ -763,6 +763,41 @@ describe('InputController - Message Queue', () => {
       expect(optionsSeen.readOnly).toBe(true);
     });
 
+    // spar 01 F2 (Mark: "이번에 막기"): a Copilot slash command with an allowlist that
+    // includes an edit tool used to skip the review and hand the CLI write access.
+    it('reviews a current-note Agent turn even when a slash command restricts tools', async () => {
+      (deps.plugin.settings as any).selectedProvider = 'copilot';
+      (deps.plugin.settings as any).permissionMode = 'agent';
+      (deps.plugin.settings as any).blanketWriteAcknowledged = ['copilot'];
+      const slashCommandManager = {
+        setCommands: jest.fn(),
+        detectCommand: jest.fn().mockReturnValue({ commandName: 'fix', args: [] }),
+        expandCommand: jest.fn().mockResolvedValue({ expandedPrompt: '제목 고쳐 줘', allowedTools: ['view', 'edit'], errors: [] }),
+      };
+      deps.getSlashCommandManager = () => slashCommandManager as any;
+      deps.plugin.settings.slashCommands = [{ id: 'fix', name: 'fix', content: '제목 고쳐 줘', allowedTools: ['view', 'edit'] }];
+      (controller as any).readEditReviewBase = jest.fn().mockResolvedValue('# 제목\n');
+      deps.getFileContextManager = () => ({
+        startSession: jest.fn(),
+        getCurrentNotePath: jest.fn().mockReturnValue('active.md'),
+        shouldSendCurrentNote: jest.fn().mockReturnValue(true),
+        markCurrentNoteSent: jest.fn(),
+        transformContextMentions: (text: string) => text,
+      }) as any;
+      let optionsSeen: any;
+      let promptSeen = '';
+      deps.plugin.agentService.query = jest.fn().mockImplementation((p: string, _i: unknown, _h: unknown, options: unknown) => {
+        promptSeen = p;
+        optionsSeen = options;
+        return createMockStream([{ type: 'done' }]);
+      });
+
+      await controller.sendMessage({ content: '/fix' });
+
+      expect(optionsSeen.readOnly).toBe(true);
+      expect(promptSeen).toContain('<edit_review>');
+    });
+
     it('sends the note body exactly as the review base, untouched by mention rewriting', async () => {
       (deps.plugin.settings as any).selectedProvider = 'claude';
       (deps.plugin.settings as any).permissionMode = 'agent';

@@ -18848,7 +18848,7 @@ ${content}
     if (editorContext) {
       promptToSend = prependEditorContext(promptToSend, editorContext);
     }
-    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath && this.shouldReviewEdits(currentNotePath, learningRequest, slashAllowedToolsRequested));
+    const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath && this.shouldReviewEdits(currentNotePath, learningRequest));
     const editReviewBase = editReviewIntended && currentNotePath ? await this.readEditReviewBase(currentNotePath) : null;
     if (editReviewIntended) queryOptions = { ...queryOptions, readOnly: true };
     if (editReviewBase !== null && currentNotePath) {
@@ -19135,10 +19135,13 @@ ${prependCurrentNoteContent(promptToSend, notePath, editReviewBase)}`;
     const trimmed = content.trim();
     return CURRENT_NOTE_ONLY_PATTERNS.some((pattern) => pattern.test(trimmed));
   }
-  /** Agent mode on a Markdown note outside learning sessions and slash tool restrictions. */
-  shouldReviewEdits(notePath, learningRequest, slashAllowedToolsRequested) {
+  /**
+   * Agent mode on a Markdown note outside learning sessions. A slash command's tool
+   * allowlist does not opt out: read-only keeps only its read tools (spar 01 F2).
+   */
+  shouldReviewEdits(notePath, learningRequest) {
     const { plugin, state } = this.deps;
-    return plugin.settings.permissionMode === "agent" && notePath.toLowerCase().endsWith(".md") && !learningRequest && !slashAllowedToolsRequested && !state.quizSession && !state.socraticSession;
+    return plugin.settings.permissionMode === "agent" && notePath.toLowerCase().endsWith(".md") && !learningRequest && !state.quizSession && !state.socraticSession;
   }
   /** The note as the student sees it (open editor buffer, else file): the base of an edit review. */
   readEditReviewBase(notePath) {

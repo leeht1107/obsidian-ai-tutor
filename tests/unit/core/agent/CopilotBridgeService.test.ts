@@ -76,6 +76,10 @@ describe('CopilotBridgeService helpers', () => {
       expect(resolveCopilotAllowedTools('normal', ['view', 'bash', 'task'])).toEqual(['view']);
     });
 
+    it('keeps only the read tools of a slash allowlist in a read-only (edit review) turn', () => {
+      expect(resolveCopilotAllowedTools('ask', ['view', 'edit', 'write', 'bash'])).toEqual(['view']);
+    });
+
     it('excludes the removed delegation tools from the ASK allowlist', () => {
       expect(resolveCopilotAllowedTools('ask')).not.toContain('task');
       expect(resolveCopilotAllowedTools('ask')).not.toContain('agent_output');

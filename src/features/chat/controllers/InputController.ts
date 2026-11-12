@@ -812,7 +812,7 @@ export class InputController {
     // Agent mode on a note: the CLI runs read-only and proposes a revised note; the student
     // accepts blocks on the review card and the plugin writes only those (edit-review/).
     const editReviewIntended = Boolean(shouldSendCurrentNote && currentNotePath
-      && this.shouldReviewEdits(currentNotePath, learningRequest, slashAllowedToolsRequested));
+      && this.shouldReviewEdits(currentNotePath, learningRequest));
     const editReviewBase = editReviewIntended && currentNotePath
       ? await this.readEditReviewBase(currentNotePath)
       : null;
@@ -1153,13 +1153,15 @@ ${promptToSend}`;
     return CURRENT_NOTE_ONLY_PATTERNS.some((pattern) => pattern.test(trimmed));
   }
 
-  /** Agent mode on a Markdown note outside learning sessions and slash tool restrictions. */
-  private shouldReviewEdits(notePath: string, learningRequest: boolean, slashAllowedToolsRequested: boolean): boolean {
+  /**
+   * Agent mode on a Markdown note outside learning sessions. A slash command's tool
+   * allowlist does not opt out: read-only keeps only its read tools (spar 01 F2).
+   */
+  private shouldReviewEdits(notePath: string, learningRequest: boolean): boolean {
     const { plugin, state } = this.deps;
     return plugin.settings.permissionMode === 'agent'
       && notePath.toLowerCase().endsWith('.md')
       && !learningRequest
-      && !slashAllowedToolsRequested
       && !state.quizSession
       && !state.socraticSession;
   }
