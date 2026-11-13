@@ -14,13 +14,13 @@ describe('libreOfficeProgramDirs', () => {
   it('names the app bundle folder on macOS', () => {
     expect(libreOfficeProgramDirs('darwin', {}, '/Users/s')).toEqual([
       '/Applications/LibreOffice.app/Contents/MacOS',
-      path.join('/Users/s', 'Applications/LibreOffice.app/Contents/MacOS'),
+      '/Users/s/Applications/LibreOffice.app/Contents/MacOS',
     ]);
   });
   it('names Program Files on Windows', () => {
     const dirs = libreOfficeProgramDirs('win32', { ProgramFiles: 'C:\\Program Files', 'ProgramFiles(x86)': 'C:\\Program Files (x86)' }, 'C:\\Users\\s');
-    expect(dirs[0]).toBe(path.join('C:\\Program Files', 'LibreOffice', 'program'));
-    expect(dirs[1]).toBe(path.join('C:\\Program Files (x86)', 'LibreOffice', 'program'));
+    expect(dirs[0]).toBe('C:\\Program Files\\LibreOffice\\program');
+    expect(dirs[1]).toBe('C:\\Program Files (x86)\\LibreOffice\\program');
   });
 });
 
@@ -32,6 +32,25 @@ describe('findLibreOffice', () => {
   it('accepts soffice already on PATH (Homebrew)', () => {
     const exists = (p: string) => p === '/opt/homebrew/bin/soffice';
     expect(findLibreOffice({ platform: 'darwin', env: { PATH: '/usr/bin:/opt/homebrew/bin' }, home: '/Users/s', exists })).toBe('/opt/homebrew/bin');
+  });
+  it('finds a macOS user app', () => {
+    const exists = (p: string) => p === '/Users/s/Applications/LibreOffice.app/Contents/MacOS/soffice';
+    expect(findLibreOffice({ platform: 'darwin', env: {}, home: '/Users/s', exists })).toBe('/Users/s/Applications/LibreOffice.app/Contents/MacOS');
+  });
+  it('finds the Windows app without running anything', () => {
+    const exists = (p: string) => p === 'C:\\Program Files\\LibreOffice\\program\\soffice.exe';
+    expect(findLibreOffice({ platform: 'win32', env: {}, home: 'C:\\Users\\s', exists })).toBe('C:\\Program Files\\LibreOffice\\program');
+  });
+  it('finds the Windows app in a custom Program Files folder', () => {
+    const exists = (p: string) => p === 'D:\\Apps\\LibreOffice\\program\\soffice.exe';
+    expect(findLibreOffice({ platform: 'win32', env: { ProgramFiles: 'D:\\Apps' }, home: 'C:\\Users\\s', exists })).toBe('D:\\Apps\\LibreOffice\\program');
+  });
+  it.each(['PATH', 'Path'])('accepts soffice.exe on Windows %s', (key) => {
+    const exists = (p: string) => p === 'D:\\Office\\soffice.exe';
+    expect(findLibreOffice({ platform: 'win32', env: { [key]: 'C:\\Tools;D:\\Office' }, home: 'C:\\Users\\s', exists })).toBe('D:\\Office');
+  });
+  it('reports missing on Windows', () => {
+    expect(findLibreOffice({ platform: 'win32', env: { PATH: 'C:\\Tools' }, home: 'C:\\Users\\s', exists: () => false })).toBeNull();
   });
   it('reports missing', () => {
     expect(findLibreOffice({ platform: 'darwin', env: { PATH: '/usr/bin' }, home: '/Users/s', exists: () => false })).toBeNull();

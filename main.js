@@ -38,24 +38,26 @@ __export(libreOffice_exports, {
   libreOfficeProgramDirs: () => libreOfficeProgramDirs
 });
 function libreOfficeProgramDirs(platform, env, home) {
+  const targetPath = platform === "win32" ? path.win32 : path.posix;
   if (platform === "win32") {
     const programFiles = env.ProgramFiles || "C:\\Program Files";
     const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
-    return [path.join(programFiles, "LibreOffice", "program"), path.join(programFilesX86, "LibreOffice", "program")];
+    return [targetPath.join(programFiles, "LibreOffice", "program"), targetPath.join(programFilesX86, "LibreOffice", "program")];
   }
   if (platform === "darwin") {
-    return ["/Applications/LibreOffice.app/Contents/MacOS", path.join(home, "Applications/LibreOffice.app/Contents/MacOS")];
+    return ["/Applications/LibreOffice.app/Contents/MacOS", targetPath.join(home, "Applications/LibreOffice.app/Contents/MacOS")];
   }
   return [];
 }
 function findLibreOffice(input) {
   var _a, _b, _c;
+  const targetPath = input.platform === "win32" ? path.win32 : path.posix;
   const exists = (_a = input.exists) != null ? _a : ((file) => fs.existsSync(file));
   const exe = input.platform === "win32" ? "soffice.exe" : "soffice";
   const delimiter = input.platform === "win32" ? ";" : ":";
   const onPath = ((_c = (_b = input.env.PATH) != null ? _b : input.env.Path) != null ? _c : "").split(delimiter).filter(Boolean);
   for (const dir of [...libreOfficeProgramDirs(input.platform, input.env, input.home), ...onPath]) {
-    if (exists(path.join(dir, exe))) return dir;
+    if (exists(targetPath.join(dir, exe))) return dir;
   }
   return null;
 }

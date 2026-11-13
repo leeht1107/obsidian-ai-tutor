@@ -16,13 +16,14 @@ export const LIBREOFFICE_GUIDE_URLS = {
 
 /** The folders a standard (GUI) LibreOffice install puts soffice in. */
 export function libreOfficeProgramDirs(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): string[] {
+  const targetPath = platform === 'win32' ? path.win32 : path.posix;
   if (platform === 'win32') {
     const programFiles = env.ProgramFiles || 'C:\\Program Files';
     const programFilesX86 = env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-    return [path.join(programFiles, 'LibreOffice', 'program'), path.join(programFilesX86, 'LibreOffice', 'program')];
+    return [targetPath.join(programFiles, 'LibreOffice', 'program'), targetPath.join(programFilesX86, 'LibreOffice', 'program')];
   }
   if (platform === 'darwin') {
-    return ['/Applications/LibreOffice.app/Contents/MacOS', path.join(home, 'Applications/LibreOffice.app/Contents/MacOS')];
+    return ['/Applications/LibreOffice.app/Contents/MacOS', targetPath.join(home, 'Applications/LibreOffice.app/Contents/MacOS')];
   }
   return [];
 }
@@ -36,12 +37,13 @@ export interface FindLibreOfficeInput {
 
 /** The folder holding soffice, or null. Checks files only; never runs a program. */
 export function findLibreOffice(input: FindLibreOfficeInput): string | null {
+  const targetPath = input.platform === 'win32' ? path.win32 : path.posix;
   const exists = input.exists ?? ((file: string) => fs.existsSync(file));
   const exe = input.platform === 'win32' ? 'soffice.exe' : 'soffice';
   const delimiter = input.platform === 'win32' ? ';' : ':';
   const onPath = (input.env.PATH ?? input.env.Path ?? '').split(delimiter).filter(Boolean);
   for (const dir of [...libreOfficeProgramDirs(input.platform, input.env, input.home), ...onPath]) {
-    if (exists(path.join(dir, exe))) return dir;
+    if (exists(targetPath.join(dir, exe))) return dir;
   }
   return null;
 }
