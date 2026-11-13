@@ -248,8 +248,8 @@ export class StorageService {
     }
   }
 
-  /** loadState for a write: a failed read throws, so defaults never overwrite real state. */
-  private async readStateStrict(): Promise<PluginState> {
+  /** loadState that throws on a failed read: for writes, and for decisions a default would get wrong (a lost tombstone). */
+  async readStateStrict(): Promise<PluginState> {
     const data = await this.plugin.loadData();
     return {
         activeConversationId: data?.activeConversationId ?? DEFAULT_STATE.activeConversationId,

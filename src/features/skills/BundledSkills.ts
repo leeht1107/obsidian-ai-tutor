@@ -162,6 +162,9 @@ function installDocSkill(rootAbs: string, name: string, files: Record<string, Bu
   const staging = path.join(rootAbs, `${STAGING_PREFIX}${name}`);
   if (fs.existsSync(staging)) {
     if (!fs.existsSync(path.join(staging, STAGING_OWNER))) throw new Error(`${staging} is not ours; left as is`);
+    // The owner file proves we made the folder, not that we made everything in it now.
+    const extra = listFiles(staging).filter((rel) => rel !== STAGING_OWNER && rel !== DOC_SKILL_MARKER && !(rel in files));
+    if (extra.length > 0) throw new Error(`${staging} holds files we did not write (${extra.slice(0, 3).join(', ')}); left as is`);
     fs.rmSync(staging, { recursive: true, force: true });
   }
   fs.mkdirSync(staging);
@@ -331,3 +334,17 @@ export async function ensureRoot(input: EnsureInput): Promise<EnsureResult> {
 }
 
 export type { BundledSkillRecords };
+
+/**
+ * After a Settings Install: the doc skills that are still missing because a
+ * same-name folder is in the way (the plugin never writes into a folder it
+ * cannot prove is its own). Null when nothing is in the way, so the button is
+ * never a silent no-op.
+ */
+export function docInstallLeftoverMessage(vaultPath: string, root: string, names: string[]): string | null {
+  const blocked = names.filter((name) =>
+    fs.existsSync(path.join(vaultPath, root, name)) && !fs.existsSync(path.join(vaultPath, root, name, 'SKILL.md')));
+  if (blocked.length === 0) return null;
+  return `${blocked.join(', ')}: 같은 이름의 폴더가 이미 있고 내용이 달라 덮어쓰지 않았어요. `
+    + `${blocked.map((name) => `${root}/${name}`).join(', ')} 폴더를 다른 곳으로 옮기거나 지운 뒤 다시 설치를 누르세요.`;
+}

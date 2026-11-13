@@ -171,6 +171,22 @@ describe('the plugin entry points (evaluator cycle 2 #7, popup)', () => {
     expect(plugin.bundledSkillProblems.get('.claude/skills')?.join(' ')).toMatch(/module not found/);
   });
 
+  it('writes no skill when data.json cannot be read, so a deletion it holds is not undone (spar B1)', async () => {
+    const base = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bundled-b1-'));
+    const plugin = new ObsidianCopilotPlugin(diskVault(base) as never, { id: 'obsidian-ai-tutor', version: '0.1.52', dir: '.obsidian/plugins/obsidian-ai-tutor' } as never);
+    let failReads = false;
+    plugin.loadData = jest.fn(async () => { if (failReads) throw new Error('busy'); return {}; });
+    plugin.saveData = jest.fn(async () => undefined);
+    await plugin.loadSettings();
+    failReads = true;
+    const adapter = (plugin as unknown as { app: { vault: { adapter: Record<string, unknown> } } }).app.vault.adapter;
+    adapter.basePath = base;
+    (plugin as unknown as { getDocArchiveSource: () => Promise<unknown> }).getDocArchiveSource = async () => ({ get: async () => null, failures: () => 0 });
+    await plugin.ensureBundledSkills('claude');
+    expect(fsSync.existsSync(path.join(base, '.claude/skills'))).toBe(false);
+    expect(plugin.bundledSkillProblems.get('.claude/skills')?.join(' ')).toMatch(/busy/);
+  });
+
   it('tells a student switching to agy about web search in a popup, once', async () => {
     const plugin = makePlugin();
     const store = new Map<string, unknown>();

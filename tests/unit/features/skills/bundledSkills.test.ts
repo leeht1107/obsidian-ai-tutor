@@ -279,6 +279,17 @@ describe('student content and failed writes (evaluator cycle 3)', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe('mine');
   });
 
+  it('leaves its own staging folder alone once something else was added to it (spar B2)', async () => {
+    const staging = path.join(vault, '.agents/skills/.installing-pdf');
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, '.obsidian-ai-tutor-staging'), 'v1');
+    fs.writeFileSync(path.join(staging, 'my-notes.md'), 'mine');
+    const result = await ensureRoot(input());
+    expect(fs.readFileSync(path.join(staging, 'my-notes.md'), 'utf8')).toBe('mine');
+    expect(has('.agents/skills', 'pdf')).toBe(false);
+    expect(result.errors.join('\n')).toMatch(/installing-pdf/);
+  });
+
   it('removes its own half-written staging folder when a write fails', async () => {
     const realRename = fs.renameSync;
     const spy = jest.spyOn(fs, 'renameSync').mockImplementation((a, b) => {
@@ -329,5 +340,20 @@ describe('parseDocArchive', () => {
   ])('rejects %s', (_label, mutate) => {
     const { gz, sha } = makeArchive('v1', mutate);
     expect(() => parseDocArchive(gz, sha)).toThrow();
+  });
+});
+
+describe('Settings Install that could not install (spar B4)', () => {
+  it('names a skill whose folder is still there without SKILL.md and says what to do', async () => {
+    const { docInstallLeftoverMessage } = await import('@/features/skills/BundledSkills');
+    fs.mkdirSync(path.join(vault, '.agents/skills/pdf'), { recursive: true });
+    fs.writeFileSync(path.join(vault, '.agents/skills/pdf/notes.md'), 'x');
+    fs.mkdirSync(path.join(vault, '.agents/skills/xlsx'), { recursive: true });
+    fs.writeFileSync(path.join(vault, '.agents/skills/xlsx/SKILL.md'), 'x');
+    const message = docInstallLeftoverMessage(vault, '.agents/skills', ['pdf', 'xlsx', 'docx']);
+    expect(message).toMatch(/pdf/);
+    expect(message).not.toMatch(/xlsx/);
+    expect(message).toMatch(/\.agents\/skills\/pdf/);
+    expect(docInstallLeftoverMessage(vault, '.agents/skills', ['xlsx'])).toBeNull();
   });
 });

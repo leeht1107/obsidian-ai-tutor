@@ -296,7 +296,8 @@ export default class ObsidianCopilotPlugin extends Plugin {
       const { ensureRoot } = await import('./features/skills/BundledSkills');
       const { OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL } = await import('./features/skills/ObsidianSkillsInstaller');
       const source = await this.getDocArchiveSource(vaultPath);
-      const state = await this.storage.loadState();
+      // Strict: a default state here has no tombstones, and would reinstall what the student deleted.
+      const state = await this.storage.readStateStrict();
       const result = await ensureRoot({
         vaultPath,
         root,

@@ -16,6 +16,7 @@ import { EnvSnippetManager, SlashCommandSettings } from '../../ui';
 import { UnsafeAgyAgentConsentModal } from '../../ui/modals/UnsafeAgyAgentConsentModal';
 import { setupCollapsible } from '../../ui/utils/collapsible';
 import { expandHomePath } from '../../utils/path';
+import { docInstallLeftoverMessage } from '../skills/BundledSkills';
 import {
   autoSkillsRoot,
   getInstalledSkills,
@@ -336,6 +337,8 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           button.setDisabled(true);
           await this.plugin.storage.clearBundledSkills(docRoot, missingDocSkills);
           await this.plugin.ensureBundledSkills(skillProvider);
+          const leftover = docVault ? docInstallLeftoverMessage(docVault, docRoot, missingDocSkills) : null;
+          if (leftover) new Notice(leftover, 12000);
           this.display();
         });
       });

@@ -4231,6 +4231,7 @@ __export(BundledSkills_exports, {
   MARKDOWN_SKILLS: () => MARKDOWN_SKILLS,
   MARKDOWN_SKILLS_VERSION: () => MARKDOWN_SKILLS_VERSION,
   autoSkillsRoot: () => autoSkillsRoot,
+  docInstallLeftoverMessage: () => docInstallLeftoverMessage,
   ensureRoot: () => ensureRoot,
   legacyMarkdownRemoved: () => legacyMarkdownRemoved,
   parseDocArchive: () => parseDocArchive
@@ -4295,7 +4296,7 @@ function sha2562(data) {
 }
 function listFiles(dir, prefix = "") {
   const out = [];
-  for (const entry of fs16.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs15.readdirSync(dir, { withFileTypes: true })) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       const inner = listFiles(path18.join(dir, entry.name), rel);
@@ -4312,49 +4313,51 @@ function matchesRecord(dir, files) {
   const present = listFiles(dir).filter((rel) => rel !== DOC_SKILL_MARKER).sort();
   const expected = Object.keys(files).sort();
   if (present.join("\n") !== expected.join("\n")) return false;
-  return expected.every((rel) => sha2562(fs16.readFileSync(path18.join(dir, rel))) === files[rel]);
+  return expected.every((rel) => sha2562(fs15.readFileSync(path18.join(dir, rel))) === files[rel]);
 }
 function installDocSkill(rootAbs, name, files, version, executables = []) {
   const staging = path18.join(rootAbs, `${STAGING_PREFIX2}${name}`);
-  if (fs16.existsSync(staging)) {
-    if (!fs16.existsSync(path18.join(staging, STAGING_OWNER))) throw new Error(`${staging} is not ours; left as is`);
-    fs16.rmSync(staging, { recursive: true, force: true });
+  if (fs15.existsSync(staging)) {
+    if (!fs15.existsSync(path18.join(staging, STAGING_OWNER))) throw new Error(`${staging} is not ours; left as is`);
+    const extra = listFiles(staging).filter((rel) => rel !== STAGING_OWNER && rel !== DOC_SKILL_MARKER && !(rel in files));
+    if (extra.length > 0) throw new Error(`${staging} holds files we did not write (${extra.slice(0, 3).join(", ")}); left as is`);
+    fs15.rmSync(staging, { recursive: true, force: true });
   }
-  fs16.mkdirSync(staging);
+  fs15.mkdirSync(staging);
   const finalDir = path18.join(rootAbs, name);
   try {
-    fs16.writeFileSync(path18.join(staging, STAGING_OWNER), version);
+    fs15.writeFileSync(path18.join(staging, STAGING_OWNER), version);
     for (const [rel, body] of Object.entries(files)) {
       const target = resolveSkillFilePath(staging, rel);
       if (!target) throw new Error(`unsafe path ${rel}`);
-      fs16.mkdirSync(path18.dirname(target), { recursive: true });
-      fs16.writeFileSync(target, body);
+      fs15.mkdirSync(path18.dirname(target), { recursive: true });
+      fs15.writeFileSync(target, body);
     }
     if (process.platform !== "win32") {
-      for (const rel of executables) fs16.chmodSync(path18.join(staging, rel), 493);
+      for (const rel of executables) fs15.chmodSync(path18.join(staging, rel), 493);
     }
-    fs16.writeFileSync(path18.join(staging, DOC_SKILL_MARKER), `${version}
+    fs15.writeFileSync(path18.join(staging, DOC_SKILL_MARKER), `${version}
 `);
-    if (fs16.existsSync(finalDir)) throw new Error(`${finalDir} appeared during install; left as is`);
-    fs16.renameSync(staging, finalDir);
+    if (fs15.existsSync(finalDir)) throw new Error(`${finalDir} appeared during install; left as is`);
+    fs15.renameSync(staging, finalDir);
   } catch (error) {
-    fs16.rmSync(staging, { recursive: true, force: true });
+    fs15.rmSync(staging, { recursive: true, force: true });
     throw error;
   }
-  fs16.rmSync(path18.join(finalDir, STAGING_OWNER), { force: true });
+  fs15.rmSync(path18.join(finalDir, STAGING_OWNER), { force: true });
 }
 function replaceDocSkill(rootAbs, name, files, version, executables) {
   const finalDir = path18.join(rootAbs, name);
   const old = path18.join(rootAbs, `${STAGING_PREFIX2}${name}-old`);
-  if (fs16.existsSync(old)) throw new Error(`${old} exists; left as is`);
-  fs16.renameSync(finalDir, old);
+  if (fs15.existsSync(old)) throw new Error(`${old} exists; left as is`);
+  fs15.renameSync(finalDir, old);
   try {
     installDocSkill(rootAbs, name, files, version, executables);
   } catch (error) {
-    if (!fs16.existsSync(finalDir)) fs16.renameSync(old, finalDir);
+    if (!fs15.existsSync(finalDir)) fs15.renameSync(old, finalDir);
     throw error;
   }
-  fs16.rmSync(old, { recursive: true, force: true });
+  fs15.rmSync(old, { recursive: true, force: true });
 }
 function legacyMarkdownRemoved(_vaultPath, _root, _name, evidence) {
   return evidence.legacyUser;
@@ -4367,17 +4370,17 @@ async function ensureRoot(input) {
   for (const name of MARKDOWN_SKILLS) {
     const rec = records[name];
     const file = path18.join(rootAbs, name, "SKILL.md");
-    const exists = fs16.existsSync(file);
+    const exists = fs15.existsSync(file);
     if ((rec == null ? void 0 : rec.state) === "removed" || (rec == null ? void 0 : rec.state) === "kept") continue;
     if ((rec == null ? void 0 : rec.state) === "installed") {
       if (!exists) records[name] = { ...rec, state: "removed" };
       continue;
     }
     if (exists) {
-      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: isPluginOwnedSkill(fs16.readFileSync(file, "utf-8")) ? "installed" : "kept" };
+      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: isPluginOwnedSkill(fs15.readFileSync(file, "utf-8")) ? "installed" : "kept" };
       continue;
     }
-    if (fs16.existsSync(path18.join(rootAbs, name))) {
+    if (fs15.existsSync(path18.join(rootAbs, name))) {
       records[name] = { version: MARKDOWN_SKILLS_VERSION, state: "kept" };
       continue;
     }
@@ -4398,10 +4401,10 @@ async function ensureRoot(input) {
   for (const name of DOC_SKILLS) {
     const rec = records[name];
     const dir = path18.join(rootAbs, name);
-    const exists = fs16.existsSync(dir);
+    const exists = fs15.existsSync(dir);
     if ((rec == null ? void 0 : rec.state) === "removed" || (rec == null ? void 0 : rec.state) === "kept") continue;
     try {
-      const unclear = [`${STAGING_PREFIX2}${name}-old`, `${REPLACING_PREFIX2}${name}`].find((f) => fs16.existsSync(path18.join(rootAbs, f)));
+      const unclear = [`${STAGING_PREFIX2}${name}-old`, `${REPLACING_PREFIX2}${name}`].find((f) => fs15.existsSync(path18.join(rootAbs, f)));
       if (unclear) {
         result.errors.push(`${name}: ${path18.join(root, unclear)} is left over; move or delete it, then press Install`);
         continue;
@@ -4413,7 +4416,7 @@ async function ensureRoot(input) {
         }
         const latest2 = await loadArchive();
         if (!latest2 || latest2.version === rec.version) continue;
-        if (!fs16.existsSync(path18.join(dir, DOC_SKILL_MARKER)) || !matchesRecord(dir, rec.files)) {
+        if (!fs15.existsSync(path18.join(dir, DOC_SKILL_MARKER)) || !matchesRecord(dir, rec.files)) {
           records[name] = { ...rec, state: "kept" };
           continue;
         }
@@ -4422,7 +4425,7 @@ async function ensureRoot(input) {
         continue;
       }
       if (exists) {
-        if (!fs16.existsSync(path18.join(dir, DOC_SKILL_MARKER))) {
+        if (!fs15.existsSync(path18.join(dir, DOC_SKILL_MARKER))) {
           records[name] = { version: "", state: "kept" };
           continue;
         }
@@ -4440,7 +4443,7 @@ async function ensureRoot(input) {
         result.pending.push(name);
         continue;
       }
-      fs16.mkdirSync(rootAbs, { recursive: true });
+      fs15.mkdirSync(rootAbs, { recursive: true });
       installDocSkill(rootAbs, name, latest.skills[name], latest.version, latest.executables[name]);
       records[name] = { version: latest.version, state: "installed", files: digestsOf(latest.skills[name]) };
       result.installed.push(name);
@@ -4450,11 +4453,16 @@ async function ensureRoot(input) {
   }
   return result;
 }
-var import_crypto4, fs16, path18, import_zlib, MARKDOWN_SKILLS, DOC_SKILLS, MARKDOWN_SKILLS_VERSION, DOC_SKILL_MARKER, STAGING_PREFIX2, REPLACING_PREFIX2, STAGING_OWNER, MAX_ARCHIVE_BYTES, MAX_UNPACKED_BYTES, MAX_FILES_PER_SKILL, BASE64, WINDOWS_DEVICE;
+function docInstallLeftoverMessage(vaultPath, root, names) {
+  const blocked = names.filter((name) => fs15.existsSync(path18.join(vaultPath, root, name)) && !fs15.existsSync(path18.join(vaultPath, root, name, "SKILL.md")));
+  if (blocked.length === 0) return null;
+  return `${blocked.join(", ")}: \uAC19\uC740 \uC774\uB984\uC758 \uD3F4\uB354\uAC00 \uC774\uBBF8 \uC788\uACE0 \uB0B4\uC6A9\uC774 \uB2EC\uB77C \uB36E\uC5B4\uC4F0\uC9C0 \uC54A\uC558\uC5B4\uC694. ${blocked.map((name) => `${root}/${name}`).join(", ")} \uD3F4\uB354\uB97C \uB2E4\uB978 \uACF3\uC73C\uB85C \uC62E\uAE30\uAC70\uB098 \uC9C0\uC6B4 \uB4A4 \uB2E4\uC2DC \uC124\uCE58\uB97C \uB204\uB974\uC138\uC694.`;
+}
+var import_crypto4, fs15, path18, import_zlib, MARKDOWN_SKILLS, DOC_SKILLS, MARKDOWN_SKILLS_VERSION, DOC_SKILL_MARKER, STAGING_PREFIX2, REPLACING_PREFIX2, STAGING_OWNER, MAX_ARCHIVE_BYTES, MAX_UNPACKED_BYTES, MAX_FILES_PER_SKILL, BASE64, WINDOWS_DEVICE;
 var init_BundledSkills = __esm({
   "src/features/skills/BundledSkills.ts"() {
     import_crypto4 = require("crypto");
-    fs16 = __toESM(require("fs"));
+    fs15 = __toESM(require("fs"));
     path18 = __toESM(require("path"));
     import_zlib = require("zlib");
     init_ObsidianSkillsInstaller();
@@ -8092,7 +8100,7 @@ var StorageService = class {
       return { ...DEFAULT_STATE };
     }
   }
-  /** loadState for a write: a failed read throws, so defaults never overwrite real state. */
+  /** loadState that throws on a failed read: for writes, and for decisions a default would get wrong (a lost tombstone). */
   async readStateStrict() {
     var _a, _b, _c, _d, _e, _f;
     const data = await this.plugin.loadData();
@@ -22773,7 +22781,7 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
 }
 
 // src/features/settings/ObsidianCopilotSettings.ts
-var fs15 = __toESM(require("fs"));
+var fs16 = __toESM(require("fs"));
 var import_obsidian31 = require("obsidian");
 var os9 = __toESM(require("os"));
 init_providerRegistry();
@@ -22783,6 +22791,7 @@ init_ErrorLog();
 init_FailureReport();
 init_models();
 init_path();
+init_BundledSkills();
 init_ObsidianSkillsInstaller();
 
 // src/features/settings/errorLogCopy.ts
@@ -23062,7 +23071,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
     const docRoot = autoSkillsRoot(skillProvider);
     const docVault = this.app.vault.adapter.basePath;
     const DOC_SKILL_NAMES = ["pdf", "xlsx", "docx", "pptx"];
-    const missingDocSkills = docVault ? DOC_SKILL_NAMES.filter((name) => !fs15.existsSync(`${docVault}/${docRoot}/${name}/SKILL.md`)) : DOC_SKILL_NAMES;
+    const missingDocSkills = docVault ? DOC_SKILL_NAMES.filter((name) => !fs16.existsSync(`${docVault}/${docRoot}/${name}/SKILL.md`)) : DOC_SKILL_NAMES;
     const docProblems = (_b = (_a = this.plugin.bundledSkillProblems) == null ? void 0 : _a.get(docRoot)) != null ? _b : [];
     new import_obsidian31.Setting(skillsContentEl).setName("\uBB38\uC11C \uC2A4\uD0AC (PDF\xB7\uC5D1\uC140\xB7\uC6CC\uB4DC\xB7PPT)").setDesc((missingDocSkills.length === 0 ? `\uC124\uCE58\uB428 - ${docRoot}` : `\uC5C6\uC74C: ${missingDocSkills.join(", ")} - \uC124\uCE58\uB97C \uB204\uB974\uBA74 \uB2E4\uC2DC \uB123\uC2B5\uB2C8\uB2E4. \uC77C\uBD80 \uAE30\uB2A5\uC740 LibreOffice\uAC00 \uC788\uC5B4\uC57C \uB3D9\uC791\uD569\uB2C8\uB2E4.`) + (docProblems.length > 0 ? ` \uC190\uB300\uC9C0 \uC54A\uC740 \uD3F4\uB354: ${docProblems.join(" / ")}` : "")).addButton((button) => {
       if (missingDocSkills.length === 0) return;
@@ -23070,6 +23079,8 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
         button.setDisabled(true);
         await this.plugin.storage.clearBundledSkills(docRoot, missingDocSkills);
         await this.plugin.ensureBundledSkills(skillProvider);
+        const leftover = docVault ? docInstallLeftoverMessage(docVault, docRoot, missingDocSkills) : null;
+        if (leftover) new import_obsidian31.Notice(leftover, 12e3);
         this.display();
       });
     });
@@ -23248,8 +23259,8 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
       const trimmed = value.trim();
       if (!trimmed || trimmed === pathDescriptor.command) return null;
       const expandedPath = expandHomePath(trimmed);
-      if (!fs15.existsSync(expandedPath)) return "Path does not exist";
-      return fs15.statSync(expandedPath).isFile() ? null : "Path is a directory, not a file";
+      if (!fs16.existsSync(expandedPath)) return "Path does not exist";
+      return fs16.statSync(expandedPath).isFile() ? null : "Path is a directory, not a file";
     };
     cliPathSetting.addText((text) => {
       const placeholder = process.platform === "win32" ? `C:\\Program Files\\${pathDescriptor.command}.exe` : `/usr/local/bin/${pathDescriptor.command}`;
@@ -23799,7 +23810,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       const { ensureRoot: ensureRoot2 } = await Promise.resolve().then(() => (init_BundledSkills(), BundledSkills_exports));
       const { OBSIDIAN_MARKDOWN_SKILL: OBSIDIAN_MARKDOWN_SKILL2, JSON_CANVAS_SKILL: JSON_CANVAS_SKILL2 } = await Promise.resolve().then(() => (init_ObsidianSkillsInstaller(), ObsidianSkillsInstaller_exports));
       const source = await this.getDocArchiveSource(vaultPath);
-      const state = await this.storage.loadState();
+      const state = await this.storage.readStateStrict();
       const result = await ensureRoot2({
         vaultPath,
         root,
