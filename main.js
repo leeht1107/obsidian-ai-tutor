@@ -29,13 +29,96 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// src/core/setup/libreOffice.ts
+var libreOffice_exports = {};
+__export(libreOffice_exports, {
+  LIBREOFFICE_GUIDE_URLS: () => LIBREOFFICE_GUIDE_URLS,
+  findLibreOffice: () => findLibreOffice,
+  libreOfficeInstallPrompt: () => libreOfficeInstallPrompt,
+  libreOfficeProgramDirs: () => libreOfficeProgramDirs
+});
+function libreOfficeProgramDirs(platform, env, home) {
+  if (platform === "win32") {
+    const programFiles = env.ProgramFiles || "C:\\Program Files";
+    const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+    return [path.join(programFiles, "LibreOffice", "program"), path.join(programFilesX86, "LibreOffice", "program")];
+  }
+  if (platform === "darwin") {
+    return ["/Applications/LibreOffice.app/Contents/MacOS", path.join(home, "Applications/LibreOffice.app/Contents/MacOS")];
+  }
+  return [];
+}
+function findLibreOffice(input) {
+  var _a, _b, _c;
+  const exists = (_a = input.exists) != null ? _a : ((file) => fs.existsSync(file));
+  const exe = input.platform === "win32" ? "soffice.exe" : "soffice";
+  const delimiter = input.platform === "win32" ? ";" : ":";
+  const onPath = ((_c = (_b = input.env.PATH) != null ? _b : input.env.Path) != null ? _c : "").split(delimiter).filter(Boolean);
+  for (const dir of [...libreOfficeProgramDirs(input.platform, input.env, input.home), ...onPath]) {
+    if (exists(path.join(dir, exe))) return dir;
+  }
+  return null;
+}
+function libreOfficeInstallPrompt(platform) {
+  if (platform === "darwin") {
+    return `LibreOffice\uB97C \uC124\uCE58\uD574 \uC918. \uB098\uB294 \uD504\uB85C\uADF8\uB798\uBC0D \uCD08\uBCF4\uC57C.
+
+\uBA3C\uC800 \uC774 \uC548\uB0B4\uC11C\uB97C \uC77D\uC5B4 \uC918:
+${LIBREOFFICE_GUIDE_URLS.darwin}
+
+1. \uC774\uBBF8 \uC124\uCE58\uB3FC \uC788\uB294\uC9C0 \uBA3C\uC800 \uD655\uC778\uD574. \uC788\uC73C\uBA74 \uC124\uCE58\uD558\uC9C0 \uB9D0\uACE0 \uC54C\uB824 \uC918.
+2. \uB0B4 Mac\uC774 Apple \uCE69\uC778\uC9C0 Intel \uCE69\uC778\uC9C0 \uD655\uC778\uD558\uACE0, LibreOffice \uACF5\uC2DD \uC0AC\uC774\uD2B8(libreoffice.org)\uC5D0\uC11C \uB9DE\uB294 .dmg\uB97C \uBC1B\uC544 '\uC751\uC6A9 \uD504\uB85C\uADF8\uB7A8' \uD3F4\uB354\uC5D0 \uB123\uC5B4 \uC918.
+3. Homebrew\uB294 \uC0C8\uB85C \uC124\uCE58\uD558\uC9C0 \uB9C8. \uB2E4\uB978 \uD504\uB85C\uADF8\uB7A8\uB3C4 \uC124\uCE58\uD558\uC9C0 \uB9C8.
+4. \uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD558\uAC70\uB098 '\uC5F4\uAE30'\uB97C \uB20C\uB7EC\uC57C \uD558\uBA74 \uBA48\uCD94\uACE0, \uB0B4\uAC00 \uC5B4\uB514\uC11C \uBB58 \uB20C\uB7EC\uC57C \uD558\uB294\uC9C0 \uD55C\uAD6D\uC5B4\uB85C \uC54C\uB824 \uC918.
+5. \uB2E4 \uB05D\uB098\uBA74 /Applications/LibreOffice.app/Contents/MacOS/soffice --version \uACB0\uACFC\uB97C \uBCF4\uC5EC \uC8FC\uACE0, \uC131\uACF5\uD588\uB294\uC9C0 \uD55C \uC904\uB85C \uB9D0\uD574 \uC918.`;
+  }
+  return `LibreOffice\uB97C \uC124\uCE58\uD574 \uC918. \uB098\uB294 \uD504\uB85C\uADF8\uB798\uBC0D \uCD08\uBCF4\uC57C.
+
+\uBA3C\uC800 \uC774 \uC548\uB0B4\uC11C\uB97C \uC77D\uC5B4 \uC918:
+${LIBREOFFICE_GUIDE_URLS.win32}
+
+1. \uC774\uBBF8 \uC124\uCE58\uB3FC \uC788\uB294\uC9C0 \uBA3C\uC800 \uD655\uC778\uD574. \uC788\uC73C\uBA74 \uC124\uCE58\uD558\uC9C0 \uB9D0\uACE0 \uC54C\uB824 \uC918.
+2. winget\uC73C\uB85C \uC124\uCE58\uD574 \uC918: winget install --id TheDocumentFoundation.LibreOffice -e
+3. winget\uC774 \uC5C6\uC73C\uBA74 \uC9C1\uC811 \uC124\uCE58\uD558\uC9C0 \uB9D0\uACE0, LibreOffice \uACF5\uC2DD \uC0AC\uC774\uD2B8(libreoffice.org)\uC758 Windows 64\uBE44\uD2B8 \uC124\uCE58 \uD30C\uC77C\uC744 \uC4F0\uB294 \uBC29\uBC95\uC744 \uC54C\uB824 \uC918.
+4. '\uC774 \uC571\uC774 \uB514\uBC14\uC774\uC2A4\uB97C \uBCC0\uACBD\uD558\uB3C4\uB85D \uD5C8\uC6A9\uD558\uC2DC\uACA0\uC5B4\uC694?' \uCC3D\uC774 \uB728\uBA74 \uBA48\uCD94\uACE0, \uB0B4\uAC00 '\uC608'\uB97C \uB20C\uB7EC\uC57C \uD55C\uB2E4\uACE0 \uD55C\uAD6D\uC5B4\uB85C \uC54C\uB824 \uC900 \uB4A4 \uAE30\uB2E4\uB824 \uC918.
+5. \uB2E4 \uB05D\uB098\uBA74 "C:\\Program Files\\LibreOffice\\program\\soffice.exe" --version \uACB0\uACFC\uB97C \uBCF4\uC5EC \uC8FC\uACE0, \uC131\uACF5\uD588\uB294\uC9C0 \uD55C \uC904\uB85C \uB9D0\uD574 \uC918.`;
+}
+var fs, path, LIBREOFFICE_GUIDE_URLS;
+var init_libreOffice = __esm({
+  "src/core/setup/libreOffice.ts"() {
+    fs = __toESM(require("fs"));
+    path = __toESM(require("path"));
+    LIBREOFFICE_GUIDE_URLS = {
+      darwin: "https://github.com/leeht1107/obsidian-ai-tutor/blob/main/docs/libreoffice-mac.md",
+      win32: "https://github.com/leeht1107/obsidian-ai-tutor/blob/main/docs/libreoffice-windows.md"
+    };
+  }
+});
+
 // src/utils/path.ts
+var path_exports = {};
+__export(path_exports, {
+  expandHomePath: () => expandHomePath,
+  getPathAccessType: () => getPathAccessType,
+  getVaultPath: () => getVaultPath,
+  isPathInAllowedContextPaths: () => isPathInAllowedContextPaths,
+  isPathInAllowedExportPaths: () => isPathInAllowedExportPaths,
+  isPathWithinVault: () => isPathWithinVault,
+  normalizePathForComparison: () => normalizePathForComparison,
+  normalizePathForFilesystem: () => normalizePathForFilesystem,
+  parsePathEntries: () => parsePathEntries,
+  startsWithHomePath: () => startsWithHomePath,
+  translateMsysPath: () => translateMsysPath
+});
 function getVaultPath(app) {
   const adapter = app.vault.adapter;
   if ("basePath" in adapter) {
     return adapter.basePath;
   }
   return null;
+}
+function startsWithHomePath(p) {
+  return p.startsWith("~/") || p.startsWith("~\\") || p === "~";
 }
 function getEnvValue(key) {
   const hasKey = (name) => Object.prototype.hasOwnProperty.call(process.env, name);
@@ -90,10 +173,10 @@ function expandHomePath(p) {
     return os.homedir();
   }
   if (expanded.startsWith("~/")) {
-    return path.join(os.homedir(), expanded.slice(2));
+    return path2.join(os.homedir(), expanded.slice(2));
   }
   if (expanded.startsWith("~\\")) {
-    return path.join(os.homedir(), expanded.slice(2));
+    return path2.join(os.homedir(), expanded.slice(2));
   }
   return expanded;
 }
@@ -118,26 +201,26 @@ function parsePathEntries(pathValue) {
 }
 function resolveRealPath(p) {
   var _a;
-  const realpathFn = (_a = fs.realpathSync.native) != null ? _a : fs.realpathSync;
+  const realpathFn = (_a = fs2.realpathSync.native) != null ? _a : fs2.realpathSync;
   try {
     return realpathFn(p);
   } catch (e) {
-    const absolute = path.resolve(p);
+    const absolute = path2.resolve(p);
     let current = absolute;
     const suffix = [];
     while (true) {
       try {
-        if (fs.existsSync(current)) {
+        if (fs2.existsSync(current)) {
           const resolvedExisting = realpathFn(current);
-          return suffix.length > 0 ? path.join(resolvedExisting, ...suffix.reverse()) : resolvedExisting;
+          return suffix.length > 0 ? path2.join(resolvedExisting, ...suffix.reverse()) : resolvedExisting;
         }
       } catch (e2) {
       }
-      const parent = path.dirname(current);
+      const parent = path2.dirname(current);
       if (parent === current) {
         return absolute;
       }
-      suffix.push(path.basename(current));
+      suffix.push(path2.basename(current));
       current = parent;
     }
   }
@@ -179,7 +262,7 @@ function normalizePathForFilesystem(value) {
   const expanded = normalizePathBeforeResolution(value);
   let normalized = expanded;
   try {
-    normalized = process.platform === "win32" ? path.win32.normalize(expanded) : path.normalize(expanded);
+    normalized = process.platform === "win32" ? path2.win32.normalize(expanded) : path2.normalize(expanded);
   } catch (e) {
     normalized = expanded;
   }
@@ -192,7 +275,7 @@ function normalizePathForComparison(value) {
   const expanded = normalizePathBeforeResolution(value);
   let normalized = expanded;
   try {
-    normalized = process.platform === "win32" ? path.win32.normalize(expanded) : path.normalize(expanded);
+    normalized = process.platform === "win32" ? path2.win32.normalize(expanded) : path2.normalize(expanded);
   } catch (e) {
     normalized = expanded;
   }
@@ -203,16 +286,98 @@ function normalizePathForComparison(value) {
 function isPathWithinVault(candidatePath, vaultPath) {
   const vaultReal = normalizePathForComparison(resolveRealPath(vaultPath));
   const normalizedPath = normalizePathBeforeResolution(candidatePath);
-  const absCandidate = path.isAbsolute(normalizedPath) ? normalizedPath : path.resolve(vaultPath, normalizedPath);
+  const absCandidate = path2.isAbsolute(normalizedPath) ? normalizedPath : path2.resolve(vaultPath, normalizedPath);
   const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
   return resolvedCandidate === vaultReal || resolvedCandidate.startsWith(vaultReal + "/");
 }
-var fs, os, path;
+function isPathInAllowedExportPaths(candidatePath, allowedExportPaths, vaultPath) {
+  if (!allowedExportPaths || allowedExportPaths.length === 0) {
+    return false;
+  }
+  const normalizedCandidate = normalizePathBeforeResolution(candidatePath);
+  const absCandidate = path2.isAbsolute(normalizedCandidate) ? normalizedCandidate : path2.resolve(vaultPath, normalizedCandidate);
+  const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
+  for (const exportPath of allowedExportPaths) {
+    const normalizedExport = normalizePathBeforeResolution(exportPath);
+    const resolvedExport = normalizePathForComparison(resolveRealPath(normalizedExport));
+    if (resolvedCandidate === resolvedExport || resolvedCandidate.startsWith(resolvedExport + "/")) {
+      return true;
+    }
+  }
+  return false;
+}
+function isPathInAllowedContextPaths(candidatePath, allowedContextPaths, vaultPath) {
+  if (!allowedContextPaths || allowedContextPaths.length === 0) {
+    return false;
+  }
+  const normalizedCandidate = normalizePathBeforeResolution(candidatePath);
+  const absCandidate = path2.isAbsolute(normalizedCandidate) ? normalizedCandidate : path2.resolve(vaultPath, normalizedCandidate);
+  const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
+  for (const contextPath of allowedContextPaths) {
+    const normalizedContext = normalizePathBeforeResolution(contextPath);
+    const resolvedContext = normalizePathForComparison(resolveRealPath(normalizedContext));
+    if (resolvedCandidate === resolvedContext || resolvedCandidate.startsWith(resolvedContext + "/")) {
+      return true;
+    }
+  }
+  return false;
+}
+function getPathAccessType(candidatePath, allowedContextPaths, allowedExportPaths, vaultPath) {
+  if (!candidatePath) return "none";
+  const vaultReal = normalizePathForComparison(resolveRealPath(vaultPath));
+  const normalizedCandidate = normalizePathBeforeResolution(candidatePath);
+  const absCandidate = path2.isAbsolute(normalizedCandidate) ? normalizedCandidate : path2.resolve(vaultPath, normalizedCandidate);
+  const resolvedCandidate = normalizePathForComparison(resolveRealPath(absCandidate));
+  if (resolvedCandidate === vaultReal || resolvedCandidate.startsWith(vaultReal + "/")) {
+    return "vault";
+  }
+  const copilotDir = normalizePathForComparison(resolveRealPath(path2.join(os.homedir(), ".copilot")));
+  if (resolvedCandidate === copilotDir || resolvedCandidate.startsWith(copilotDir + "/")) {
+    return "vault";
+  }
+  const claudeDir = normalizePathForComparison(resolveRealPath(path2.join(os.homedir(), ".claude")));
+  if (resolvedCandidate === claudeDir || resolvedCandidate.startsWith(claudeDir + "/")) {
+    return "vault";
+  }
+  const roots = /* @__PURE__ */ new Map();
+  const addRoot = (rawPath, kind) => {
+    var _a;
+    const trimmed = rawPath.trim();
+    if (!trimmed) return;
+    const normalized = normalizePathBeforeResolution(trimmed);
+    const resolved = normalizePathForComparison(resolveRealPath(normalized));
+    const existing = (_a = roots.get(resolved)) != null ? _a : { context: false, export: false };
+    existing[kind] = true;
+    roots.set(resolved, existing);
+  };
+  for (const contextPath of allowedContextPaths != null ? allowedContextPaths : []) {
+    addRoot(contextPath, "context");
+  }
+  for (const exportPath of allowedExportPaths != null ? allowedExportPaths : []) {
+    addRoot(exportPath, "export");
+  }
+  let bestRoot = null;
+  let bestFlags = null;
+  for (const [root, flags] of roots) {
+    if (resolvedCandidate === root || resolvedCandidate.startsWith(root + "/")) {
+      if (!bestRoot || root.length > bestRoot.length) {
+        bestRoot = root;
+        bestFlags = flags;
+      }
+    }
+  }
+  if (!bestRoot || !bestFlags) return "none";
+  if (bestFlags.context && bestFlags.export) return "readwrite";
+  if (bestFlags.context) return "context";
+  if (bestFlags.export) return "export";
+  return "none";
+}
+var fs2, os, path2;
 var init_path = __esm({
   "src/utils/path.ts"() {
-    fs = __toESM(require("fs"));
+    fs2 = __toESM(require("fs"));
     os = __toESM(require("os"));
-    path = __toESM(require("path"));
+    path2 = __toESM(require("path"));
   }
 });
 
@@ -248,40 +413,40 @@ function getNvmCandidateDirs(home) {
   const candidates = [];
   if (process.env.NVM_BIN) candidates.push(process.env.NVM_BIN);
   if (!home) return uniquePaths(candidates);
-  const nvmDir = path2.join(home, ".nvm");
+  const nvmDir = path3.join(home, ".nvm");
   let alias = "";
   let partialAlias = null;
   try {
-    alias = fs2.readFileSync(path2.join(nvmDir, "alias", "default"), "utf8").trim();
+    alias = fs3.readFileSync(path3.join(nvmDir, "alias", "default"), "utf8").trim();
   } catch (e) {
   }
   for (let depth = 0; alias && depth < 4; depth++) {
     const parsed = parseNodeVersion(alias);
     if (parsed) {
       const version = alias.startsWith("v") ? alias : `v${alias}`;
-      candidates.push(path2.join(nvmDir, "versions", "node", version, "bin"));
+      candidates.push(path3.join(nvmDir, "versions", "node", version, "bin"));
       partialAlias = null;
       break;
     }
     const requestedPartialAlias = parsePartialNodeVersion(alias);
     if (!/^[A-Za-z0-9._/-]+$/.test(alias) || alias.split("/").some((part) => !part || part === "..")) break;
     try {
-      alias = fs2.readFileSync(path2.join(nvmDir, "alias", ...alias.split("/")), "utf8").trim();
+      alias = fs3.readFileSync(path3.join(nvmDir, "alias", ...alias.split("/")), "utf8").trim();
     } catch (e) {
       partialAlias = requestedPartialAlias != null ? requestedPartialAlias : partialAlias;
       break;
     }
   }
   try {
-    const versionsDir = path2.join(nvmDir, "versions", "node");
-    const versions = fs2.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
+    const versionsDir = path3.join(nvmDir, "versions", "node");
+    const versions = fs3.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
     const matchingVersion = partialAlias ? versions.find((version) => {
       const parsed = parseNodeVersion(version);
       return parsed !== null && parsed.major === partialAlias.major && (partialAlias.minor === void 0 || parsed.minor === partialAlias.minor);
     }) : void 0;
     const orderedVersions = matchingVersion ? [matchingVersion, ...versions.filter((version) => version !== matchingVersion)] : versions;
     for (const version of orderedVersions.slice(0, 3)) {
-      candidates.push(path2.join(versionsDir, version, "bin"));
+      candidates.push(path3.join(versionsDir, version, "bin"));
     }
   } catch (e) {
   }
@@ -293,15 +458,15 @@ function getFnmCandidateDirs(home) {
   if (process.env.FNM_MULTISHELL_PATH) candidates.push(process.env.FNM_MULTISHELL_PATH);
   const fnmDirs = uniquePaths([
     process.env.FNM_DIR || "",
-    home ? path2.join(home, ".local", "share", "fnm") : "",
-    home ? path2.join(home, ".fnm") : ""
+    home ? path3.join(home, ".local", "share", "fnm") : "",
+    home ? path3.join(home, ".fnm") : ""
   ]);
   for (const fnmDir of fnmDirs) {
     try {
-      const versionsDir = path2.join(fnmDir, "node-versions");
-      const versions = fs2.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
+      const versionsDir = path3.join(fnmDir, "node-versions");
+      const versions = fs3.readdirSync(versionsDir).filter((version) => parseNodeVersion(version) !== null).sort(compareNodeVersions);
       for (const version of versions.slice(0, 3)) {
-        candidates.push(path2.join(versionsDir, version, "installation", "bin"));
+        candidates.push(path3.join(versionsDir, version, "installation", "bin"));
       }
     } catch (e) {
     }
@@ -321,14 +486,14 @@ function getExtraBinaryPaths() {
     const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
     const programData = process.env.ProgramData || "C:\\ProgramData";
     if (appData) {
-      paths.push(path2.join(appData, "npm"));
+      paths.push(path3.join(appData, "npm"));
     }
     if (localAppData) {
-      paths.push(path2.join(localAppData, "Programs", "nodejs"));
-      paths.push(path2.join(localAppData, "Programs", "node"));
+      paths.push(path3.join(localAppData, "Programs", "nodejs"));
+      paths.push(path3.join(localAppData, "Programs", "node"));
     }
-    paths.push(path2.join(programFiles, "nodejs"));
-    paths.push(path2.join(programFilesX86, "nodejs"));
+    paths.push(path3.join(programFiles, "nodejs"));
+    paths.push(path3.join(programFilesX86, "nodejs"));
     const nvmSymlink = process.env.NVM_SYMLINK;
     if (nvmSymlink) {
       paths.push(nvmSymlink);
@@ -337,13 +502,13 @@ function getExtraBinaryPaths() {
     if (nvmHome) {
       paths.push(nvmHome);
     } else if (appData) {
-      paths.push(path2.join(appData, "nvm"));
+      paths.push(path3.join(appData, "nvm"));
     }
     const voltaHome = process.env.VOLTA_HOME;
     if (voltaHome) {
-      paths.push(path2.join(voltaHome, "bin"));
+      paths.push(path3.join(voltaHome, "bin"));
     } else if (home) {
-      paths.push(path2.join(home, ".volta", "bin"));
+      paths.push(path3.join(home, ".volta", "bin"));
     }
     const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
     if (fnmMultishell) {
@@ -353,30 +518,31 @@ function getExtraBinaryPaths() {
     if (fnmDir) {
       paths.push(fnmDir);
     } else if (localAppData) {
-      paths.push(path2.join(localAppData, "fnm"));
+      paths.push(path3.join(localAppData, "fnm"));
     }
     const chocolateyInstall = process.env.ChocolateyInstall;
     if (chocolateyInstall) {
-      paths.push(path2.join(chocolateyInstall, "bin"));
+      paths.push(path3.join(chocolateyInstall, "bin"));
     } else {
-      paths.push(path2.join(programData, "chocolatey", "bin"));
+      paths.push(path3.join(programData, "chocolatey", "bin"));
     }
     const scoopDir = process.env.SCOOP;
     if (scoopDir) {
-      paths.push(path2.join(scoopDir, "shims"));
-      paths.push(path2.join(scoopDir, "apps", "nodejs", "current", "bin"));
-      paths.push(path2.join(scoopDir, "apps", "nodejs", "current"));
+      paths.push(path3.join(scoopDir, "shims"));
+      paths.push(path3.join(scoopDir, "apps", "nodejs", "current", "bin"));
+      paths.push(path3.join(scoopDir, "apps", "nodejs", "current"));
     } else if (home) {
-      paths.push(path2.join(home, "scoop", "shims"));
-      paths.push(path2.join(home, "scoop", "apps", "nodejs", "current", "bin"));
-      paths.push(path2.join(home, "scoop", "apps", "nodejs", "current"));
+      paths.push(path3.join(home, "scoop", "shims"));
+      paths.push(path3.join(home, "scoop", "apps", "nodejs", "current", "bin"));
+      paths.push(path3.join(home, "scoop", "apps", "nodejs", "current"));
     }
     if (localAppData) {
-      paths.push(path2.join(localAppData, "agy", "bin"));
+      paths.push(path3.join(localAppData, "agy", "bin"));
     }
-    paths.push(path2.join(programFiles, "Docker", "Docker", "resources", "bin"));
+    paths.push(path3.join(programFiles, "Docker", "Docker", "resources", "bin"));
+    paths.push(...libreOfficeProgramDirs("win32", process.env, home));
     if (home) {
-      paths.push(path2.join(home, ".local", "bin"));
+      paths.push(path3.join(home, ".local", "bin"));
     }
     return paths;
   } else {
@@ -389,12 +555,12 @@ function getExtraBinaryPaths() {
     ];
     const voltaHome = process.env.VOLTA_HOME;
     if (voltaHome) {
-      paths.push(path2.join(voltaHome, "bin"));
+      paths.push(path3.join(voltaHome, "bin"));
     }
     const asdfRoot = process.env.ASDF_DATA_DIR || process.env.ASDF_DIR;
     if (asdfRoot) {
-      paths.push(path2.join(asdfRoot, "shims"));
-      paths.push(path2.join(asdfRoot, "bin"));
+      paths.push(path3.join(asdfRoot, "shims"));
+      paths.push(path3.join(asdfRoot, "bin"));
     }
     const fnmMultishell = process.env.FNM_MULTISHELL_PATH;
     if (fnmMultishell) {
@@ -405,17 +571,18 @@ function getExtraBinaryPaths() {
       paths.push(fnmDir);
     }
     if (home) {
-      paths.push(path2.join(home, ".local", "bin"));
-      paths.push(path2.join(home, ".docker", "bin"));
-      paths.push(path2.join(home, ".volta", "bin"));
-      paths.push(path2.join(home, ".asdf", "shims"));
-      paths.push(path2.join(home, ".asdf", "bin"));
-      paths.push(path2.join(home, ".npm-global", "bin"));
-      paths.push(path2.join(home, "bin"));
-      paths.push(path2.join(home, ".fnm"));
+      paths.push(path3.join(home, ".local", "bin"));
+      paths.push(path3.join(home, ".docker", "bin"));
+      paths.push(path3.join(home, ".volta", "bin"));
+      paths.push(path3.join(home, ".asdf", "shims"));
+      paths.push(path3.join(home, ".asdf", "bin"));
+      paths.push(path3.join(home, ".npm-global", "bin"));
+      paths.push(path3.join(home, "bin"));
+      paths.push(path3.join(home, ".fnm"));
       paths.push(...getFnmCandidateDirs(home));
       paths.push(...getNvmCandidateDirs(home));
     }
+    paths.push(...libreOfficeProgramDirs(process.platform, process.env, home));
     return paths;
   }
 }
@@ -427,9 +594,9 @@ function findNodeDirectory() {
   for (const dir of allPaths) {
     if (!dir) continue;
     try {
-      const nodePath2 = path2.join(dir, NODE_EXECUTABLE);
-      if (fs2.existsSync(nodePath2)) {
-        const stat = fs2.statSync(nodePath2);
+      const nodePath2 = path3.join(dir, NODE_EXECUTABLE);
+      if (fs3.existsSync(nodePath2)) {
+        const stat = fs3.statSync(nodePath2);
         if (stat.isFile()) {
           return dir;
         }
@@ -446,24 +613,24 @@ function cliPathRequiresNode(cliPath) {
     return true;
   }
   try {
-    if (!fs2.existsSync(cliPath)) {
+    if (!fs3.existsSync(cliPath)) {
       return false;
     }
-    const stat = fs2.statSync(cliPath);
+    const stat = fs3.statSync(cliPath);
     if (!stat.isFile()) {
       return false;
     }
     let fd = null;
     try {
-      fd = fs2.openSync(cliPath, "r");
+      fd = fs3.openSync(cliPath, "r");
       const buffer = Buffer.alloc(200);
-      const bytesRead = fs2.readSync(fd, buffer, 0, buffer.length, 0);
+      const bytesRead = fs3.readSync(fd, buffer, 0, buffer.length, 0);
       const header = buffer.slice(0, bytesRead).toString("utf8");
       return header.startsWith("#!") && header.toLowerCase().includes("node");
     } finally {
       if (fd !== null) {
         try {
-          fs2.closeSync(fd);
+          fs3.closeSync(fd);
         } catch (e) {
         }
       }
@@ -482,10 +649,10 @@ function getEnhancedPath(additionalPaths, cliPath) {
   let cliDirHasNode = false;
   if (cliPath) {
     try {
-      const cliDir = path2.dirname(cliPath);
-      const nodeInCliDir = path2.join(cliDir, NODE_EXECUTABLE);
-      if (fs2.existsSync(nodeInCliDir)) {
-        const stat = fs2.statSync(nodeInCliDir);
+      const cliDir = path3.dirname(cliPath);
+      const nodeInCliDir = path3.join(cliDir, NODE_EXECUTABLE);
+      if (fs3.existsSync(nodeInCliDir)) {
+        const stat = fs3.statSync(nodeInCliDir);
         if (stat.isFile()) {
           segments.push(cliDir);
           cliDirHasNode = true;
@@ -537,11 +704,12 @@ function parseEnvironmentVariables(input) {
   }
   return result;
 }
-var fs2, path2, isWindows, PATH_SEPARATOR, NODE_EXECUTABLE;
+var fs3, path3, isWindows, PATH_SEPARATOR, NODE_EXECUTABLE;
 var init_env = __esm({
   "src/utils/env.ts"() {
-    fs2 = __toESM(require("fs"));
-    path2 = __toESM(require("path"));
+    fs3 = __toESM(require("fs"));
+    path3 = __toESM(require("path"));
+    init_libreOffice();
     init_path();
     isWindows = process.platform === "win32";
     PATH_SEPARATOR = isWindows ? ";" : ":";
@@ -552,13 +720,13 @@ var init_env = __esm({
 // src/utils/copilotCli.ts
 function isExistingFile(p) {
   try {
-    return fs3.existsSync(p) && fs3.statSync(p).isFile();
+    return fs4.existsSync(p) && fs4.statSync(p).isFile();
   } catch (e) {
     return false;
   }
 }
 function platformPath() {
-  return process.platform === "win32" ? path3.win32 : path3.posix;
+  return process.platform === "win32" ? path4.win32 : path4.posix;
 }
 function getEnvValue2(key) {
   const exact = process.env[key];
@@ -609,7 +777,7 @@ function getNpmGlobalPrefix() {
   if (prefix && prefix !== "undefined") return prefix;
   if (process.platform === "win32") {
     const appData = getEnvValue2("APPDATA");
-    if (appData) return path3.win32.join(appData, "npm");
+    if (appData) return path4.win32.join(appData, "npm");
   }
   return null;
 }
@@ -675,7 +843,7 @@ function resolveCmdShim(cmdPath) {
   if (!cmdPath.toLowerCase().endsWith(".cmd")) return null;
   try {
     const pp = platformPath();
-    const content = fs3.readFileSync(cmdPath, "utf8");
+    const content = fs4.readFileSync(cmdPath, "utf8");
     const cmdDir = pp.dirname(cmdPath);
     for (const line of content.split(/\r?\n/)) {
       const m = line.match(/"([^"]+\.(?:js|cjs|mjs))"\s+%\*/i);
@@ -725,7 +893,7 @@ function resolveNpmPackageEntry(cliPath, npmPackage) {
     if (!isExistingFile(manifestPath)) continue;
     let bin;
     try {
-      bin = JSON.parse(fs3.readFileSync(manifestPath, "utf8")).bin;
+      bin = JSON.parse(fs4.readFileSync(manifestPath, "utf8")).bin;
     } catch (e) {
       continue;
     }
@@ -755,12 +923,12 @@ function resolveProviderEntry(cliPath, npmPackage) {
   if (sibling) return [sibling, []];
   return null;
 }
-var fs3, os2, path3;
+var fs4, os2, path4;
 var init_copilotCli = __esm({
   "src/utils/copilotCli.ts"() {
-    fs3 = __toESM(require("fs"));
+    fs4 = __toESM(require("fs"));
     os2 = __toESM(require("os"));
-    path3 = __toESM(require("path"));
+    path4 = __toESM(require("path"));
     init_env();
   }
 });
@@ -789,12 +957,12 @@ function fitsWindowsCommandLine(command, args) {
   return windowsCommandLineLength(command, args) + 1 <= WINDOWS_COMMAND_LINE_MAX;
 }
 function windowsPowerShellPath(systemRoot = process.env.SystemRoot) {
-  return path4.join(systemRoot != null ? systemRoot : "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return path5.join(systemRoot != null ? systemRoot : "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 }
-var path4, WINDOWS_COMMAND_LINE_MAX;
+var path5, WINDOWS_COMMAND_LINE_MAX;
 var init_windowsCommandLine = __esm({
   "src/utils/windowsCommandLine.ts"() {
-    path4 = __toESM(require("path"));
+    path5 = __toESM(require("path"));
     WINDOWS_COMMAND_LINE_MAX = 32767;
   }
 });
@@ -976,7 +1144,7 @@ function findProviderCliPath(id, customPath = "") {
   const names = process.platform === "win32" ? [`${descriptor.command}.exe`, `${descriptor.command}.cmd`, descriptor.command] : [descriptor.command];
   for (const dir of getEnhancedPath().split(delimiter)) {
     for (const name of names) {
-      const candidate = path5.join(dir, name);
+      const candidate = path6.join(dir, name);
       if (isFile(candidate)) return candidate;
     }
   }
@@ -992,16 +1160,16 @@ function resolveProviderCliPath(settings, id) {
 }
 function isFile(candidate) {
   try {
-    return fs4.statSync(candidate).isFile();
+    return fs5.statSync(candidate).isFile();
   } catch (e) {
     return false;
   }
 }
-var fs4, path5, PROVIDERS, PROVIDER_EFFORT_LEVELS, STATIC_PROVIDER_MODELS, EFFORT_COMBINES_WITH_MODEL, RETIRED_PROVIDER_MODELS;
+var fs5, path6, PROVIDERS, PROVIDER_EFFORT_LEVELS, STATIC_PROVIDER_MODELS, EFFORT_COMBINES_WITH_MODEL, RETIRED_PROVIDER_MODELS;
 var init_providerRegistry = __esm({
   "src/core/providers/providerRegistry.ts"() {
-    fs4 = __toESM(require("fs"));
-    path5 = __toESM(require("path"));
+    fs5 = __toESM(require("fs"));
+    path6 = __toESM(require("path"));
     init_env();
     init_path();
     PROVIDERS = [
@@ -1386,8 +1554,8 @@ function findNpmPath() {
     if (!dir) continue;
     for (const name of npmNames) {
       try {
-        const p = path6.join(dir, name);
-        if (fs5.existsSync(p) && fs5.statSync(p).isFile()) return p;
+        const p = path7.join(dir, name);
+        if (fs6.existsSync(p) && fs6.statSync(p).isFile()) return p;
       } catch (e) {
       }
     }
@@ -1563,12 +1731,12 @@ function startProviderInstall(providerId, onProgress) {
 async function installProviderCLI(providerId, onProgress) {
   return startProviderInstall(providerId, onProgress).done;
 }
-var import_child_process2, fs5, path6, isWindows3, shownThisSession, CLI_INSTALL_TIMEOUT_MS, CANCEL_EXIT_GRACE_MS, CANCELLED, TIMED_OUT;
+var import_child_process2, fs6, path7, isWindows3, shownThisSession, CLI_INSTALL_TIMEOUT_MS, CANCEL_EXIT_GRACE_MS, CANCELLED, TIMED_OUT;
 var init_AutoSetupService = __esm({
   "src/core/setup/AutoSetupService.ts"() {
     import_child_process2 = require("child_process");
-    fs5 = __toESM(require("fs"));
-    path6 = __toESM(require("path"));
+    fs6 = __toESM(require("fs"));
+    path7 = __toESM(require("path"));
     init_copilotCli();
     init_env();
     init_windowsCommandLine();
@@ -1590,8 +1758,8 @@ function findOnPath(binaryName) {
     if (!dir) continue;
     for (const name of names) {
       try {
-        const candidate = path7.join(dir, name);
-        if (fs6.existsSync(candidate) && fs6.statSync(candidate).isFile()) return candidate;
+        const candidate = path8.join(dir, name);
+        if (fs7.existsSync(candidate) && fs7.statSync(candidate).isFile()) return candidate;
       } catch (e) {
       }
     }
@@ -1671,12 +1839,12 @@ function startNodeInstall(onProgress, manager = detectPackageManager()) {
     done
   };
 }
-var import_child_process3, fs6, path7, CANDIDATES, NODE_DOWNLOAD_URL, NODE_INSTALL_TIMEOUT_MS, CANCEL_EXIT_GRACE_MS2, CANCELLED2, TIMED_OUT2;
+var import_child_process3, fs7, path8, CANDIDATES, NODE_DOWNLOAD_URL, NODE_INSTALL_TIMEOUT_MS, CANCEL_EXIT_GRACE_MS2, CANCELLED2, TIMED_OUT2;
 var init_nodeInstall = __esm({
   "src/core/setup/nodeInstall.ts"() {
     import_child_process3 = require("child_process");
-    fs6 = __toESM(require("fs"));
-    path7 = __toESM(require("path"));
+    fs7 = __toESM(require("fs"));
+    path8 = __toESM(require("path"));
     init_env();
     init_processTree();
     CANDIDATES = isWindows2 ? [{
@@ -3243,6 +3411,9 @@ var init_SecretStorage = __esm({
 // src/features/skills/ObsidianSkillsInstaller.ts
 var ObsidianSkillsInstaller_exports = {};
 __export(ObsidianSkillsInstaller_exports, {
+  JSON_CANVAS_SKILL: () => JSON_CANVAS_SKILL,
+  OBSIDIAN_MARKDOWN_SKILL: () => OBSIDIAN_MARKDOWN_SKILL,
+  autoSkillsRoot: () => autoSkillsRoot,
   collectFolderFiles: () => collectFolderFiles,
   getInstalledSkills: () => getInstalledSkills,
   installObsidianSkills: () => installObsidianSkills,
@@ -3263,13 +3434,13 @@ __export(ObsidianSkillsInstaller_exports, {
 function providerSkillsRoot(vaultPath, providerId) {
   switch (providerId) {
     case "copilot":
-      return path16.join(vaultPath, ".copilot", "skills");
+      return path17.join(vaultPath, ".copilot", "skills");
     case "claude":
-      return path16.join(vaultPath, ".claude", "skills");
+      return path17.join(vaultPath, ".claude", "skills");
     case "agy":
-      return path16.join(vaultPath, ".agents", "skills");
+      return path17.join(vaultPath, ".agents", "skills");
     case "codex":
-      return path16.join(process.env.CODEX_HOME || path16.join(os8.homedir(), ".codex"), "skills");
+      return path17.join(process.env.CODEX_HOME || path17.join(os8.homedir(), ".codex"), "skills");
   }
 }
 function isMachineWideSkillsRoot(providerId) {
@@ -3278,11 +3449,11 @@ function isMachineWideSkillsRoot(providerId) {
 function providerGlobalSkillsRoot(providerId) {
   switch (providerId) {
     case "copilot":
-      return path16.join(os8.homedir(), ".copilot", "skills");
+      return path17.join(os8.homedir(), ".copilot", "skills");
     case "claude":
-      return path16.join(os8.homedir(), ".claude", "skills");
+      return path17.join(os8.homedir(), ".claude", "skills");
     case "agy":
-      return path16.join(os8.homedir(), ".gemini", "config", "skills");
+      return path17.join(os8.homedir(), ".gemini", "config", "skills");
     case "codex":
       return null;
   }
@@ -3290,6 +3461,17 @@ function providerGlobalSkillsRoot(providerId) {
 function resolveSkillsRoot(app, providerId) {
   const vaultPath = getVaultPath(app);
   return vaultPath ? providerSkillsRoot(vaultPath, providerId) : null;
+}
+function autoSkillsRoot(providerId) {
+  return providerId === "claude" ? ".claude/skills" : ".agents/skills";
+}
+function resolveAutoRoot(app, providerId) {
+  const vaultPath = getVaultPath(app);
+  return vaultPath ? path17.join(vaultPath, autoSkillsRoot(providerId)) : null;
+}
+function listedRoots(app, providerId) {
+  const roots = [resolveSkillsRoot(app, providerId), resolveAutoRoot(app, providerId)].filter((r) => r !== null);
+  return [...new Set(roots.map((r) => path17.resolve(r)))];
 }
 function shouldInstallBundledSkills(state, providerId, alreadyInstalled) {
   var _a;
@@ -3300,23 +3482,23 @@ function isPluginOwnedSkill(content) {
   return content.includes(OWNERSHIP_MARKER.trim());
 }
 function writeBundledSkill(root, name, body) {
-  const file = path16.join(root, name, "SKILL.md");
-  if (fs13.existsSync(file) && !isPluginOwnedSkill(fs13.readFileSync(file, "utf-8"))) return "kept";
-  fs13.mkdirSync(path16.dirname(file), { recursive: true });
-  fs13.writeFileSync(file, `${body}${OWNERSHIP_MARKER}`, "utf-8");
+  const file = path17.join(root, name, "SKILL.md");
+  if (fs14.existsSync(file) && !isPluginOwnedSkill(fs14.readFileSync(file, "utf-8"))) return "kept";
+  if (!fs14.existsSync(file) && fs14.existsSync(path17.join(root, name))) return "kept";
+  fs14.mkdirSync(path17.dirname(file), { recursive: true });
+  fs14.writeFileSync(file, `${body}${OWNERSHIP_MARKER}`, "utf-8");
   return "written";
 }
 function isObsidianSkillsInstalled(app, providerId) {
-  const root = resolveSkillsRoot(app, providerId);
-  return root !== null && BUILT_IN_SKILLS.every((name) => fs13.existsSync(path16.join(root, name, "SKILL.md")));
+  const root = resolveAutoRoot(app, providerId);
+  return root !== null && BUILT_IN_SKILLS.every((name) => fs14.existsSync(path17.join(root, name, "SKILL.md")));
 }
 function getInstalledSkills(app, providerId) {
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
   const globalRoot = providerGlobalSkillsRoot(providerId);
   const globalSkills = globalRoot ? loadSkillsFromPath(globalRoot, true) : [];
   const vaultSkills = [];
-  if (skillsBasePath) {
-    vaultSkills.push(...loadSkillsFromPath(skillsBasePath, false));
+  for (const root of listedRoots(app, providerId)) {
+    vaultSkills.push(...loadSkillsFromPath(root, false));
   }
   const vaultNames = new Set(vaultSkills.map((skill) => skill.name));
   const mergedSkills = [
@@ -3333,20 +3515,20 @@ function getInstalledSkills(app, providerId) {
 }
 function loadSkillsFromPath(skillsBasePath, isGlobal) {
   const skills = [];
-  if (!fs13.existsSync(skillsBasePath)) {
+  if (!fs14.existsSync(skillsBasePath)) {
     return skills;
   }
   try {
-    const entries = fs13.readdirSync(skillsBasePath, { withFileTypes: true });
+    const entries = fs14.readdirSync(skillsBasePath, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith(STAGING_PREFIX) || entry.name.startsWith(REPLACING_PREFIX) || entry.name.startsWith(REPLACED_PREFIX)) continue;
-      const skillDir = path16.join(skillsBasePath, entry.name);
-      const skillFilePath = path16.join(skillDir, "SKILL.md");
-      if (!fs13.existsSync(skillFilePath)) continue;
+      const skillDir = path17.join(skillsBasePath, entry.name);
+      const skillFilePath = path17.join(skillDir, "SKILL.md");
+      if (!fs14.existsSync(skillFilePath)) continue;
       let description = "";
       try {
-        const content = fs13.readFileSync(skillFilePath, "utf-8");
+        const content = fs14.readFileSync(skillFilePath, "utf-8");
         const descMatch = content.match(/^---\s*[\s\S]*?description:\s*([^\r\n]+)/);
         if (descMatch && descMatch[1]) {
           description = descMatch[1].trim();
@@ -3365,9 +3547,17 @@ function loadSkillsFromPath(skillsBasePath, isGlobal) {
   }
   return skills;
 }
-async function removeSkill(app, skillName, providerId, host) {
+async function removeSkill(app, skillName, providerId, host, skillPath) {
   var _a;
-  const skillsRoot = resolveSkillsRoot(app, providerId);
+  let skillsRoot = resolveSkillsRoot(app, providerId);
+  if (skillPath !== void 0) {
+    const parent = path17.resolve(path17.dirname(skillPath));
+    skillsRoot = path17.basename(skillPath) === skillName && listedRoots(app, providerId).includes(parent) ? parent : null;
+    if (!skillsRoot) {
+      new import_obsidian29.Notice(`Skill "${skillName}" is not in this provider's skills folder`);
+      return false;
+    }
+  }
   if (!skillsRoot) {
     reportBlockingFailure(host != null ? host : {}, {
       notice: "Could not determine skills folder",
@@ -3378,12 +3568,12 @@ async function removeSkill(app, skillName, providerId, host) {
     return false;
   }
   try {
-    const skillPath = path16.join(skillsRoot, skillName);
-    if (!fs13.existsSync(skillPath)) {
+    const skillPath2 = path17.join(skillsRoot, skillName);
+    if (!fs14.existsSync(skillPath2)) {
       new import_obsidian29.Notice(`Skill "${skillName}" not found`);
       return false;
     }
-    fs13.rmSync(skillPath, { recursive: true });
+    fs14.rmSync(skillPath2, { recursive: true });
     new import_obsidian29.Notice(`Skill "${skillName}" removed`);
     return true;
   } catch (error) {
@@ -3399,7 +3589,7 @@ async function removeSkill(app, skillName, providerId, host) {
 }
 async function installObsidianSkills(app, providerId, host) {
   var _a;
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
+  const skillsBasePath = resolveAutoRoot(app, providerId);
   if (!skillsBasePath) return false;
   try {
     const kept = [
@@ -3421,7 +3611,7 @@ async function installObsidianSkills(app, providerId, host) {
 }
 async function uninstallObsidianSkills(app, providerId, host) {
   var _a;
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
+  const skillsBasePath = resolveAutoRoot(app, providerId);
   if (!skillsBasePath) {
     reportBlockingFailure(host != null ? host : {}, {
       notice: "Could not determine skills folder",
@@ -3433,9 +3623,11 @@ async function uninstallObsidianSkills(app, providerId, host) {
   }
   try {
     for (const name of BUILT_IN_SKILLS) {
-      const file = path16.join(skillsBasePath, name, "SKILL.md");
-      if (!fs13.existsSync(file) || !isPluginOwnedSkill(fs13.readFileSync(file, "utf-8"))) continue;
-      fs13.rmSync(path16.join(skillsBasePath, name), { recursive: true });
+      const file = path17.join(skillsBasePath, name, "SKILL.md");
+      if (!fs14.existsSync(file) || !isPluginOwnedSkill(fs14.readFileSync(file, "utf-8"))) continue;
+      fs14.rmSync(file);
+      const dir = path17.join(skillsBasePath, name);
+      if (fs14.readdirSync(dir).length === 0) fs14.rmdirSync(dir);
     }
     new import_obsidian29.Notice("Obsidian Skills removed");
     return true;
@@ -3501,9 +3693,9 @@ function isSafeSkillRelativePath(relativePath) {
 }
 function resolveSkillFilePath(skillDir, relativePath) {
   if (!isSafeSkillRelativePath(relativePath)) return null;
-  const base = path16.resolve(skillDir);
-  const target = path16.resolve(base, relativePath);
-  return target.startsWith(base + path16.sep) ? target : null;
+  const base = path17.resolve(skillDir);
+  const target = path17.resolve(base, relativePath);
+  return target.startsWith(base + path17.sep) ? target : null;
 }
 function parseGitHubFolderUrl(url) {
   const match = url.trim().match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+?)\/?$/);
@@ -3577,23 +3769,23 @@ async function installSkillFolder(folder, providerId, vaultPath) {
   const declaredName = (_b = nameMatch == null ? void 0 : nameMatch[1]) == null ? void 0 : _b.trim().replace(/^['"]|['"]$/g, "").trim();
   const skillName = (declaredName || folder.dir.split("/").pop() || "unknown-skill").replace(/[^a-zA-Z0-9-_]/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "unknown-skill";
   const skillsRoot = providerSkillsRoot(vaultPath, providerId);
-  const skillDir = path16.join(skillsRoot, skillName);
-  if (fs13.existsSync(skillDir) && !fs13.existsSync(path16.join(skillDir, FOLDER_INSTALL_MARKER))) {
+  const skillDir = path17.join(skillsRoot, skillName);
+  if (fs14.existsSync(skillDir) && !fs14.existsSync(path17.join(skillDir, FOLDER_INSTALL_MARKER))) {
     throw new Error(`"${skillName}" already exists and was not installed by this plugin. Remove that folder first if you want to replace it.`);
   }
-  const backupDir = path16.join(skillsRoot, `${REPLACING_PREFIX}${skillName}`);
-  if (fs13.existsSync(backupDir)) {
-    if (!fs13.existsSync(skillDir)) {
-      fs13.renameSync(backupDir, skillDir);
+  const backupDir = path17.join(skillsRoot, `${REPLACING_PREFIX}${skillName}`);
+  if (fs14.existsSync(backupDir)) {
+    if (!fs14.existsSync(skillDir)) {
+      fs14.renameSync(backupDir, skillDir);
     } else {
       throw new Error(`An earlier install of "${skillName}" was interrupted and left a copy in "${REPLACING_PREFIX}${skillName}". Move or delete that folder, then install again.`);
     }
   }
-  const stagingDir = path16.join(skillsRoot, `${STAGING_PREFIX}${skillName}`);
-  if (fs13.existsSync(stagingDir)) {
+  const stagingDir = path17.join(skillsRoot, `${STAGING_PREFIX}${skillName}`);
+  if (fs14.existsSync(stagingDir)) {
     throw new Error(`A folder named "${STAGING_PREFIX}${skillName}" is already in the skills folder. Move or delete it, then install again.`);
   }
-  fs13.mkdirSync(stagingDir, { recursive: true });
+  fs14.mkdirSync(stagingDir, { recursive: true });
   try {
     new import_obsidian29.Notice(`Downloading ${files.length} files...`);
     let bytes = manifest.arrayBuffer.byteLength;
@@ -3615,34 +3807,34 @@ async function installSkillFolder(folder, providerId, vaultPath) {
           throw new Error(`That folder is too large to install as one skill (limit ${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB).`);
         }
       }
-      fs13.mkdirSync(path16.dirname(target), { recursive: true });
-      fs13.writeFileSync(target, Buffer.from(body));
+      fs14.mkdirSync(path17.dirname(target), { recursive: true });
+      fs14.writeFileSync(target, Buffer.from(body));
     }
-    fs13.writeFileSync(
-      path16.join(stagingDir, FOLDER_INSTALL_MARKER),
+    fs14.writeFileSync(
+      path17.join(stagingDir, FOLDER_INSTALL_MARKER),
       `${folder.owner}/${folder.repo} ${folder.ref} ${folder.dir}
 `,
       "utf-8"
     );
-    const hadPrevious = fs13.existsSync(skillDir);
-    if (hadPrevious) fs13.renameSync(skillDir, backupDir);
+    const hadPrevious = fs14.existsSync(skillDir);
+    if (hadPrevious) fs14.renameSync(skillDir, backupDir);
     try {
-      fs13.renameSync(stagingDir, skillDir);
+      fs14.renameSync(stagingDir, skillDir);
     } catch (error) {
-      if (hadPrevious && !fs13.existsSync(skillDir)) fs13.renameSync(backupDir, skillDir);
+      if (hadPrevious && !fs14.existsSync(skillDir)) fs14.renameSync(backupDir, skillDir);
       throw error;
     }
-    const replacedDir = path16.join(skillsRoot, `${REPLACED_PREFIX}${skillName}`);
+    const replacedDir = path17.join(skillsRoot, `${REPLACED_PREFIX}${skillName}`);
     if (hadPrevious) {
-      if (!fs13.existsSync(replacedDir) || fs13.existsSync(path16.join(replacedDir, FOLDER_INSTALL_MARKER))) {
-        fs13.rmSync(replacedDir, { recursive: true, force: true });
-        fs13.renameSync(backupDir, replacedDir);
+      if (!fs14.existsSync(replacedDir) || fs14.existsSync(path17.join(replacedDir, FOLDER_INSTALL_MARKER))) {
+        fs14.rmSync(replacedDir, { recursive: true, force: true });
+        fs14.renameSync(backupDir, replacedDir);
       } else {
         new import_obsidian29.Notice(`Your previous copy is in "${REPLACING_PREFIX}${skillName}" \u2014 "${REPLACED_PREFIX}${skillName}" was already taken.`);
       }
     }
   } finally {
-    fs13.rmSync(stagingDir, { recursive: true, force: true });
+    fs14.rmSync(stagingDir, { recursive: true, force: true });
   }
   new import_obsidian29.Notice(`\u2705 Skill "${skillName}" installed (${files.length} files).`);
   return true;
@@ -3699,11 +3891,11 @@ async function installSkillFromUrl(app, url, providerId, host) {
     if (!skillName) {
       throw new Error('Could not determine skill name. Please ensure the SKILL.md has a "name" field in frontmatter.');
     }
-    const skillDir = path16.join(providerSkillsRoot(vaultPath, providerId), skillName);
-    if (!fs13.existsSync(skillDir)) {
-      fs13.mkdirSync(skillDir, { recursive: true });
+    const skillDir = path17.join(providerSkillsRoot(vaultPath, providerId), skillName);
+    if (!fs14.existsSync(skillDir)) {
+      fs14.mkdirSync(skillDir, { recursive: true });
     }
-    fs13.writeFileSync(path16.join(skillDir, "SKILL.md"), content, "utf-8");
+    fs14.writeFileSync(path17.join(skillDir, "SKILL.md"), content, "utf-8");
     new import_obsidian29.Notice(`\u2705 Skill "${skillName}" installed successfully!`);
     return true;
   } catch (error) {
@@ -3720,13 +3912,13 @@ ${error instanceof Error ? (_a = error.stack) != null ? _a : error.message : Str
     return false;
   }
 }
-var fs13, import_obsidian29, os8, path16, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
+var fs14, import_obsidian29, os8, path17, OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL, OWNERSHIP_MARKER, BUILT_IN_SKILLS, MAX_SKILL_FILES, MAX_SKILL_BYTES, MAX_SKILL_DIRS, FOLDER_INSTALL_MARKER, STAGING_PREFIX, REPLACING_PREFIX, REPLACED_PREFIX;
 var init_ObsidianSkillsInstaller = __esm({
   "src/features/skills/ObsidianSkillsInstaller.ts"() {
-    fs13 = __toESM(require("fs"));
+    fs14 = __toESM(require("fs"));
     import_obsidian29 = require("obsidian");
     os8 = __toESM(require("os"));
-    path16 = __toESM(require("path"));
+    path17 = __toESM(require("path"));
     init_FailureReport();
     init_path();
     OBSIDIAN_MARKDOWN_SKILL = `---
@@ -4031,6 +4223,396 @@ Use the \`color\` property with values: \`1\`-\`6\` (preset colors) or hex codes
   }
 });
 
+// src/features/skills/BundledSkills.ts
+var BundledSkills_exports = {};
+__export(BundledSkills_exports, {
+  DOC_SKILLS: () => DOC_SKILLS,
+  DOC_SKILL_MARKER: () => DOC_SKILL_MARKER,
+  MARKDOWN_SKILLS: () => MARKDOWN_SKILLS,
+  MARKDOWN_SKILLS_VERSION: () => MARKDOWN_SKILLS_VERSION,
+  autoSkillsRoot: () => autoSkillsRoot,
+  ensureRoot: () => ensureRoot,
+  legacyMarkdownRemoved: () => legacyMarkdownRemoved,
+  parseDocArchive: () => parseDocArchive
+});
+function portableArchivePath(rel) {
+  return rel.split("/").every((s) => !s.startsWith(STAGING_PREFIX2) && !WINDOWS_DEVICE.test(s) && !/[. ]$/.test(s) && !/[<>:"|?*]/.test(s) && ![...s].some((c) => c.charCodeAt(0) < 32));
+}
+function parseDocArchive(gz, expectedSha256) {
+  var _a, _b;
+  if (gz.length > MAX_ARCHIVE_BYTES) throw new Error("archive too large");
+  const sha = (0, import_crypto4.createHash)("sha256").update(gz).digest("hex");
+  if (sha !== expectedSha256) throw new Error(`archive sha256 mismatch: ${sha}`);
+  const json = (0, import_zlib.gunzipSync)(gz, { maxOutputLength: MAX_UNPACKED_BYTES * 2 });
+  const text = json.toString("utf-8");
+  const raw = JSON.parse(text);
+  if (JSON.stringify(raw) !== text) throw new Error("archive is not canonical JSON");
+  if (typeof raw.version !== "string" || !raw.skills || typeof raw.skills !== "object") throw new Error("archive shape");
+  const names = Object.keys(raw.skills).sort();
+  if (names.join(",") !== [...DOC_SKILLS].sort().join(",")) throw new Error(`archive skills: ${names.join(",")}`);
+  const skills = {};
+  let total = 0;
+  for (const name of names) {
+    const entries = raw.skills[name];
+    if (!entries || typeof entries !== "object") throw new Error(`archive skill ${name}`);
+    const files = {};
+    const paths = Object.keys(entries);
+    if (paths.length > MAX_FILES_PER_SKILL) throw new Error(`archive skill ${name}: too many files`);
+    const folded = /* @__PURE__ */ new Set();
+    for (const rel of paths) {
+      const body = entries[rel];
+      if (typeof body !== "string") throw new Error(`archive entry ${name}/${rel}`);
+      if (!resolveSkillFilePath("/x", rel) || !portableArchivePath(rel) || rel === DOC_SKILL_MARKER) {
+        throw new Error(`archive path ${name}/${rel}`);
+      }
+      if (folded.has(rel.normalize("NFC").toLowerCase())) throw new Error(`archive path ${name}/${rel}: case collision`);
+      folded.add(rel.normalize("NFC").toLowerCase());
+      if (!BASE64.test(body)) throw new Error(`archive entry ${name}/${rel}: not base64`);
+      files[rel] = Buffer.from(body, "base64");
+      total += files[rel].length;
+    }
+    for (const rel of paths) {
+      const segs = rel.normalize("NFC").toLowerCase().split("/");
+      for (let i = 1; i < segs.length; i++) {
+        if (folded.has(segs.slice(0, i).join("/"))) throw new Error(`archive path ${name}/${rel}: under a file`);
+      }
+    }
+    if (!files["SKILL.md"] || !files["LICENSE.txt"]) throw new Error(`archive skill ${name}: SKILL.md or LICENSE.txt missing`);
+    skills[name] = files;
+  }
+  if (total > MAX_UNPACKED_BYTES) throw new Error("archive unpacks too large");
+  const executables = {};
+  const rawExec = (_a = raw.executables) != null ? _a : {};
+  for (const name of names) {
+    const list = (_b = rawExec[name]) != null ? _b : [];
+    if (!Array.isArray(list) || list.some((rel) => typeof rel !== "string" || !(rel in skills[name]))) throw new Error(`archive executables ${name}`);
+    executables[name] = list;
+  }
+  return { version: raw.version, skills, executables };
+}
+function sha2562(data) {
+  return (0, import_crypto4.createHash)("sha256").update(data).digest("hex");
+}
+function listFiles(dir, prefix = "") {
+  const out = [];
+  for (const entry of fs16.readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      const inner = listFiles(path18.join(dir, entry.name), rel);
+      out.push(...inner.length > 0 ? inner : [`${rel}/`]);
+    } else out.push(rel);
+  }
+  return out;
+}
+function digestsOf(files) {
+  return Object.fromEntries(Object.entries(files).map(([rel, body]) => [rel, sha2562(body)]));
+}
+function matchesRecord(dir, files) {
+  if (!files) return false;
+  const present = listFiles(dir).filter((rel) => rel !== DOC_SKILL_MARKER).sort();
+  const expected = Object.keys(files).sort();
+  if (present.join("\n") !== expected.join("\n")) return false;
+  return expected.every((rel) => sha2562(fs16.readFileSync(path18.join(dir, rel))) === files[rel]);
+}
+function installDocSkill(rootAbs, name, files, version, executables = []) {
+  const staging = path18.join(rootAbs, `${STAGING_PREFIX2}${name}`);
+  if (fs16.existsSync(staging)) {
+    if (!fs16.existsSync(path18.join(staging, STAGING_OWNER))) throw new Error(`${staging} is not ours; left as is`);
+    fs16.rmSync(staging, { recursive: true, force: true });
+  }
+  fs16.mkdirSync(staging);
+  const finalDir = path18.join(rootAbs, name);
+  try {
+    fs16.writeFileSync(path18.join(staging, STAGING_OWNER), version);
+    for (const [rel, body] of Object.entries(files)) {
+      const target = resolveSkillFilePath(staging, rel);
+      if (!target) throw new Error(`unsafe path ${rel}`);
+      fs16.mkdirSync(path18.dirname(target), { recursive: true });
+      fs16.writeFileSync(target, body);
+    }
+    if (process.platform !== "win32") {
+      for (const rel of executables) fs16.chmodSync(path18.join(staging, rel), 493);
+    }
+    fs16.writeFileSync(path18.join(staging, DOC_SKILL_MARKER), `${version}
+`);
+    if (fs16.existsSync(finalDir)) throw new Error(`${finalDir} appeared during install; left as is`);
+    fs16.renameSync(staging, finalDir);
+  } catch (error) {
+    fs16.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  fs16.rmSync(path18.join(finalDir, STAGING_OWNER), { force: true });
+}
+function replaceDocSkill(rootAbs, name, files, version, executables) {
+  const finalDir = path18.join(rootAbs, name);
+  const old = path18.join(rootAbs, `${STAGING_PREFIX2}${name}-old`);
+  if (fs16.existsSync(old)) throw new Error(`${old} exists; left as is`);
+  fs16.renameSync(finalDir, old);
+  try {
+    installDocSkill(rootAbs, name, files, version, executables);
+  } catch (error) {
+    if (!fs16.existsSync(finalDir)) fs16.renameSync(old, finalDir);
+    throw error;
+  }
+  fs16.rmSync(old, { recursive: true, force: true });
+}
+function legacyMarkdownRemoved(_vaultPath, _root, _name, evidence) {
+  return evidence.legacyUser;
+}
+async function ensureRoot(input) {
+  const { vaultPath, root, evidence } = input;
+  const rootAbs = path18.join(vaultPath, root);
+  const records = { ...input.records };
+  const result = { records, installed: [], pending: [], errors: [] };
+  for (const name of MARKDOWN_SKILLS) {
+    const rec = records[name];
+    const file = path18.join(rootAbs, name, "SKILL.md");
+    const exists = fs16.existsSync(file);
+    if ((rec == null ? void 0 : rec.state) === "removed" || (rec == null ? void 0 : rec.state) === "kept") continue;
+    if ((rec == null ? void 0 : rec.state) === "installed") {
+      if (!exists) records[name] = { ...rec, state: "removed" };
+      continue;
+    }
+    if (exists) {
+      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: isPluginOwnedSkill(fs16.readFileSync(file, "utf-8")) ? "installed" : "kept" };
+      continue;
+    }
+    if (fs16.existsSync(path18.join(rootAbs, name))) {
+      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: "kept" };
+      continue;
+    }
+    if (legacyMarkdownRemoved(vaultPath, root, name, evidence)) {
+      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: "removed" };
+      continue;
+    }
+    try {
+      const outcome = writeBundledSkill(rootAbs, name, input.markdownBodies[name]);
+      records[name] = { version: MARKDOWN_SKILLS_VERSION, state: outcome === "written" ? "installed" : "kept" };
+      if (outcome === "written") result.installed.push(name);
+    } catch (error) {
+      result.errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  let archive;
+  const loadArchive = async () => archive === void 0 ? archive = await input.getArchive() : archive;
+  for (const name of DOC_SKILLS) {
+    const rec = records[name];
+    const dir = path18.join(rootAbs, name);
+    const exists = fs16.existsSync(dir);
+    if ((rec == null ? void 0 : rec.state) === "removed" || (rec == null ? void 0 : rec.state) === "kept") continue;
+    try {
+      const unclear = [`${STAGING_PREFIX2}${name}-old`, `${REPLACING_PREFIX2}${name}`].find((f) => fs16.existsSync(path18.join(rootAbs, f)));
+      if (unclear) {
+        result.errors.push(`${name}: ${path18.join(root, unclear)} is left over; move or delete it, then press Install`);
+        continue;
+      }
+      if ((rec == null ? void 0 : rec.state) === "installed") {
+        if (!exists) {
+          records[name] = { ...rec, state: "removed" };
+          continue;
+        }
+        const latest2 = await loadArchive();
+        if (!latest2 || latest2.version === rec.version) continue;
+        if (!fs16.existsSync(path18.join(dir, DOC_SKILL_MARKER)) || !matchesRecord(dir, rec.files)) {
+          records[name] = { ...rec, state: "kept" };
+          continue;
+        }
+        replaceDocSkill(rootAbs, name, latest2.skills[name], latest2.version, latest2.executables[name]);
+        records[name] = { version: latest2.version, state: "installed", files: digestsOf(latest2.skills[name]) };
+        continue;
+      }
+      if (exists) {
+        if (!fs16.existsSync(path18.join(dir, DOC_SKILL_MARKER))) {
+          records[name] = { version: "", state: "kept" };
+          continue;
+        }
+        const latest2 = await loadArchive();
+        if (!latest2) {
+          result.pending.push(name);
+          continue;
+        }
+        const files = digestsOf(latest2.skills[name]);
+        records[name] = matchesRecord(dir, files) ? { version: latest2.version, state: "installed", files } : { version: latest2.version, state: "kept" };
+        continue;
+      }
+      const latest = await loadArchive();
+      if (!latest) {
+        result.pending.push(name);
+        continue;
+      }
+      fs16.mkdirSync(rootAbs, { recursive: true });
+      installDocSkill(rootAbs, name, latest.skills[name], latest.version, latest.executables[name]);
+      records[name] = { version: latest.version, state: "installed", files: digestsOf(latest.skills[name]) };
+      result.installed.push(name);
+    } catch (error) {
+      result.errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return result;
+}
+var import_crypto4, fs16, path18, import_zlib, MARKDOWN_SKILLS, DOC_SKILLS, MARKDOWN_SKILLS_VERSION, DOC_SKILL_MARKER, STAGING_PREFIX2, REPLACING_PREFIX2, STAGING_OWNER, MAX_ARCHIVE_BYTES, MAX_UNPACKED_BYTES, MAX_FILES_PER_SKILL, BASE64, WINDOWS_DEVICE;
+var init_BundledSkills = __esm({
+  "src/features/skills/BundledSkills.ts"() {
+    import_crypto4 = require("crypto");
+    fs16 = __toESM(require("fs"));
+    path18 = __toESM(require("path"));
+    import_zlib = require("zlib");
+    init_ObsidianSkillsInstaller();
+    MARKDOWN_SKILLS = ["obsidian-markdown", "json-canvas"];
+    DOC_SKILLS = ["pdf", "xlsx", "docx", "pptx"];
+    MARKDOWN_SKILLS_VERSION = "md-1";
+    DOC_SKILL_MARKER = ".obsidian-ai-tutor-installed";
+    STAGING_PREFIX2 = ".installing-";
+    REPLACING_PREFIX2 = ".replacing-";
+    STAGING_OWNER = ".obsidian-ai-tutor-staging";
+    MAX_ARCHIVE_BYTES = 16 * 1024 * 1024;
+    MAX_UNPACKED_BYTES = 32 * 1024 * 1024;
+    MAX_FILES_PER_SKILL = 120;
+    BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+    WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+  }
+});
+
+// src/ui/modals/LibreOfficeNoticeModal.ts
+var LibreOfficeNoticeModal_exports = {};
+__export(LibreOfficeNoticeModal_exports, {
+  LibreOfficeNoticeModal: () => LibreOfficeNoticeModal
+});
+var import_obsidian32, LibreOfficeNoticeModal;
+var init_LibreOfficeNoticeModal = __esm({
+  "src/ui/modals/LibreOfficeNoticeModal.ts"() {
+    import_obsidian32 = require("obsidian");
+    init_libreOffice();
+    LibreOfficeNoticeModal = class extends import_obsidian32.Modal {
+      constructor(app, platform, actions) {
+        super(app);
+        this.platform = platform;
+        this.actions = actions;
+      }
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl("h3", { text: "\uBB38\uC11C \uC2A4\uD0AC\uC744 \uB2E4 \uC4F0\uB824\uBA74 \uD504\uB85C\uADF8\uB7A8 \uD558\uB098\uAC00 \uD544\uC694\uD574\uC694" });
+        contentEl.createEl("p", {
+          text: "PDF\xB7\uC5D1\uC140\xB7\uC6CC\uB4DC\xB7PPT \uC2A4\uD0AC\uC774 \uC124\uCE58\uB410\uC5B4\uC694. \uADF8\uB7F0\uB370 \uC774 \uCEF4\uD4E8\uD130\uC5D0 LibreOffice\uAC00 \uC5C6\uC5B4\uC11C \uC77C\uBD80 \uAE30\uB2A5(\uC5D1\uC140 \uC218\uC2DD \uB2E4\uC2DC \uACC4\uC0B0, \uC6CC\uB4DC\xB7PPT\uB97C PDF\uB85C \uBC14\uAFB8\uAE30)\uC774 \uC548 \uB3FC\uC694. LibreOffice\uB294 \uBB34\uB8CC\uC774\uACE0 \uD55C \uBC88\uB9CC \uC124\uCE58\uD558\uBA74 \uB3FC\uC694."
+        });
+        contentEl.createEl("p", {
+          cls: "setting-item-description",
+          text: '"\uC5D0\uC774\uC804\uD2B8\uC5D0\uAC8C \uB9E1\uAE30\uAE30"\uB97C \uB204\uB974\uBA74 \uCC44\uD305 \uC785\uB825\uCC3D\uC5D0 \uC124\uCE58 \uC694\uCCAD\uC774 \uB4E4\uC5B4\uAC00\uC694. \uCC44\uD305 \uC704\uC758 Ask\uB97C Agent\uB85C \uBC14\uAFBC \uB4A4 \uBCF4\uB0B4\uAE30\uB97C \uB204\uB974\uC138\uC694.'
+        });
+        new import_obsidian32.Setting(contentEl).addButton((button) => button.setButtonText("\uC5D0\uC774\uC804\uD2B8\uC5D0\uAC8C \uC124\uCE58 \uB9E1\uAE30\uAE30").setCta().onClick(async () => {
+          this.close();
+          await this.actions.prefillChat(libreOfficeInstallPrompt(this.platform));
+        })).addButton((button) => button.setButtonText("\uC9C1\uC811 \uC124\uCE58\uD558\uAE30 (\uC548\uB0B4\uC11C)").onClick(() => {
+          window.open(LIBREOFFICE_GUIDE_URLS[this.platform]);
+        })).addButton((button) => button.setButtonText("\uB098\uC911\uC5D0").onClick(() => this.close()));
+        contentEl.createEl("p", {
+          cls: "setting-item-description",
+          text: "\uB098\uC911\uC5D0 \uC124\uC815 \u203A \uC2A4\uD0AC\uC5D0\uC11C \uB2E4\uC2DC \uBCFC \uC218 \uC788\uC5B4\uC694."
+        });
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+  }
+});
+
+// src/features/skills/docSkillsArchive.ts
+var docSkillsArchive_exports = {};
+__export(docSkillsArchive_exports, {
+  DOC_ARCHIVE: () => DOC_ARCHIVE,
+  archiveUrl: () => archiveUrl,
+  createArchiveSource: () => createArchiveSource
+});
+function archiveUrl(pin = DOC_ARCHIVE) {
+  if (!/^[0-9a-f]{40}$/.test(pin.commit)) return null;
+  return `https://raw.githubusercontent.com/${pin.repo}/${pin.commit}/assets/${pin.file}`;
+}
+function createArchiveSource(deps) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const pin = (_a = deps.pin) != null ? _a : DOC_ARCHIVE;
+  const now = (_b = deps.now) != null ? _b : Date.now;
+  const random = (_c = deps.random) != null ? _c : Math.random;
+  const sleep = (_d = deps.sleep) != null ? _d : ((ms) => new Promise((resolve7) => setTimeout(resolve7, ms)));
+  const cacheFile = path19.join(deps.cacheDir, pin.file);
+  let parsed = null;
+  let inFlight = null;
+  const restored = (_e = deps.retry) == null ? void 0 : _e.load();
+  let failures = (_f = restored == null ? void 0 : restored.failures) != null ? _f : 0;
+  let nextTryAt = (_g = restored == null ? void 0 : restored.nextTryAt) != null ? _g : 0;
+  let firstTry = true;
+  const readCache = () => {
+    try {
+      return fs17.existsSync(cacheFile) ? parseDocArchive(fs17.readFileSync(cacheFile), pin.sha256) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  const download = async () => {
+    var _a2, _b2, _c2;
+    const url = archiveUrl(pin);
+    if (!url || now() < nextTryAt) return null;
+    if (firstTry) {
+      firstTry = false;
+      await sleep(Math.floor(random() * ((_a2 = deps.startJitterMs) != null ? _a2 : 3e4)));
+    }
+    try {
+      const body = await deps.fetchBytes(url);
+      if (!body) throw new Error("no body");
+      const archive = parseDocArchive(body, pin.sha256);
+      fs17.mkdirSync(deps.cacheDir, { recursive: true });
+      const tmp = `${cacheFile}.${process.pid}.tmp`;
+      try {
+        fs17.writeFileSync(tmp, body);
+        fs17.renameSync(tmp, cacheFile);
+      } catch (error) {
+        fs17.rmSync(tmp, { force: true });
+        throw error;
+      }
+      failures = 0;
+      (_b2 = deps.retry) == null ? void 0 : _b2.save({ failures, nextTryAt: 0 });
+      return archive;
+    } catch (e) {
+      failures += 1;
+      const wait = Math.min(24 * HOUR, HOUR * 2 ** (failures - 1));
+      nextTryAt = now() + Math.floor(wait * (0.5 + random()));
+      (_c2 = deps.retry) == null ? void 0 : _c2.save({ failures, nextTryAt });
+      return null;
+    }
+  };
+  return {
+    failures: () => failures,
+    get: async () => {
+      if (parsed) return parsed;
+      parsed = readCache();
+      if (parsed) return parsed;
+      if (!inFlight) inFlight = download().finally(() => {
+        inFlight = null;
+      });
+      parsed = await inFlight;
+      return parsed;
+    }
+  };
+}
+var fs17, path19, DOC_ARCHIVE, HOUR;
+var init_docSkillsArchive = __esm({
+  "src/features/skills/docSkillsArchive.ts"() {
+    fs17 = __toESM(require("fs"));
+    path19 = __toESM(require("path"));
+    init_BundledSkills();
+    DOC_ARCHIVE = {
+      version: "2c5958ec",
+      file: "doc-skills-2c5958ec.json.gz",
+      sha256: "fa581d768a9b24563fff58fcdc6305b35b87984f3537b90dc51224e6422e4475",
+      repo: "leeht1107/obsidian-ai-tutor",
+      /** The pushed commit that holds the archive (an immutable raw URL); empty means download nothing. */
+      commit: "6ab194f3aef0a8ee501c827700646165a97ea22d"
+    };
+    HOUR = 60 * 60 * 1e3;
+  }
+});
+
 // src/ui/modals/SecretMoveNoticeModal.ts
 var SecretMoveNoticeModal_exports = {};
 __export(SecretMoveNoticeModal_exports, {
@@ -4040,11 +4622,11 @@ __export(SecretMoveNoticeModal_exports, {
 function showSecretMoveNotice(app) {
   new SecretMoveNoticeModal(app).open();
 }
-var import_obsidian32, SecretMoveNoticeModal;
+var import_obsidian33, SecretMoveNoticeModal;
 var init_SecretMoveNoticeModal = __esm({
   "src/ui/modals/SecretMoveNoticeModal.ts"() {
-    import_obsidian32 = require("obsidian");
-    SecretMoveNoticeModal = class extends import_obsidian32.Modal {
+    import_obsidian33 = require("obsidian");
+    SecretMoveNoticeModal = class extends import_obsidian33.Modal {
       onOpen() {
         const { contentEl } = this;
         contentEl.empty();
@@ -4063,9 +4645,35 @@ var init_SecretMoveNoticeModal = __esm({
           text: "\uD55C \uAC00\uC9C0 \uB354 \uD655\uC778\uD574 \uC8FC\uC138\uC694. \uC9C0\uAE08\uAE4C\uC9C0 \uC774 \uAE08\uACE0\uB97C OneDrive\xB7Dropbox\xB7GitHub \uAC19\uC740 \uACF3\uC5D0 \uC62C\uB9B0 \uC801\uC774 \uC788\uB2E4\uBA74, \uC608\uC804 \uC0AC\uBCF8\uC774\uB098 \uBC84\uC804 \uAE30\uB85D \uC548\uC5D0\uB294 \uC778\uC99D \uC815\uBCF4\uAC00 \uADF8\uB300\uB85C \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uBC29\uAE08\uC758 \uC774\uB3D9\uC740 \uC9C0\uAE08 \uD30C\uC77C\uB9CC \uC815\uB9AC\uD558\uBBC0\uB85C, \uADF8\uB7F0 \uC801\uC774 \uC788\uB2E4\uBA74 \uD574\uB2F9 \uD1A0\uD070\xB7API \uD0A4\uB97C \uBC1C\uAE09\uCC98\uC5D0\uC11C \uD3D0\uAE30\uD558\uACE0 \uC0C8\uB85C \uC7AC\uBC1C\uAE09\uBC1B\uC73C\uC2DC\uAE38 \uAD8C\uD569\uB2C8\uB2E4.",
           cls: "setting-item-description"
         });
-        new import_obsidian32.Setting(contentEl).addButton(
+        new import_obsidian33.Setting(contentEl).addButton(
           (button) => button.setButtonText("\uC54C\uACA0\uC2B5\uB2C8\uB2E4").setCta().onClick(() => this.close())
         );
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+  }
+});
+
+// src/ui/modals/AgyWebSearchNoticeModal.ts
+var AgyWebSearchNoticeModal_exports = {};
+__export(AgyWebSearchNoticeModal_exports, {
+  AgyWebSearchNoticeModal: () => AgyWebSearchNoticeModal
+});
+var import_obsidian34, AgyWebSearchNoticeModal;
+var init_AgyWebSearchNoticeModal = __esm({
+  "src/ui/modals/AgyWebSearchNoticeModal.ts"() {
+    import_obsidian34 = require("obsidian");
+    AgyWebSearchNoticeModal = class extends import_obsidian34.Modal {
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl("h3", { text: "Agy\uB294 Web \uAC80\uC0C9\uC744 \uB04C \uC218 \uC5C6\uC5B4\uC694" });
+        contentEl.createEl("p", {
+          text: "Agy\uB294 \uC694\uCCAD\uB9C8\uB2E4 Web \uAC80\uC0C9\uC744 \uB044\uB294 \uAE30\uB2A5\uC774 \uC5C6\uC5B4\uC694. \uC785\uB825\uCC3D \uC544\uB798 Web \uC2A4\uC704\uCE58\uAC00 \uAEBC\uC838 \uC788\uC5B4\uB3C4 Agy\uB294 \uD544\uC694\uD558\uBA74 \uC778\uD130\uB137\uC744 \uAC80\uC0C9\uD560 \uC218 \uC788\uC5B4\uC694."
+        });
+        new import_obsidian34.Setting(contentEl).addButton((button) => button.setButtonText("\uD655\uC778").setCta().onClick(() => this.close()));
       }
       onClose() {
         this.contentEl.empty();
@@ -4080,7 +4688,9 @@ __export(main_exports, {
   default: () => ObsidianCopilotPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian33 = require("obsidian");
+var import_obsidian35 = require("obsidian");
+var os10 = __toESM(require("os"));
+var path20 = __toESM(require("path"));
 
 // src/assets/icon.ts
 var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Obsidian AI Tutor">
@@ -4092,9 +4702,9 @@ var COPILOT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100
 // src/core/agent/CopilotBridgeService.ts
 var import_child_process6 = require("child_process");
 var import_crypto = require("crypto");
-var fs7 = __toESM(require("fs"));
+var fs8 = __toESM(require("fs"));
 var os4 = __toESM(require("os"));
-var path8 = __toESM(require("path"));
+var path9 = __toESM(require("path"));
 init_copilotCli();
 init_env();
 init_path();
@@ -5837,7 +6447,7 @@ ${remedy}`;
   }
   resolveVaultFilePath(filePath) {
     const normalizedPath = normalizePathForFilesystem(filePath);
-    return path8.isAbsolute(normalizedPath) ? normalizedPath : path8.join(this.getWorkingDirectory(), normalizedPath);
+    return path9.isAbsolute(normalizedPath) ? normalizedPath : path9.join(this.getWorkingDirectory(), normalizedPath);
   }
   trackWriteEditOriginalContent(toolUseId, toolName, toolInput) {
     if (!isWriteEditTool(toolName)) {
@@ -5850,10 +6460,10 @@ ${remedy}`;
     }
     const fullPath = this.resolveVaultFilePath(filePath);
     try {
-      if (fs7.existsSync(fullPath)) {
-        const stats = fs7.statSync(fullPath);
+      if (fs8.existsSync(fullPath)) {
+        const stats = fs8.statSync(fullPath);
         if (stats.size <= MAX_DIFF_SIZE) {
-          const content = fs7.readFileSync(fullPath, "utf-8");
+          const content = fs8.readFileSync(fullPath, "utf-8");
           this.originalContents.set(toolUseId, { filePath, content });
         } else {
           this.originalContents.set(toolUseId, { filePath, content: null, skippedReason: "too_large" });
@@ -5883,10 +6493,10 @@ ${remedy}`;
       diffData = { filePath, skippedReason: (_a = originalEntry.skippedReason) != null ? _a : "unavailable" };
     } else {
       try {
-        if (fs7.existsSync(fullPath)) {
-          const stats = fs7.statSync(fullPath);
+        if (fs8.existsSync(fullPath)) {
+          const stats = fs8.statSync(fullPath);
           if (stats.size <= MAX_DIFF_SIZE) {
-            const newContent = fs7.readFileSync(fullPath, "utf-8");
+            const newContent = fs8.readFileSync(fullPath, "utf-8");
             diffData = {
               filePath,
               originalContent: originalEntry.content,
@@ -5930,15 +6540,15 @@ ${remedy}`;
 
 // src/core/images/imageCache.ts
 var import_crypto2 = require("crypto");
-var fs8 = __toESM(require("fs"));
-var path9 = __toESM(require("path"));
+var fs9 = __toESM(require("fs"));
+var path10 = __toESM(require("path"));
 init_path();
 var IMAGE_CACHE_DIR = ".ocop-cache/images";
 function ensureImageCacheDir(app) {
   const vaultPath = getVaultPath(app);
   if (!vaultPath) return null;
-  const cacheDir = path9.join(vaultPath, IMAGE_CACHE_DIR);
-  fs8.mkdirSync(cacheDir, { recursive: true });
+  const cacheDir = path10.join(vaultPath, IMAGE_CACHE_DIR);
+  fs9.mkdirSync(cacheDir, { recursive: true });
   return cacheDir;
 }
 function saveImageToCache(app, buffer, mediaType, preferredName) {
@@ -5947,10 +6557,10 @@ function saveImageToCache(app, buffer, mediaType, preferredName) {
   const hash = (0, import_crypto2.createHash)("sha256").update(buffer).digest("hex");
   const ext = getExtension(mediaType, preferredName);
   const filename = `${hash}${ext}`;
-  const relPath = path9.posix.join(IMAGE_CACHE_DIR, filename);
-  const absPath = path9.join(cacheDir, filename);
-  if (!fs8.existsSync(absPath)) {
-    fs8.writeFileSync(absPath, buffer);
+  const relPath = path10.posix.join(IMAGE_CACHE_DIR, filename);
+  const absPath = path10.join(cacheDir, filename);
+  if (!fs9.existsSync(absPath)) {
+    fs9.writeFileSync(absPath, buffer);
   }
   return { relPath, absPath };
 }
@@ -5958,7 +6568,7 @@ function readCachedImageBase64(app, relPath) {
   const absPath = getCacheAbsolutePath(app, relPath);
   if (!absPath) return null;
   try {
-    const buffer = fs8.readFileSync(absPath);
+    const buffer = fs9.readFileSync(absPath);
     return buffer.toString("base64");
   } catch (e) {
     return null;
@@ -5971,9 +6581,9 @@ function deleteCachedImages(app, relPaths) {
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     const absPath = getCacheAbsolutePath(app, normalized);
-    if (absPath && fs8.existsSync(absPath)) {
+    if (absPath && fs9.existsSync(absPath)) {
       try {
-        fs8.unlinkSync(absPath);
+        fs9.unlinkSync(absPath);
       } catch (e) {
       }
     }
@@ -5984,8 +6594,8 @@ function getCacheAbsolutePath(app, relPath) {
   if (!vaultPath) return null;
   const normalizedRel = normalizeCacheRelPath(relPath);
   if (!normalizedRel) return null;
-  const absPath = path9.resolve(vaultPath, normalizedRel);
-  const cacheRoot = path9.resolve(vaultPath, IMAGE_CACHE_DIR);
+  const absPath = path10.resolve(vaultPath, normalizedRel);
+  const cacheRoot = path10.resolve(vaultPath, IMAGE_CACHE_DIR);
   if (!absPath.startsWith(cacheRoot)) {
     return null;
   }
@@ -5994,13 +6604,13 @@ function getCacheAbsolutePath(app, relPath) {
 function normalizeCacheRelPath(relPath) {
   if (!relPath) return null;
   const normalized = relPath.replace(/\\/g, "/");
-  if (path9.isAbsolute(normalized)) return null;
+  if (path10.isAbsolute(normalized)) return null;
   if (!normalized.startsWith(IMAGE_CACHE_DIR)) return null;
   return normalized;
 }
 function getExtension(mediaType, preferredName) {
   if (preferredName) {
-    const ext = path9.extname(preferredName);
+    const ext = path10.extname(preferredName);
     if (ext) return ext;
   }
   const subtype = mediaType.split("/")[1] || "png";
@@ -6063,7 +6673,7 @@ function parseStringArray(raw) {
     return [];
   }
 }
-function parseRecordSummary(path17, text, size) {
+function parseRecordSummary(path21, text, size) {
   var _a, _b, _c;
   const parts = splitFrontmatter(text);
   if (!parts) return null;
@@ -6076,9 +6686,9 @@ function parseRecordSummary(path17, text, size) {
   const heading = /^#\s+(.+)$/m.exec(body);
   const remaining = Number(fields.get("remainingQuestions"));
   return {
-    path: path17,
+    path: path21,
     recordId,
-    title: heading ? heading[1].trim() : (_b = (_a = path17.split("/").pop()) == null ? void 0 : _a.replace(/\.md$/i, "")) != null ? _b : path17,
+    title: heading ? heading[1].trim() : (_b = (_a = path21.split("/").pop()) == null ? void 0 : _a.replace(/\.md$/i, "")) != null ? _b : path21,
     mode: mode === "quiz" || mode === "socratic" ? mode : "unknown",
     createdAt: (_c = parseJsonString(fields.get("createdAt"))) != null ? _c : "",
     sourcePaths: parseStringArray(fields.get("sourcePaths")),
@@ -6123,8 +6733,8 @@ function normalizeVaultPath(input) {
   }
   return parts.length > 0 ? parts.join("/") : null;
 }
-function isInsideFolder(path17, folder) {
-  return path17.startsWith(`${folder}/`);
+function isInsideFolder(path21, folder) {
+  return path21.startsWith(`${folder}/`);
 }
 var ILLEGAL_FILE_CHARS = /[\\/:*?"<>|#^[\]\0-\x1f]/g;
 function sanitizeFileName(name, fallback = "\uD559\uC2B5 \uAE30\uB85D") {
@@ -6137,8 +6747,8 @@ function resolveRecordPath(folder, fileName) {
   if (!normalizedFolder) return null;
   if (/[\\/]/.test(fileName) || fileName.includes("\0")) return null;
   const safe = sanitizeFileName(fileName);
-  const path17 = normalizeVaultPath(`${normalizedFolder}/${safe}`);
-  return path17 && isInsideFolder(path17, normalizedFolder) ? path17 : null;
+  const path21 = normalizeVaultPath(`${normalizedFolder}/${safe}`);
+  return path21 && isInsideFolder(path21, normalizedFolder) ? path21 : null;
 }
 function sha256(text) {
   return (0, import_crypto3.createHash)("sha256").update(text, "utf8").digest("hex");
@@ -6161,9 +6771,9 @@ function assertRecordBudget(bodies) {
   const total = totalRecordBytes(bodies);
   if (total > MAX_SELECTED_RECORD_BYTES) throw new RecordBudgetError(total);
 }
-function toRecordBody(path17, recordId, text) {
+function toRecordBody(path21, recordId, text) {
   const body = stripRecordFrontmatter(text);
-  return { path: path17, recordId, body, fingerprint: sha256(text), bytes: utf8Bytes(body), canContinue: false };
+  return { path: path21, recordId, body, fingerprint: sha256(text), bytes: utf8Bytes(body), canContinue: false };
 }
 function escapeRecordText(text) {
   return text.replace(/&/g, "&amp;").replace(/@/g, "\uFF20").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/##SOCRATIC_SUMMARY##/g, "# #SOCRATIC_SUMMARY# #").replace(/^(\s*)##(\s*\d+\s*\/\s*\d+번 문제)/gm, "$1# #$2");
@@ -6266,7 +6876,7 @@ function buildRecordDraft(input) {
   sections.push("## 1. \uD559\uC2B5 \uC790\uB8CC\uC640 \uB0A0\uC9DC", "");
   sections.push(`- \uB0A0\uC9DC: ${dateLabel(now)}`);
   sections.push(`- \uBC94\uC704: ${snapshot.scopeLabel || ABSENT}`);
-  sections.push(snapshot.sourcePaths.length > 0 ? `- \uC790\uB8CC: ${snapshot.sourcePaths.map((path17) => `\`${path17}\``).join(", ")}` : "- \uC790\uB8CC: No verified original learning material available.");
+  sections.push(snapshot.sourcePaths.length > 0 ? `- \uC790\uB8CC: ${snapshot.sourcePaths.map((path21) => `\`${path21}\``).join(", ")}` : "- \uC790\uB8CC: No verified original learning material available.");
   sections.push("");
   let aiSummary = "";
   if (snapshot.mode === "quiz") {
@@ -6366,37 +6976,37 @@ var LearningRecordSaveService = class {
     const { conversationId, completionMessageId } = request;
     const snapshot = this.host.getSnapshot(conversationId, completionMessageId);
     if (!snapshot) return { kind: "rejected", reason: "no-snapshot" };
-    const path17 = resolveRecordPath(request.folder, request.fileName);
-    if (!path17) return { kind: "rejected", reason: "invalid-path" };
+    const path21 = resolveRecordPath(request.folder, request.fileName);
+    if (!path21) return { kind: "rejected", reason: "invalid-path" };
     const fingerprint = sha256(request.markdown);
     if (!request.freshChoice) {
       const earlier = snapshot.saved ? { path: snapshot.saved.path, fingerprint: snapshot.saved.contentFingerprint } : snapshot.pendingSave ? { path: snapshot.pendingSave.path, fingerprint: snapshot.pendingSave.contentFingerprint } : null;
       if (earlier) return this.resolveEarlier(snapshot, earlier);
     }
     if (recordProblem(request.markdown)) return { kind: "rejected", reason: "invalid-record" };
-    const existing = await this.readTarget(path17, fingerprint);
+    const existing = await this.readTarget(path21, fingerprint);
     if (existing.state === "differs" || existing.state === "unreadable") {
-      return { kind: "conflict", path: path17, reason: "target-differs" };
+      return { kind: "conflict", path: path21, reason: "target-differs" };
     }
     if (existing.state === "match") {
-      const intent2 = this.freeze(request, path17, fingerprint);
+      const intent2 = this.freeze(request, path21, fingerprint);
       if (!await this.stage(intent2)) return { kind: "rejected", reason: "intent-not-acknowledged" };
       return this.link(intent2, "already-saved");
     }
-    const intent = this.freeze(request, path17, fingerprint);
+    const intent = this.freeze(request, path21, fingerprint);
     if (!await this.stage(intent)) return { kind: "rejected", reason: "intent-not-acknowledged" };
     let writeError = false;
     try {
-      await this.host.fs.createOnly(path17, request.markdown);
+      await this.host.fs.createOnly(path21, request.markdown);
     } catch (e) {
       writeError = true;
     }
-    const after = await this.readTarget(path17, fingerprint);
+    const after = await this.readTarget(path21, fingerprint);
     if (after.state === "match") return this.link(intent, "saved");
     if (after.state === "differs" || after.state === "unreadable") {
-      return { kind: "conflict", path: path17, reason: writeError ? "target-differs" : "verify-mismatch" };
+      return { kind: "conflict", path: path21, reason: writeError ? "target-differs" : "verify-mismatch" };
     }
-    return { kind: "needs-fresh-choice", path: path17, reason: "write-uncertain" };
+    return { kind: "needs-fresh-choice", path: path21, reason: "write-uncertain" };
   }
   /** An earlier attempt exists: reconcile that exact target, never write. */
   async resolveEarlier(snapshot, earlier) {
@@ -6408,7 +7018,7 @@ var LearningRecordSaveService = class {
     if (target.state === "absent") return { kind: "needs-fresh-choice", path: earlier.path, reason: "missing-after-attempt" };
     return { kind: "conflict", path: earlier.path, reason: "target-differs" };
   }
-  freeze(request, path17, contentFingerprint) {
+  freeze(request, path21, contentFingerprint) {
     var _a, _b, _c, _d;
     const now = (_c = (_b = (_a = this.host).now) == null ? void 0 : _b.call(_a)) != null ? _c : Date.now();
     const ids = newRecordIds(now);
@@ -6419,7 +7029,7 @@ var LearningRecordSaveService = class {
       completionMessageId: request.completionMessageId,
       previewRevision: request.previewRevision,
       folder: request.folder,
-      path: path17,
+      path: path21,
       contentFingerprint,
       frozenAt: now
     };
@@ -6441,10 +7051,10 @@ var LearningRecordSaveService = class {
     if (!acknowledged) return { kind: "saved-link-failed", path: intent.path };
     return success === "saved" ? { kind: "saved", path: intent.path, recordId: intent.recordId } : { kind: "already-saved", path: intent.path };
   }
-  async readTarget(path17, fingerprint) {
+  async readTarget(path21, fingerprint) {
     try {
-      if (!await this.host.fs.exists(path17)) return { state: "absent" };
-      const text = await this.host.fs.read(path17);
+      if (!await this.host.fs.exists(path21)) return { state: "absent" };
+      const text = await this.host.fs.read(path21);
       return sha256(text) === fingerprint ? { state: "match" } : { state: "differs" };
     } catch (e) {
       return { state: "unreadable" };
@@ -6535,7 +7145,7 @@ function buildSocraticSnapshot(input) {
 }
 
 // src/core/learning/records/store.ts
-async function listMarkdownRecursive(fs15, folder) {
+async function listMarkdownRecursive(fs18, folder) {
   const files = [];
   const visited = /* @__PURE__ */ new Set();
   const pending = [folder];
@@ -6543,25 +7153,25 @@ async function listMarkdownRecursive(fs15, folder) {
     const current = pending.shift();
     if (visited.has(current)) continue;
     visited.add(current);
-    if (!await fs15.exists(current)) continue;
-    const listing = await fs15.list(current);
+    if (!await fs18.exists(current)) continue;
+    const listing = await fs18.list(current);
     files.push(...listing.files.filter((file) => /\.md$/i.test(file)));
     pending.push(...listing.folders);
   }
   return files;
 }
-async function discoverRecords(fs15, folder) {
+async function discoverRecords(fs18, folder) {
   var _a, _b;
   const root = normalizeVaultPath(folder);
   if (!root) return { records: [] };
-  const files = await listMarkdownRecursive(fs15, root);
+  const files = await listMarkdownRecursive(fs18, root);
   const parsed = [];
-  for (const path17 of files.sort()) {
+  for (const path21 of files.sort()) {
     try {
-      const stat = await fs15.stat(path17);
+      const stat = await fs18.stat(path21);
       if (stat && stat.size > MAX_RECORD_FILE_BYTES) continue;
-      const text = await fs15.read(path17);
-      const summary = parseRecordSummary(path17, text, (_a = stat == null ? void 0 : stat.size) != null ? _a : text.length);
+      const text = await fs18.read(path21);
+      const summary = parseRecordSummary(path21, text, (_a = stat == null ? void 0 : stat.size) != null ? _a : text.length);
       if (summary) parsed.push(summary);
     } catch (e) {
     }
@@ -6572,30 +7182,30 @@ async function discoverRecords(fs15, folder) {
     var _a2;
     return {
       ...record,
-      duplicatePaths: ((_a2 = byId.get(record.recordId)) != null ? _a2 : []).filter((path17) => path17 !== record.path)
+      duplicatePaths: ((_a2 = byId.get(record.recordId)) != null ? _a2 : []).filter((path21) => path21 !== record.path)
     };
   });
   records.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.path.localeCompare(b.path));
   return { records };
 }
-async function readRecordSummary(fs15, path17) {
+async function readRecordSummary(fs18, path21) {
   var _a;
-  const normalized = normalizeVaultPath(path17);
-  if (!normalized || !/\.md$/i.test(normalized) || !await fs15.exists(normalized)) return null;
-  const stat = await fs15.stat(normalized);
+  const normalized = normalizeVaultPath(path21);
+  if (!normalized || !/\.md$/i.test(normalized) || !await fs18.exists(normalized)) return null;
+  const stat = await fs18.stat(normalized);
   if (stat && stat.size > MAX_RECORD_FILE_BYTES) return null;
-  const text = await fs15.read(normalized);
+  const text = await fs18.read(normalized);
   const summary = parseRecordSummary(normalized, text, (_a = stat == null ? void 0 : stat.size) != null ? _a : text.length);
   return summary ? { ...summary, duplicatePaths: [] } : null;
 }
-async function readRecordBodies(fs15, paths) {
+async function readRecordBodies(fs18, paths) {
   const bodies = [];
-  for (const path17 of paths) {
-    const normalized = normalizeVaultPath(path17);
-    if (!normalized) throw new Error(`\uC798\uBABB\uB41C \uAE30\uB85D \uACBD\uB85C: ${path17}`);
-    const stat = await fs15.stat(normalized);
+  for (const path21 of paths) {
+    const normalized = normalizeVaultPath(path21);
+    if (!normalized) throw new Error(`\uC798\uBABB\uB41C \uAE30\uB85D \uACBD\uB85C: ${path21}`);
+    const stat = await fs18.stat(normalized);
     if (stat && stat.size > MAX_RECORD_FILE_BYTES) throw new Error(`\uD559\uC2B5 \uAE30\uB85D\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4: ${normalized}`);
-    const text = await fs15.read(normalized);
+    const text = await fs18.read(normalized);
     if (new TextEncoder().encode(text).length > MAX_RECORD_FILE_BYTES) throw new Error(`\uD559\uC2B5 \uAE30\uB85D\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4: ${normalized}`);
     const summary = parseRecordSummary(normalized, text, text.length);
     if (!summary) throw new Error(`\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${normalized}`);
@@ -6605,7 +7215,7 @@ async function readRecordBodies(fs15, paths) {
 }
 function sortByRelevance(records, currentSources) {
   const wanted = new Set(currentSources);
-  const score = (record) => record.sourcePaths.filter((path17) => wanted.has(path17)).length;
+  const score = (record) => record.sourcePaths.filter((path21) => wanted.has(path21)).length;
   return [...records].sort((a, b) => score(b) - score(a));
 }
 
@@ -6918,9 +7528,9 @@ var SettingsStorage = class {
 };
 
 // src/core/storage/SlashCommandStorage.ts
-var fs9 = __toESM(require("fs"));
+var fs10 = __toESM(require("fs"));
 var os6 = __toESM(require("os"));
-var path10 = __toESM(require("path"));
+var path11 = __toESM(require("path"));
 
 // src/utils/slashCommand.ts
 function resolveSlashAllowedTools(command) {
@@ -7028,8 +7638,8 @@ function unquoteYamlString(value) {
 
 // src/core/storage/SlashCommandStorage.ts
 var COMMANDS_PATH = ".ai-tutor/commands";
-var GLOBAL_COMMANDS_PATH = path10.join(os6.homedir(), ".copilot", "commands");
-var INSTALLED_PLUGINS_PATH = path10.join(os6.homedir(), ".copilot", "plugins", "installed_plugins.json");
+var GLOBAL_COMMANDS_PATH = path11.join(os6.homedir(), ".copilot", "commands");
+var INSTALLED_PLUGINS_PATH = path11.join(os6.homedir(), ".copilot", "plugins", "installed_plugins.json");
 var SlashCommandStorage = class {
   constructor(adapter) {
     this.adapter = adapter;
@@ -7064,7 +7674,7 @@ var SlashCommandStorage = class {
   }
   loadAllFromGlobal() {
     const commands = [];
-    if (!fs9.existsSync(GLOBAL_COMMANDS_PATH)) {
+    if (!fs10.existsSync(GLOBAL_COMMANDS_PATH)) {
       return commands;
     }
     try {
@@ -7072,8 +7682,8 @@ var SlashCommandStorage = class {
       for (const filePath of files) {
         if (!filePath.endsWith(".md")) continue;
         try {
-          const content = fs9.readFileSync(filePath, "utf-8");
-          const relativePath = path10.relative(GLOBAL_COMMANDS_PATH, filePath);
+          const content = fs10.readFileSync(filePath, "utf-8");
+          const relativePath = path11.relative(GLOBAL_COMMANDS_PATH, filePath);
           const command = this.parseFileFromGlobal(content, relativePath);
           if (command) {
             commands.push(command);
@@ -7089,11 +7699,11 @@ var SlashCommandStorage = class {
   }
   loadAllFromPlugins() {
     const commands = [];
-    if (!fs9.existsSync(INSTALLED_PLUGINS_PATH)) {
+    if (!fs10.existsSync(INSTALLED_PLUGINS_PATH)) {
       return commands;
     }
     try {
-      const content = fs9.readFileSync(INSTALLED_PLUGINS_PATH, "utf-8");
+      const content = fs10.readFileSync(INSTALLED_PLUGINS_PATH, "utf-8");
       const pluginsFile = JSON.parse(content);
       if (!pluginsFile.plugins || typeof pluginsFile.plugins !== "object") {
         return commands;
@@ -7102,14 +7712,14 @@ var SlashCommandStorage = class {
         if (!Array.isArray(installations) || installations.length === 0) continue;
         const installation = installations[0];
         if (!installation.installPath) continue;
-        const commandsDir = path10.join(installation.installPath, "commands");
-        if (!fs9.existsSync(commandsDir)) continue;
+        const commandsDir = path11.join(installation.installPath, "commands");
+        if (!fs10.existsSync(commandsDir)) continue;
         const files = this.listFilesRecursiveSync(commandsDir);
         for (const filePath of files) {
           if (!filePath.endsWith(".md")) continue;
           try {
-            const fileContent = fs9.readFileSync(filePath, "utf-8");
-            const relativePath = path10.relative(commandsDir, filePath);
+            const fileContent = fs10.readFileSync(filePath, "utf-8");
+            const relativePath = path11.relative(commandsDir, filePath);
             const command = this.parseFileFromPlugin(fileContent, relativePath, pluginId);
             if (command) {
               commands.push(command);
@@ -7142,10 +7752,10 @@ var SlashCommandStorage = class {
   listFilesRecursiveSync(dir) {
     const files = [];
     const processDir = (currentDir) => {
-      if (!fs9.existsSync(currentDir)) return;
-      const entries = fs9.readdirSync(currentDir, { withFileTypes: true });
+      if (!fs10.existsSync(currentDir)) return;
+      const entries = fs10.readdirSync(currentDir, { withFileTypes: true });
       for (const entry of entries) {
-        const fullPath = path10.join(currentDir, entry.name);
+        const fullPath = path11.join(currentDir, entry.name);
         if (entry.isDirectory()) {
           processDir(fullPath);
         } else if (entry.isFile()) {
@@ -7268,38 +7878,38 @@ var VaultFileAdapter = class {
     this.app = app;
   }
   /** Check if a file or folder exists. */
-  async exists(path17) {
-    return this.app.vault.adapter.exists(path17);
+  async exists(path21) {
+    return this.app.vault.adapter.exists(path21);
   }
   /** Read file contents as string. */
-  async read(path17) {
-    return this.app.vault.adapter.read(path17);
+  async read(path21) {
+    return this.app.vault.adapter.read(path21);
   }
   /** Write content to a file, creating parent directories if needed. */
-  async write(path17, content) {
-    const folder = path17.substring(0, path17.lastIndexOf("/"));
+  async write(path21, content) {
+    const folder = path21.substring(0, path21.lastIndexOf("/"));
     if (folder && !await this.exists(folder)) {
       await this.ensureFolder(folder);
     }
-    await this.app.vault.adapter.write(path17, content);
+    await this.app.vault.adapter.write(path21, content);
   }
   /** Append content to a file. Creates the file if it doesn't exist. */
-  async append(path17, content) {
-    const folder = path17.substring(0, path17.lastIndexOf("/"));
+  async append(path21, content) {
+    const folder = path21.substring(0, path21.lastIndexOf("/"));
     if (folder && !await this.exists(folder)) {
       await this.ensureFolder(folder);
     }
-    if (await this.exists(path17)) {
-      const existing = await this.read(path17);
-      await this.app.vault.adapter.write(path17, existing + content);
+    if (await this.exists(path21)) {
+      const existing = await this.read(path21);
+      await this.app.vault.adapter.write(path21, existing + content);
     } else {
-      await this.app.vault.adapter.write(path17, content);
+      await this.app.vault.adapter.write(path21, content);
     }
   }
   /** Delete a file if it exists. */
-  async delete(path17) {
-    if (await this.exists(path17)) {
-      await this.app.vault.adapter.remove(path17);
+  async delete(path21) {
+    if (await this.exists(path21)) {
+      await this.app.vault.adapter.remove(path21);
     }
   }
   /** List files in a folder. Returns relative paths from the folder. */
@@ -7333,9 +7943,9 @@ var VaultFileAdapter = class {
     return allFiles;
   }
   /** Ensure a folder exists, creating it and parent folders if needed. */
-  async ensureFolder(path17) {
-    if (await this.exists(path17)) return;
-    const parts = path17.split("/").filter(Boolean);
+  async ensureFolder(path21) {
+    if (await this.exists(path21)) return;
+    const parts = path21.split("/").filter(Boolean);
     let current = "";
     for (const part of parts) {
       current = current ? `${current}/${part}` : part;
@@ -7349,9 +7959,9 @@ var VaultFileAdapter = class {
     await this.app.vault.adapter.rename(oldPath, newPath);
   }
   /** Get file stats (mtime, size). */
-  async stat(path17) {
+  async stat(path21) {
     try {
-      const stat = await this.app.vault.adapter.stat(path17);
+      const stat = await this.app.vault.adapter.stat(path21);
       if (!stat) return null;
       return { mtime: stat.mtime, size: stat.size };
     } catch (e) {
@@ -7425,6 +8035,8 @@ var StorageService = class {
       "migrationVersion",
       "providerConnections",
       "skillsAutoInstalled",
+      "bundledSkills",
+      "bundledSkillsLegacy",
       "studyGoalBindings"
     ]);
     const hasSettings = Object.keys(legacyData).some((key) => !stateKeys.has(key));
@@ -7450,11 +8062,16 @@ var StorageService = class {
     if (hadErrors) {
       return false;
     }
-    await this.saveState({
-      activeConversationId: legacyData.activeConversationId || null,
-      providerConnections: legacyData.providerConnections,
-      skillsAutoInstalled: legacyData.skillsAutoInstalled,
-      studyGoalBindings: legacyData.studyGoalBindings
+    await this.enqueueStateWrite(async (current) => {
+      var _a, _b, _c, _d, _e, _f, _g;
+      return {
+        activeConversationId: (_b = (_a = current.activeConversationId) != null ? _a : legacyData.activeConversationId) != null ? _b : null,
+        providerConnections: (_c = current.providerConnections) != null ? _c : legacyData.providerConnections,
+        skillsAutoInstalled: (_d = current.skillsAutoInstalled) != null ? _d : legacyData.skillsAutoInstalled,
+        bundledSkills: (_e = current.bundledSkills) != null ? _e : legacyData.bundledSkills,
+        bundledSkillsLegacy: (_f = current.bundledSkillsLegacy) != null ? _f : legacyData.bundledSkillsLegacy,
+        studyGoalBindings: (_g = current.studyGoalBindings) != null ? _g : legacyData.studyGoalBindings
+      };
     });
     return true;
   }
@@ -7469,22 +8086,68 @@ var StorageService = class {
   }
   /** Load plugin state from data.json. */
   async loadState() {
-    var _a, _b, _c, _d;
     try {
-      const data = await this.plugin.loadData();
-      return {
-        activeConversationId: (_a = data == null ? void 0 : data.activeConversationId) != null ? _a : DEFAULT_STATE.activeConversationId,
-        providerConnections: (_b = data == null ? void 0 : data.providerConnections) != null ? _b : void 0,
-        skillsAutoInstalled: (_c = data == null ? void 0 : data.skillsAutoInstalled) != null ? _c : void 0,
-        studyGoalBindings: (_d = data == null ? void 0 : data.studyGoalBindings) != null ? _d : void 0
-      };
+      return await this.readStateStrict();
     } catch (e) {
       return { ...DEFAULT_STATE };
     }
   }
+  /** loadState for a write: a failed read throws, so defaults never overwrite real state. */
+  async readStateStrict() {
+    var _a, _b, _c, _d, _e, _f;
+    const data = await this.plugin.loadData();
+    return {
+      activeConversationId: (_a = data == null ? void 0 : data.activeConversationId) != null ? _a : DEFAULT_STATE.activeConversationId,
+      ...(data == null ? void 0 : data.lastEnvHash) !== void 0 ? { lastEnvHash: data.lastEnvHash } : {},
+      ...(data == null ? void 0 : data.migrationVersion) !== void 0 ? { migrationVersion: data.migrationVersion } : {},
+      providerConnections: (_b = data == null ? void 0 : data.providerConnections) != null ? _b : void 0,
+      skillsAutoInstalled: (_c = data == null ? void 0 : data.skillsAutoInstalled) != null ? _c : void 0,
+      bundledSkills: (_d = data == null ? void 0 : data.bundledSkills) != null ? _d : void 0,
+      bundledSkillsLegacy: (_e = data == null ? void 0 : data.bundledSkillsLegacy) != null ? _e : void 0,
+      studyGoalBindings: (_f = data == null ? void 0 : data.studyGoalBindings) != null ? _f : void 0
+    };
+  }
   /** Save plugin state to data.json. */
   async saveState(state) {
     await this.plugin.saveData(state);
+  }
+  /**
+   * Merge one skills root's records into state, inside the same serialized
+   * chain as updateState. A `removed` record already stored wins over
+   * anything else: a Remove click that lands while an install is running
+   * must not be undone by the install's older view of the folder.
+   */
+  async mergeBundledSkills(root, records) {
+    return this.enqueueStateWrite(async (current) => {
+      var _a, _b, _c;
+      const all = { ...(_a = current.bundledSkills) != null ? _a : {} };
+      const merged = { ...(_b = all[root]) != null ? _b : {} };
+      for (const [name, record] of Object.entries(records)) {
+        if (((_c = merged[name]) == null ? void 0 : _c.state) === "removed" && record.state !== "removed") continue;
+        merged[name] = record;
+      }
+      all[root] = merged;
+      return { bundledSkills: all };
+    });
+  }
+  /** Forget records so the next ensure installs again (the Settings Install button). */
+  async clearBundledSkills(root, names) {
+    return this.enqueueStateWrite(async (current) => {
+      var _a, _b;
+      const all = { ...(_a = current.bundledSkills) != null ? _a : {} };
+      const kept = { ...(_b = all[root]) != null ? _b : {} };
+      for (const name of names) delete kept[name];
+      all[root] = kept;
+      return { bundledSkills: all };
+    });
+  }
+  enqueueStateWrite(build) {
+    const write = this.stateWrites.then(async () => {
+      const current = await this.readStateStrict();
+      await this.saveState({ ...current, ...await build(current) });
+    });
+    this.stateWrites = write.catch(() => void 0);
+    return write;
   }
   /**
    * Update specific state fields in data.json.
@@ -7496,7 +8159,7 @@ var StorageService = class {
    */
   async updateState(updates) {
     const write = this.stateWrites.then(async () => {
-      const current = await this.loadState();
+      const current = await this.readStateStrict();
       await this.saveState({ ...current, ...updates });
     });
     this.stateWrites = write.catch(() => void 0);
@@ -7604,6 +8267,8 @@ var StorageService = class {
       migrationVersion: _____,
       providerConnections: ______,
       skillsAutoInstalled: _______,
+      bundledSkills: _________,
+      bundledSkillsLegacy: __________,
       studyGoalBindings: ________,
       ...settingsFields
     } = legacyData;
@@ -7666,13 +8331,13 @@ var StorageService = class {
 init_FailureReport();
 
 // src/core/storage/LearningRecordFs.ts
-var fs10 = __toESM(require("fs"));
+var fs11 = __toESM(require("fs"));
 var nodePath = __toESM(require("path"));
 var nodeExclusiveCreate = {
   async createExclusive(absolutePath, content) {
     let handle;
     try {
-      handle = await fs10.promises.open(absolutePath, "wx");
+      handle = await fs11.promises.open(absolutePath, "wx");
     } catch (error) {
       if (error.code === "EEXIST") throw new Error(`already exists: ${absolutePath}`);
       throw error;
@@ -7688,24 +8353,24 @@ function isInside(parent, child) {
   const relative6 = nodePath.relative(parent, child);
   return relative6 === "" || !relative6.startsWith("..") && !nodePath.isAbsolute(relative6);
 }
-function assertSafePath(path17) {
-  const segments = path17.split("/").filter(Boolean);
-  if (path17.includes("\\") || segments.some((part) => part === ".." || part === ".")) {
-    throw new Error(`invalid record path: ${path17}`);
+function assertSafePath(path21) {
+  const segments = path21.split("/").filter(Boolean);
+  if (path21.includes("\\") || segments.some((part) => part === ".." || part === ".")) {
+    throw new Error(`invalid record path: ${path21}`);
   }
 }
-async function resolveInsideVault(base, folder, path17) {
-  assertSafePath(path17);
-  const realBase = await fs10.promises.realpath(base);
+async function resolveInsideVault(base, folder, path21) {
+  assertSafePath(path21);
+  const realBase = await fs11.promises.realpath(base);
   const target = nodePath.resolve(base, ...folder.split("/").filter(Boolean));
   let real;
   try {
-    real = await fs10.promises.realpath(target);
+    real = await fs11.promises.realpath(target);
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
-  if (!isInside(realBase, real)) throw new Error(`record folder resolves outside the vault: ${path17}`);
+  if (!isInside(realBase, real)) throw new Error(`record folder resolves outside the vault: ${path21}`);
   return real;
 }
 function physicalBasePath(app) {
@@ -7719,39 +8384,39 @@ var ObsidianRecordFs = class {
     this.app = app;
     this.exclusive = exclusive;
   }
-  exists(path17) {
-    return this.app.vault.adapter.exists(path17);
+  exists(path21) {
+    return this.app.vault.adapter.exists(path21);
   }
-  read(path17) {
-    return this.app.vault.adapter.read(path17);
+  read(path21) {
+    return this.app.vault.adapter.read(path21);
   }
   async list(folder) {
     const listing = await this.app.vault.adapter.list(folder);
     return { files: listing.files, folders: listing.folders };
   }
-  async stat(path17) {
+  async stat(path21) {
     try {
-      const stat = await this.app.vault.adapter.stat(path17);
+      const stat = await this.app.vault.adapter.stat(path21);
       return stat ? { size: stat.size } : null;
     } catch (e) {
       return null;
     }
   }
-  async createOnly(path17, content) {
+  async createOnly(path21, content) {
     const base = physicalBasePath(this.app);
     if (base === null) {
-      throw new Error(`unsupported: this vault adapter cannot create record files exclusively (${path17})`);
+      throw new Error(`unsupported: this vault adapter cannot create record files exclusively (${path21})`);
     }
-    if (await this.exists(path17)) throw new Error(`already exists: ${path17}`);
-    const folder = path17.substring(0, path17.lastIndexOf("/"));
+    if (await this.exists(path21)) throw new Error(`already exists: ${path21}`);
+    const folder = path21.substring(0, path21.lastIndexOf("/"));
     let current = "";
     for (const part of folder.split("/").filter(Boolean)) {
       const parent = current;
       current = current ? `${current}/${part}` : part;
-      await resolveInsideVault(base, parent, path17);
+      await resolveInsideVault(base, parent, path21);
       if (!await this.exists(current)) await this.app.vault.adapter.mkdir(current);
     }
-    await this.createExclusiveInside(base, path17, content);
+    await this.createExclusiveInside(base, path21, content);
   }
   /**
    * The parent is resolved, then resolved again immediately before the create: the second result must
@@ -7763,16 +8428,16 @@ var ObsidianRecordFs = class {
    * directories after this last check can still redirect the open; this is detected only before, not
    * prevented, and no OS-isolation claim is made.
    */
-  async createExclusiveInside(base, path17, content) {
-    const folder = path17.substring(0, path17.lastIndexOf("/"));
-    const realParent = await resolveInsideVault(base, folder, path17);
-    if (realParent === null) throw new Error(`record folder was not created: ${path17}`);
-    const realBase = await fs10.promises.realpath(base);
-    const recheck = await fs10.promises.realpath(realParent);
+  async createExclusiveInside(base, path21, content) {
+    const folder = path21.substring(0, path21.lastIndexOf("/"));
+    const realParent = await resolveInsideVault(base, folder, path21);
+    if (realParent === null) throw new Error(`record folder was not created: ${path21}`);
+    const realBase = await fs11.promises.realpath(base);
+    const recheck = await fs11.promises.realpath(realParent);
     if (recheck !== realParent || !isInside(realBase, recheck)) {
-      throw new Error(`record folder resolves outside the vault: ${path17}`);
+      throw new Error(`record folder resolves outside the vault: ${path21}`);
     }
-    await this.exclusive.createExclusive(nodePath.join(recheck, nodePath.basename(path17)), content);
+    await this.exclusive.createExclusive(nodePath.join(recheck, nodePath.basename(path21)), content);
   }
 };
 
@@ -8741,7 +9406,7 @@ function showAskUserQuestionPanel(app, containerEl, input) {
 
 // src/ui/components/FileContext.ts
 var import_obsidian5 = require("obsidian");
-var path12 = __toESM(require("path"));
+var path13 = __toESM(require("path"));
 init_path();
 
 // src/ui/components/file-context/mention/MentionDropdownController.ts
@@ -8776,8 +9441,8 @@ function getFolderName(p) {
 }
 
 // src/utils/externalContextScanner.ts
-var fs11 = __toESM(require("fs"));
-var path11 = __toESM(require("path"));
+var fs12 = __toESM(require("fs"));
+var path12 = __toESM(require("path"));
 init_path();
 var CACHE_TTL_MS = 3e4;
 var MAX_FILES_PER_PATH = 1e3;
@@ -8858,25 +9523,25 @@ var ExternalContextScanner = class {
     if (depth > MAX_DEPTH) return [];
     const files = [];
     try {
-      if (!fs11.existsSync(dir)) return [];
-      const stat = fs11.statSync(dir);
+      if (!fs12.existsSync(dir)) return [];
+      const stat = fs12.statSync(dir);
       if (!stat.isDirectory()) return [];
-      const entries = fs11.readdirSync(dir, { withFileTypes: true });
+      const entries = fs12.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name.startsWith(".")) continue;
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         if (entry.isSymbolicLink()) continue;
-        const fullPath = path11.join(dir, entry.name);
+        const fullPath = path12.join(dir, entry.name);
         if (entry.isDirectory()) {
           const subFiles = this.scanDirectory(fullPath, contextRoot, depth + 1);
           files.push(...subFiles);
         } else if (entry.isFile()) {
           try {
-            const fileStat = fs11.statSync(fullPath);
+            const fileStat = fs12.statSync(fullPath);
             files.push({
               path: fullPath,
               name: entry.name,
-              relativePath: path11.relative(contextRoot, fullPath),
+              relativePath: path12.relative(contextRoot, fullPath),
               contextRoot,
               mtime: fileStat.mtimeMs
             });
@@ -8895,24 +9560,24 @@ var ExternalContextScanner = class {
     if (depth > MAX_DEPTH) return [];
     const files = [];
     try {
-      const stat = await fs11.promises.stat(dir).catch(() => null);
+      const stat = await fs12.promises.stat(dir).catch(() => null);
       if (!(stat == null ? void 0 : stat.isDirectory())) return [];
-      const entries = await fs11.promises.readdir(dir, { withFileTypes: true });
+      const entries = await fs12.promises.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name.startsWith(".")) continue;
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         if (entry.isSymbolicLink()) continue;
-        const fullPath = path11.join(dir, entry.name);
+        const fullPath = path12.join(dir, entry.name);
         if (entry.isDirectory()) {
           const subFiles = await this.scanDirectoryAsync(fullPath, contextRoot, depth + 1);
           files.push(...subFiles);
         } else if (entry.isFile()) {
           try {
-            const fileStat = await fs11.promises.stat(fullPath);
+            const fileStat = await fs12.promises.stat(fullPath);
             files.push({
               path: fullPath,
               name: entry.name,
-              relativePath: path11.relative(contextRoot, fullPath),
+              relativePath: path12.relative(contextRoot, fullPath),
               contextRoot,
               mtime: fileStat.mtimeMs
             });
@@ -9117,29 +9782,29 @@ function parseFolderQuery(rawQuery) {
   }
   return { text: rawQuery.toLowerCase(), foldersOnly: false };
 }
-function folderNameOf(path17) {
-  const cut = path17.lastIndexOf("/");
-  return cut < 0 ? path17 : path17.slice(cut + 1);
+function folderNameOf(path21) {
+  const cut = path21.lastIndexOf("/");
+  return cut < 0 ? path21 : path21.slice(cut + 1);
 }
 function rankFoldersByProximity(folderPaths, currentFolder, query, limit) {
   if (limit <= 0) return [];
   const needle = query.toLowerCase();
-  const matches = folderPaths.filter((path17) => {
-    const lower = path17.toLowerCase();
+  const matches = folderPaths.filter((path21) => {
+    const lower = path21.toLowerCase();
     return lower.includes(needle) || folderNameOf(lower).includes(needle);
   });
   if (!currentFolder) {
     return matches.sort(byDepthThenName).slice(0, limit);
   }
   const here = currentFolder.split("/").filter(Boolean);
-  return matches.map((path17) => {
-    const segments = path17.split("/").filter(Boolean);
+  return matches.map((path21) => {
+    const segments = path21.split("/").filter(Boolean);
     let shared = 0;
     while (shared < segments.length && shared < here.length && segments[shared] === here[shared]) {
       shared += 1;
     }
     return {
-      path: path17,
+      path: path21,
       // More shared segments means a closer branch.
       shared,
       // Within a branch, prefer the current folder, then what is under it.
@@ -9489,6 +10154,7 @@ var MentionDropdownController = class {
     dropdownEl.style.zIndex = "10001";
   }
   selectMentionItem() {
+    var _a, _b, _c;
     if (this.filteredMentionItems.length === 0) return;
     const selectedIndex = this.dropdown.getSelectedIndex();
     this.selectedMentionIndex = selectedIndex;
@@ -9537,7 +10203,7 @@ var MentionDropdownController = class {
           this.callbacks.onAttachFile(normalizedPath);
         }
       }
-      const replacement = `@${selectedItem.name} `;
+      const replacement = `${vaultFileMentionToken((_c = (_b = (_a = selectedItem.file) == null ? void 0 : _a.path) != null ? _b : selectedItem.path) != null ? _c : selectedItem.name)} `;
       this.inputEl.value = beforeAt + replacement + afterCursor;
       this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;
     }
@@ -9545,6 +10211,10 @@ var MentionDropdownController = class {
     this.inputEl.focus();
   }
 };
+function vaultFileMentionToken(filePath) {
+  if (filePath.includes("/") && !/[\s"']/.test(filePath) && /\.\w+$/.test(filePath)) return `@${filePath}`;
+  return `@"${filePath.replace(/"/g, '\\"')}"`;
+}
 
 // src/ui/components/file-context/state/FileContextState.ts
 function escapeRegExp(str) {
@@ -9593,21 +10263,21 @@ var FileContextState = class {
       this.attachedFiles.add(file);
     }
   }
-  attachFile(path17) {
-    this.attachedFiles.add(path17);
+  attachFile(path21) {
+    this.attachedFiles.add(path21);
   }
   /** Pin a file (explicitly attached, won't be auto-replaced). */
-  pinFile(path17) {
-    this.attachedFiles.add(path17);
-    this.pinnedFiles.add(path17);
+  pinFile(path21) {
+    this.attachedFiles.add(path21);
+    this.pinnedFiles.add(path21);
   }
   /** Check if a file is pinned. */
-  isPinned(path17) {
-    return this.pinnedFiles.has(path17);
+  isPinned(path21) {
+    return this.pinnedFiles.has(path21);
   }
   /** Unpin a file (keeps it attached but allows auto-replacement). */
-  unpinFile(path17) {
-    this.pinnedFiles.delete(path17);
+  unpinFile(path21) {
+    this.pinnedFiles.delete(path21);
   }
   /** Attach a context file with display name to absolute path mapping. */
   attachContextFile(displayName, absolutePath) {
@@ -9615,9 +10285,9 @@ var FileContextState = class {
     this.pinnedFiles.add(absolutePath);
     this.contextFileMap.set(displayName, absolutePath);
   }
-  detachFile(path17) {
-    this.attachedFiles.delete(path17);
-    this.pinnedFiles.delete(path17);
+  detachFile(path21) {
+    this.attachedFiles.delete(path21);
+    this.pinnedFiles.delete(path21);
   }
   clearAttachments() {
     this.attachedFiles.clear();
@@ -9657,7 +10327,7 @@ var MarkdownFileCache = class {
   }
   getFiles() {
     if (this.dirty || this.cachedFiles.length === 0) {
-      this.cachedFiles = this.app.vault.getMarkdownFiles();
+      this.cachedFiles = this.app.vault.getFiles().filter((file) => !file.path.split("/").some((segment) => segment.startsWith(".")));
       this.dirty = false;
     }
     return this.cachedFiles;
@@ -9701,13 +10371,13 @@ var FileChipsView = class {
     this.renderAllChips();
   }
   /** Add a single attached file. */
-  addAttachedFile(path17) {
-    this.attachedPaths.add(path17);
+  addAttachedFile(path21) {
+    this.attachedPaths.add(path21);
     this.renderAllChips();
   }
   /** Remove a single attached file. */
-  removeAttachedFile(path17) {
-    this.attachedPaths.delete(path17);
+  removeAttachedFile(path21) {
+    this.attachedPaths.delete(path21);
     this.renderAllChips();
   }
   /** Clear all attached files. */
@@ -9723,9 +10393,9 @@ var FileChipsView = class {
     if (this.currentNotePath) {
       pathsToShow.push(this.currentNotePath);
     }
-    for (const path17 of this.attachedPaths) {
-      if (path17 !== this.currentNotePath) {
-        pathsToShow.push(path17);
+    for (const path21 of this.attachedPaths) {
+      if (path21 !== this.currentNotePath) {
+        pathsToShow.push(path21);
       }
     }
     if (pathsToShow.length === 0) {
@@ -9878,8 +10548,8 @@ var FileContextManager = class {
       const candidate = entry;
       const isFolder = Array.isArray(candidate.children) || candidate.stat === void 0;
       if (!isFolder || typeof candidate.path !== "string") continue;
-      const path17 = candidate.path.replace(/\\/g, "/").replace(/\/+$/, "");
-      if (path17 && path17 !== "/") folders.add(path17);
+      const path21 = candidate.path.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (path21 && path21 !== "/") folders.add(path21);
     }
     return [...folders];
   }
@@ -9995,15 +10665,15 @@ var FileContextManager = class {
   /** Returns only mentions that resolve uniquely through the existing Vault resolver. */
   getResolvedMentionPaths(text) {
     var _a;
-    const pattern = /(^|[^\w])@(?:"([^"]+)"|'([^']+)'|([^\s]+\.\w+))/g;
+    const pattern = /(^|[^\w])@(?:"((?:\\"|[^"])+)"|'([^']+)'|([^\s]+\.\w+))/g;
     const mentions = [];
     let match;
     while ((match = pattern.exec(text)) !== null) {
       const full = match[0];
       const prefix = (_a = match[1]) != null ? _a : "";
-      const rawPath = match[2] || match[3] || match[4];
-      const path17 = this.resolveVaultMentionPath(rawPath);
-      if (path17) mentions.push({ start: match.index + prefix.length, end: match.index + full.length, path: path17 });
+      const rawPath = match[2] ? match[2].replace(/\\"/g, '"') : match[3] || match[4];
+      const path21 = this.resolveVaultMentionPath(rawPath, match[2] !== void 0 || match[3] !== void 0);
+      if (path21) mentions.push({ start: match.index + prefix.length, end: match.index + full.length, path: path21 });
     }
     return mentions;
   }
@@ -10016,18 +10686,20 @@ var FileContextManager = class {
     }
     return result;
   }
-  resolveVaultMentionPath(rawPath) {
+  resolveVaultMentionPath(rawPath, exactOnly = false) {
     const normalizedRaw = rawPath.replace(/\\/g, "/");
     const exact = this.app.vault.getAbstractFileByPath(normalizedRaw);
     if (isVaultFileCandidate2(exact)) {
       return exact.path;
     }
+    if (exactOnly) return null;
     const allFiles = this.fileCache.getFiles();
     const needle = normalizedRaw.toLowerCase();
     const basenameMatches = allFiles.filter((file) => file.name.toLowerCase() === needle);
     if (basenameMatches.length === 1) {
       return basenameMatches[0].path;
     }
+    if (needle.includes("/")) return null;
     const suffixMatches = allFiles.filter((file) => file.path.toLowerCase().endsWith(`/${needle}`));
     if (suffixMatches.length === 1) {
       return suffixMatches[0].path;
@@ -10065,8 +10737,8 @@ var FileContextManager = class {
     const normalizedRaw = normalizePathForFilesystem(rawPath);
     const vaultPath = getVaultPath(this.app);
     if (vaultPath && isPathWithinVault(normalizedRaw, vaultPath)) {
-      const absolute = path12.isAbsolute(normalizedRaw) ? normalizedRaw : path12.resolve(vaultPath, normalizedRaw);
-      const relative6 = path12.relative(vaultPath, absolute);
+      const absolute = path13.isAbsolute(normalizedRaw) ? normalizedRaw : path13.resolve(vaultPath, normalizedRaw);
+      const relative6 = path13.relative(vaultPath, absolute);
       if (relative6) {
         return relative6.replace(/\\/g, "/");
       }
@@ -10149,7 +10821,7 @@ var FileContextManager = class {
 
 // src/ui/components/ImageContext.ts
 var import_obsidian6 = require("obsidian");
-var path13 = __toESM(require("path"));
+var path14 = __toESM(require("path"));
 
 // src/utils/dropPayload.ts
 var WIKILINK = /\[\[([^\]]+)\]\]/g;
@@ -10371,7 +11043,7 @@ var ImageContextManager = class {
     return file.type.startsWith("image/") && this.getMediaType(file.name) !== null;
   }
   getMediaType(filename) {
-    const ext = path13.extname(filename).toLowerCase();
+    const ext = path14.extname(filename).toLowerCase();
     return IMAGE_EXTENSIONS[ext] || null;
   }
   async addImageFromFile(file, source) {
@@ -10490,7 +11162,7 @@ var ImageContextManager = class {
   }
   truncateName(name, maxLen) {
     if (name.length <= maxLen) return name;
-    const ext = path13.extname(name);
+    const ext = path14.extname(name);
     const base = name.slice(0, name.length - ext.length);
     const truncatedBase = base.slice(0, maxLen - ext.length - 3);
     return `${truncatedBase}...${ext}`;
@@ -12620,7 +13292,7 @@ var BlanketWriteConsentModal = class extends import_obsidian10.Modal {
 
 // src/ui/modals/InlineEditModal.ts
 var import_obsidian11 = require("obsidian");
-var path14 = __toESM(require("path"));
+var path15 = __toESM(require("path"));
 
 // src/core/prompts/inlineEdit.ts
 function getInlineEditSystemPrompt() {
@@ -13604,8 +14276,8 @@ var InlineEditController = class {
       const normalizedRaw = normalizePathForFilesystem(rawPath);
       const vaultPath = getVaultPath(this.app);
       if (vaultPath && isPathWithinVault(normalizedRaw, vaultPath)) {
-        const absolute = path14.isAbsolute(normalizedRaw) ? normalizedRaw : path14.resolve(vaultPath, normalizedRaw);
-        const relative6 = path14.relative(vaultPath, absolute);
+        const absolute = path15.isAbsolute(normalizedRaw) ? normalizedRaw : path15.resolve(vaultPath, normalizedRaw);
+        const relative6 = path15.relative(vaultPath, absolute);
         return relative6 ? relative6.replace(/\\/g, "/") : null;
       }
       return normalizedRaw.replace(/\\/g, "/");
@@ -14162,8 +14834,8 @@ function isQuizDifficulty(value) {
 }
 
 // src/core/learning/scope.ts
-function getBasename(path17) {
-  const normalized = path17.replace(/\\/g, "/");
+function getBasename(path21) {
+  const normalized = path21.replace(/\\/g, "/");
   const parts = normalized.split("/").filter(Boolean);
   return parts[parts.length - 1] || normalized;
 }
@@ -14174,8 +14846,8 @@ function summarizeSelectedNotes(paths) {
   if (names.length === 2) return `\uB178\uD2B8 2\uAC1C \xB7 ${names[0]}, ${names[1]}`;
   return `\uB178\uD2B8 ${names.length}\uAC1C \xB7 ${names[0]}, ${names[1]} \uC678 ${names.length - 2}\uAC1C`;
 }
-function summarizeFolder(path17) {
-  const normalized = path17.replace(/\\/g, "/");
+function summarizeFolder(path21) {
+  const normalized = path21.replace(/\\/g, "/");
   const parts = normalized.split("/").filter(Boolean);
   return parts.slice(-2).join("/") || normalized;
 }
@@ -14462,18 +15134,18 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
       this.sourceFingerprints.clear();
       this.sourceExcerpts.clear();
       const { paths } = this.buildScope();
-      for (const path17 of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path17);
+      for (const path21 of await this.findEmptyNotes(paths)) this.emptyNotePaths.add(path21);
       const checked = new Set(paths);
-      if (this.buildScope().paths.some((path17) => !checked.has(path17))) {
+      if (this.buildScope().paths.some((path21) => !checked.has(path21))) {
         new import_obsidian13.Notice("\uC790\uB8CC\uB97C \uD655\uC778\uD558\uB294 \uB3D9\uC548 \uC120\uD0DD\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
         return;
       }
       const result = this.buildResult();
       if (!this.canStart(result)) return;
       if (result.mode === "socratic") {
-        const excerpts = result.sourcePaths.flatMap((path17) => {
+        const excerpts = result.sourcePaths.flatMap((path21) => {
           var _a;
-          return (_a = this.sourceExcerpts.get(path17)) != null ? _a : [];
+          return (_a = this.sourceExcerpts.get(path21)) != null ? _a : [];
         });
         this.pendingStart = { result, bodies: [], excerpts };
         this.renderContent();
@@ -14516,14 +15188,14 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
   }
   /** Notes with no content beyond frontmatter; an unreadable note counts as empty. */
   async findEmptyNotes(paths) {
-    const isEmpty = async (path17) => {
+    const isEmpty = async (path21) => {
       var _a, _b;
-      const file = (_b = (_a = this.app.vault).getAbstractFileByPath) == null ? void 0 : _b.call(_a, path17);
+      const file = (_b = (_a = this.app.vault).getAbstractFileByPath) == null ? void 0 : _b.call(_a, path21);
       if (!(file instanceof import_obsidian13.TFile)) return true;
       try {
         const text = await this.app.vault.cachedRead(file);
-        this.sourceFingerprints.set(path17, sha256(text));
-        this.sourceExcerpts.set(path17, { path: path17, text: excerptOf(text), chars: text.length });
+        this.sourceFingerprints.set(path21, sha256(text));
+        this.sourceExcerpts.set(path21, { path: path21, text: excerptOf(text), chars: text.length });
         return !stripFrontmatter(text).trim();
       } catch (e) {
         return true;
@@ -14533,8 +15205,8 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
     let next = 0;
     const worker = async () => {
       while (next < paths.length) {
-        const path17 = paths[next++];
-        if (await isEmpty(path17)) empty.push(path17);
+        const path21 = paths[next++];
+        if (await isEmpty(path21)) empty.push(path21);
       }
     };
     await Promise.all(Array.from({ length: Math.min(EMPTY_NOTE_READ_CONCURRENCY, paths.length) }, worker));
@@ -14720,9 +15392,9 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
       this.renderContent();
     });
   }
-  async addRecordByPath(path17) {
-    if (!this.recordSource || !path17) return;
-    const summary = await readRecordSummary(this.recordSource.fs, path17).catch(() => null);
+  async addRecordByPath(path21) {
+    if (!this.recordSource || !path21) return;
+    const summary = await readRecordSummary(this.recordSource.fs, path21).catch(() => null);
     if (!summary) {
       this.recordNotice = "\uD559\uC2B5 \uAE30\uB85D \uD615\uC2DD\uC758 \uD30C\uC77C\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
     } else if (this.records.some((record) => record.path === summary.path)) {
@@ -14755,14 +15427,14 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
         });
         item.createEl("pre", { cls: "ocop-learning-record-content", text: excerpt.text });
       }
-      const rest = result.sourcePaths.filter((path17) => !shown.some((excerpt) => excerpt.path === path17));
+      const rest = result.sourcePaths.filter((path21) => !shown.some((excerpt) => excerpt.path === path21));
       if (rest.length > 0) {
         materials.createEl("p", {
           cls: "setting-item-description",
           text: `\uB098\uBA38\uC9C0 ${rest.length}\uAC1C \uB178\uD2B8\uB294 \uACBD\uB85C\uB9CC \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uB0B4\uC6A9\uC740 \uBAA8\uB450 AI\uAC00 \uC77D\uC2B5\uB2C8\uB2E4.`
         });
         const list = materials.createEl("ul", { cls: "ocop-learning-preview-paths" });
-        for (const path17 of rest) list.createEl("li", { text: path17 });
+        for (const path21 of rest) list.createEl("li", { text: path21 });
       }
     } else {
       materials.createEl("p", { text: "No verified original learning material available. \uC790\uB8CC \uC5C6\uC774 \uAE30\uB85D\uB9CC \uCC38\uACE0\uD558\uB294 \uC790\uAE30 \uC124\uBA85 \uBAA8\uB4DC\uC774\uBA70, \uC0AC\uC2E4 \uC5EC\uBD80\uB97C \uCC44\uC810\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
@@ -14817,9 +15489,9 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
     const focusText = this.focusText || void 0;
     const sourcePaths = [...paths];
     const sourceFingerprints = {};
-    for (const path17 of sourcePaths) {
-      const fingerprint = this.sourceFingerprints.get(path17);
-      if (fingerprint) sourceFingerprints[path17] = fingerprint;
+    for (const path21 of sourcePaths) {
+      const fingerprint = this.sourceFingerprints.get(path21);
+      if (fingerprint) sourceFingerprints[path21] = fingerprint;
     }
     if (this.mode === "quiz") {
       return {
@@ -14886,7 +15558,7 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
       candidates = getFolderNotePaths(this.app.vault.getMarkdownFiles().map((file) => file.path), selectedFolders);
       displayScope = selectedFolders.length === 1 ? `\uD3F4\uB354 \xB7 ${summarizeFolder(selectedFolders[0])}` : `\uD3F4\uB354 ${selectedFolders.length}\uAC1C`;
     }
-    const paths = candidates.filter((path17) => !this.emptyNotePaths.has(path17));
+    const paths = candidates.filter((path21) => !this.emptyNotePaths.has(path21));
     if (this.learningScope === "note") {
       displayScope = paths.length > 0 ? summarizeSelectedNotes(paths) : "\uC120\uD0DD\uD55C \uB178\uD2B8 0\uAC1C";
     }
@@ -14898,7 +15570,7 @@ var LearningSetupModal = class extends import_obsidian13.Modal {
         paths
       };
     }
-    const refs = paths.map((path17) => `@${path17}`).join(", ");
+    const refs = paths.map((path21) => `@${path21}`).join(", ");
     const subject = isCurrentNote ? "the current note" : "the selected notes";
     let sourceInstruction;
     if (this.mode === "socratic") {
@@ -17435,28 +18107,28 @@ function readProposalIntoReview(review, answer) {
 
 // src/features/edit-review/liveNote.ts
 var import_obsidian22 = require("obsidian");
-function markdownViews(app, path17) {
+function markdownViews(app, path21) {
   return app.workspace.getLeavesOfType("markdown").map((leaf) => leaf.view).filter((view) => {
     var _a;
-    return view instanceof import_obsidian22.MarkdownView && ((_a = view.file) == null ? void 0 : _a.path) === path17;
+    return view instanceof import_obsidian22.MarkdownView && ((_a = view.file) == null ? void 0 : _a.path) === path21;
   });
 }
-function findOpenEditors(app, path17) {
-  return markdownViews(app, path17).filter((view) => {
+function findOpenEditors(app, path21) {
+  return markdownViews(app, path21).filter((view) => {
     var _a;
     return ((_a = view.getMode) == null ? void 0 : _a.call(view)) !== "preview";
   }).map((view) => view.editor);
 }
-function readingBufferAhead(app, path17, current) {
-  return markdownViews(app, path17).filter((view) => {
+function readingBufferAhead(app, path21, current) {
+  return markdownViews(app, path21).filter((view) => {
     var _a;
     return ((_a = view.getMode) == null ? void 0 : _a.call(view)) === "preview";
   }).some((view) => !sameNote(view.editor.getValue(), current));
 }
-async function readLiveNote(app, path17) {
-  const editors = findOpenEditors(app, path17);
+async function readLiveNote(app, path21) {
+  const editors = findOpenEditors(app, path21);
   if (editors.length > 0) return editors[0].getValue();
-  const file = app.vault.getAbstractFileByPath(path17);
+  const file = app.vault.getAbstractFileByPath(path21);
   if (!(file instanceof import_obsidian22.TFile)) return null;
   try {
     return await app.vault.read(file);
@@ -17465,9 +18137,9 @@ async function readLiveNote(app, path17) {
   }
 }
 var SYNC_WAIT_MS = 500;
-async function editorsShow(app, path17, expected) {
+async function editorsShow(app, path21, expected) {
   const done = () => {
-    const editors = findOpenEditors(app, path17);
+    const editors = findOpenEditors(app, path21);
     return editors.length > 0 && editors.every((e) => e.getValue() === expected);
   };
   const deadline = Date.now() + SYNC_WAIT_MS;
@@ -17477,8 +18149,8 @@ async function editorsShow(app, path17, expected) {
   }
   return true;
 }
-async function applyToLiveNote(app, path17, base, hunks, acceptedIds) {
-  const editors = findOpenEditors(app, path17);
+async function applyToLiveNote(app, path21, base, hunks, acceptedIds) {
+  const editors = findOpenEditors(app, path21);
   if (editors.length > 0) {
     const before = editors[0].getValue();
     if (!editors.every((e) => sameNote(e.getValue(), base)) || before.includes("\r")) return { kind: "stale" };
@@ -17493,13 +18165,13 @@ async function applyToLiveNote(app, path17, base, hunks, acceptedIds) {
     });
     const after = editor.getValue();
     if (after !== expected) return after === before ? { kind: "not_applied" } : { kind: "check_note" };
-    return await editorsShow(app, path17, expected) ? { kind: "applied", undoable: true } : { kind: "check_note" };
+    return await editorsShow(app, path21, expected) ? { kind: "applied", undoable: true } : { kind: "check_note" };
   }
-  const file = app.vault.getAbstractFileByPath(path17);
+  const file = app.vault.getAbstractFileByPath(path21);
   if (!(file instanceof import_obsidian22.TFile)) return { kind: "missing" };
   let stale = false;
   await app.vault.process(file, (current) => {
-    if (findOpenEditors(app, path17).length > 0 || readingBufferAhead(app, path17, current) || !sameNote(current, base)) {
+    if (findOpenEditors(app, path21).length > 0 || readingBufferAhead(app, path21, current) || !sameNote(current, base)) {
       stale = true;
       return current;
     }
@@ -17659,22 +18331,22 @@ function renderEditReviewCard(parentEl, review, deps) {
 var import_obsidian23 = require("obsidian");
 
 // src/core/images/imageLoader.ts
-var fs12 = __toESM(require("fs"));
-var path15 = __toESM(require("path"));
+var fs13 = __toESM(require("fs"));
+var path16 = __toESM(require("path"));
 init_path();
 function resolveImageFilePath(filePath, vaultPath) {
   const normalized = normalizePathForFilesystem(filePath);
-  if (path15.isAbsolute(normalized)) {
+  if (path16.isAbsolute(normalized)) {
     return normalized;
   }
   if (vaultPath) {
-    return path15.join(vaultPath, normalized);
+    return path16.join(vaultPath, normalized);
   }
   return null;
 }
 function readFileBase64(absPath) {
   try {
-    const buffer = fs12.readFileSync(absPath);
+    const buffer = fs13.readFileSync(absPath);
     return buffer.toString("base64");
   } catch (error) {
     console.warn("Failed to read image file:", absPath, error);
@@ -17689,7 +18361,7 @@ function readImageAttachmentBase64(app, image, vaultPath) {
   if (image.filePath) {
     const vault = vaultPath != null ? vaultPath : getVaultPath(app);
     const absPath = resolveImageFilePath(image.filePath, vault);
-    if (absPath && fs12.existsSync(absPath)) {
+    if (absPath && fs13.existsSync(absPath)) {
       return readFileBase64(absPath);
     }
   }
@@ -18342,6 +19014,7 @@ function parseMentionedLearningCommand(content, fileContextManager) {
   const mentions = fileContextManager && typeof fileContextManager.getResolvedMentionPaths === "function" ? fileContextManager.getResolvedMentionPaths(content) : [];
   if (mentions.length !== 1) return null;
   const mention = mentions[0];
+  if (!mention.path.toLowerCase().endsWith(".md")) return null;
   const command = (content.slice(0, mention.start) + content.slice(mention.end)).trim();
   if (command === "/quiz") return { mode: "quiz", notePath: mention.path };
   if (command === "/socratic") return { mode: "socratic", notePath: mention.path };
@@ -18507,10 +19180,10 @@ var InputController = class {
     var _a, _b;
     const { plugin } = this.deps;
     try {
-      for (const [path17, fingerprint] of Object.entries((_a = result.sourceFingerprints) != null ? _a : {})) {
-        const file = plugin.app.vault.getAbstractFileByPath(path17);
+      for (const [path21, fingerprint] of Object.entries((_a = result.sourceFingerprints) != null ? _a : {})) {
+        const file = plugin.app.vault.getAbstractFileByPath(path21);
         if (!(file instanceof import_obsidian24.TFile) || sha256(await plugin.app.vault.read(file)) !== fingerprint) {
-          new import_obsidian24.Notice(`\uC120\uD0DD\uD55C \uC790\uB8CC\uAC00 \uC2DC\uC791 \uC9C1\uC804\uC5D0 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4: ${path17}. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
+          new import_obsidian24.Notice(`\uC120\uD0DD\uD55C \uC790\uB8CC\uAC00 \uC2DC\uC791 \uC9C1\uC804\uC5D0 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4: ${path21}. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`);
           return false;
         }
       }
@@ -20510,12 +21183,12 @@ var LearningRecordController = class {
     this.report(outcome);
     return outcome;
   }
-  async reveal(path17) {
+  async reveal(path21) {
     try {
-      await this.plugin.app.workspace.openLinkText(path17, "", false);
-      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
+      await this.plugin.app.workspace.openLinkText(path21, "", false);
+      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path21}`);
     } catch (e) {
-      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path17}`);
+      new import_obsidian27.Notice(`\uC774\uBBF8 \uC800\uC7A5\uB41C \uD559\uC2B5 \uAE30\uB85D\uC785\uB2C8\uB2E4: ${path21}`);
     }
   }
   report(outcome) {
@@ -21415,6 +22088,13 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       }
     );
   }
+  /** Put text in the chat box for the student to read and send (never sends it). */
+  prefillInput(text) {
+    if (!this.inputEl) return;
+    this.inputEl.value = text;
+    this.inputEl.dispatchEvent(new Event("input"));
+    this.inputEl.focus();
+  }
   getViewType() {
     return VIEW_TYPE_OBSIDIAN_COPILOT;
   }
@@ -21644,11 +22324,8 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
       },
       onOpenLearning: () => launchLearningSetup("quiz")
     });
-    let updateAgyWebWarning = () => {
-    };
     this.buildProviderSelector(toolbarComponents.primaryToolbarEl, () => {
       var _a, _b, _c;
-      updateAgyWebWarning();
       (_a = this.modelSelector) == null ? void 0 : _a.updateDisplay();
       (_b = this.modelSelector) == null ? void 0 : _b.renderOptions();
       (_c = this.thinkingBudgetSelector) == null ? void 0 : _c.updateDisplay();
@@ -21669,15 +22346,6 @@ var ObsidianCopilotView = class extends import_obsidian28.ItemView {
     this.webSearchToggle = toolbarComponents.webSearchToggle;
     this.webSearchToggle.setEnabled(this.plugin.settings.enableWebSearch);
     this.permissionToggle = toolbarComponents.permissionToggle;
-    const agyWebWarning = inputToolbar.createDiv({ cls: "ocop-agy-websearch-warning", attr: { role: "status" } });
-    updateAgyWebWarning = () => {
-      var _a, _b;
-      const warning = getAgyWebSearchWarning(this.plugin.settings.selectedProvider, (_b = (_a = this.webSearchToggle) == null ? void 0 : _a.isEnabled()) != null ? _b : this.plugin.settings.enableWebSearch);
-      agyWebWarning.setText(warning != null ? warning : "");
-      agyWebWarning.style.display = warning ? "" : "none";
-    };
-    updateAgyWebWarning();
-    inputToolbar.addEventListener("click", updateAgyWebWarning);
     this.externalContextSelector.setOnChange(() => {
       var _a;
       (_a = this.fileContextManager) == null ? void 0 : _a.preScanExternalContexts();
@@ -22012,10 +22680,6 @@ function resolveLearningRecordSave(target) {
   return button && messageId ? { messageId, button } : null;
 }
 var PROVIDER_BUSY_NOTICE = "\uC2E4\uD589 \uC911\uC778 \uC791\uC5C5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 provider\uB97C \uBC14\uAFC0 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
-var AGY_WEB_SEARCH_WARNING = "Agy\uB294 Web \uAC80\uC0C9\uC744 \uC694\uCCAD\uBCC4\uB85C \uAC15\uC81C\uB85C \uB04C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC774 \uAEBC\uC838 \uC788\uC5B4\uB3C4 \uAC80\uC0C9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.";
-function getAgyWebSearchWarning(provider, enableWebSearch) {
-  return provider === "agy" && !enableWebSearch ? AGY_WEB_SEARCH_WARNING : null;
-}
 function createProviderSelector(toolbar, plugin, onProviderChange, registerDocumentClick, handle) {
   const container = toolbar.createDiv({ cls: "ocop-provider-selector" });
   const button = container.createEl("button", { cls: "ocop-provider-btn", attr: { type: "button", "aria-label": "Choose AI provider", "aria-expanded": "false" } });
@@ -22109,9 +22773,11 @@ function createProviderSelector(toolbar, plugin, onProviderChange, registerDocum
 }
 
 // src/features/settings/ObsidianCopilotSettings.ts
-var fs14 = __toESM(require("fs"));
+var fs15 = __toESM(require("fs"));
 var import_obsidian31 = require("obsidian");
+var os9 = __toESM(require("os"));
 init_providerRegistry();
+init_libreOffice();
 init_providerConnection();
 init_ErrorLog();
 init_FailureReport();
@@ -22338,6 +23004,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
    * choosing Codex emptied the rest of the settings screen.
    */
   renderSkillsSection(containerEl) {
+    var _a, _b;
     const skillProvider = this.plugin.settings.selectedProvider;
     const skillsWrapperEl = containerEl.createDiv({ cls: "ocop-settings-advanced-wrapper" });
     const skillsHeaderEl = skillsWrapperEl.createDiv({ cls: "ocop-settings-advanced-header" });
@@ -22360,7 +23027,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
     if (isMachineWideSkillsRoot(skillProvider)) {
       skillsContentEl.createDiv({
         cls: "setting-item-description",
-        text: "OpenAI Codex\uB294 \uC2A4\uD0AC\uC744 \uC774 \uCEF4\uD4E8\uD130 \uC804\uCCB4\uC5D0 \uC800\uC7A5\uD569\uB2C8\uB2E4 (~/.codex/skills). \uB2E4\uB978 \uAE08\uACE0\uC5D0\uC11C\uB3C4 \uD568\uAED8 \uC801\uC6A9\uB429\uB2C8\uB2E4."
+        text: "GitHub \uC8FC\uC18C\uB85C \uC9C1\uC811 \uBC1B\uC740 Codex \uC2A4\uD0AC\uC740 \uC774 \uCEF4\uD4E8\uD130 \uC804\uCCB4\uC5D0 \uC800\uC7A5\uB429\uB2C8\uB2E4 (~/.codex/skills). \uAE30\uBCF8 \uC2A4\uD0AC\uC740 \uC774 \uAE08\uACE0\uC758 .agents/skills\uC5D0 \uB4E4\uC5B4\uAC11\uB2C8\uB2E4."
       });
     }
     const skillsInstalled = isObsidianSkillsInstalled(this.app, skillProvider);
@@ -22370,22 +23037,51 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
       if (skillsInstalled) {
         button.setButtonText("Reinstall").onClick(async () => {
           await installObsidianSkills(this.app, skillProvider, this.plugin);
+          await this.plugin.ensureBundledSkills(skillProvider);
           this.display();
         });
       } else {
         button.setButtonText("Install").setCta().onClick(async () => {
+          await this.plugin.storage.clearBundledSkills(autoSkillsRoot(skillProvider), ["obsidian-markdown", "json-canvas"]);
           await installObsidianSkills(this.app, skillProvider, this.plugin);
+          await this.plugin.ensureBundledSkills(skillProvider);
           this.display();
         });
       }
     }).addButton((button) => {
       if (skillsInstalled) {
         button.setButtonText("Remove").onClick(async () => {
-          await uninstallObsidianSkills(this.app, skillProvider, this.plugin);
+          if (await uninstallObsidianSkills(this.app, skillProvider, this.plugin)) {
+            const removed = { version: "", state: "removed" };
+            await this.plugin.storage.mergeBundledSkills(autoSkillsRoot(skillProvider), { "obsidian-markdown": removed, "json-canvas": removed });
+          }
           this.display();
         });
       }
     });
+    const docRoot = autoSkillsRoot(skillProvider);
+    const docVault = this.app.vault.adapter.basePath;
+    const DOC_SKILL_NAMES = ["pdf", "xlsx", "docx", "pptx"];
+    const missingDocSkills = docVault ? DOC_SKILL_NAMES.filter((name) => !fs15.existsSync(`${docVault}/${docRoot}/${name}/SKILL.md`)) : DOC_SKILL_NAMES;
+    const docProblems = (_b = (_a = this.plugin.bundledSkillProblems) == null ? void 0 : _a.get(docRoot)) != null ? _b : [];
+    new import_obsidian31.Setting(skillsContentEl).setName("\uBB38\uC11C \uC2A4\uD0AC (PDF\xB7\uC5D1\uC140\xB7\uC6CC\uB4DC\xB7PPT)").setDesc((missingDocSkills.length === 0 ? `\uC124\uCE58\uB428 - ${docRoot}` : `\uC5C6\uC74C: ${missingDocSkills.join(", ")} - \uC124\uCE58\uB97C \uB204\uB974\uBA74 \uB2E4\uC2DC \uB123\uC2B5\uB2C8\uB2E4. \uC77C\uBD80 \uAE30\uB2A5\uC740 LibreOffice\uAC00 \uC788\uC5B4\uC57C \uB3D9\uC791\uD569\uB2C8\uB2E4.`) + (docProblems.length > 0 ? ` \uC190\uB300\uC9C0 \uC54A\uC740 \uD3F4\uB354: ${docProblems.join(" / ")}` : "")).addButton((button) => {
+      if (missingDocSkills.length === 0) return;
+      button.setButtonText("\uC124\uCE58").setCta().onClick(async () => {
+        button.setDisabled(true);
+        await this.plugin.storage.clearBundledSkills(docRoot, missingDocSkills);
+        await this.plugin.ensureBundledSkills(skillProvider);
+        this.display();
+      });
+    });
+    if (process.platform === "darwin" || process.platform === "win32") {
+      const officeDir = findLibreOffice({ platform: process.platform, env: process.env, home: os9.homedir() });
+      new import_obsidian31.Setting(skillsContentEl).setName("LibreOffice").setDesc(officeDir ? `\uCC3E\uC74C - ${officeDir}. \uBB38\uC11C \uC2A4\uD0AC\uC758 \uBAA8\uB4E0 \uAE30\uB2A5\uC744 \uC4F8 \uC218 \uC788\uC5B4\uC694.` : "\uC5C6\uC74C - \uC5D1\uC140 \uC218\uC2DD \uB2E4\uC2DC \uACC4\uC0B0, \uC6CC\uB4DC\xB7PPT\uB97C PDF\uB85C \uBC14\uAFB8\uAE30 \uAC19\uC740 \uAE30\uB2A5\uC5D0 \uD544\uC694\uD574\uC694.").addButton((button) => button.setButtonText("\uB2E4\uC2DC \uD655\uC778").onClick(() => this.display())).addButton((button) => {
+        if (officeDir) return;
+        button.setButtonText("\uC124\uCE58 \uC548\uB0B4 \uBCF4\uAE30").setCta().onClick(() => {
+          void this.plugin.maybeShowLibreOfficeNotice(true);
+        });
+      });
+    }
     let skillUrl = "";
     let textInput = null;
     new import_obsidian31.Setting(skillsContentEl).setName("Install custom skill from GitHub").setDesc(`${getProviderDescriptor(skillProvider).label}\uC758 \uC2A4\uD0AC \uD3F4\uB354\uB85C \uBC1B\uC2B5\uB2C8\uB2E4. \uC2A4\uD0AC \uD3F4\uB354 \uC8FC\uC18C(.../tree/main/skills/docx)\uB97C \uB123\uC73C\uBA74 \uB538\uB9B0 \uC2A4\uD06C\uB9BD\uD2B8\uAE4C\uC9C0 \uBC1B\uACE0, \uC800\uC7A5\uC18C\uB098 SKILL.md \uC8FC\uC18C\uB294 \uADF8 \uD30C\uC77C \uD55C \uC7A5\uB9CC \uBC1B\uC2B5\uB2C8\uB2E4.`).addText((text) => {
@@ -22474,7 +23170,11 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
             cls: "ocop-skills-remove-btn"
           });
           removeBtn.addEventListener("click", async () => {
-            await removeSkill(this.app, skill.name, skillProvider, this.plugin);
+            const removed = await removeSkill(this.app, skill.name, skillProvider, this.plugin, skill.path);
+            const autoRoot = autoSkillsRoot(skillProvider);
+            if (removed && skill.path.replace(/\\/g, "/").endsWith(`/${autoRoot}/${skill.name}`)) {
+              await this.plugin.storage.mergeBundledSkills(autoRoot, { [skill.name]: { version: "", state: "removed" } });
+            }
             this.display();
           });
         }
@@ -22513,7 +23213,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
         this.plugin.settings.selectedProvider = value;
         await this.plugin.saveSettings();
         (_a = this.plugin.agentService) == null ? void 0 : _a.cleanup();
-        await this.plugin.installBundledSkillsOnce();
+        await this.plugin.ensureBundledSkills();
         this.display();
       });
     });
@@ -22548,8 +23248,8 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
       const trimmed = value.trim();
       if (!trimmed || trimmed === pathDescriptor.command) return null;
       const expandedPath = expandHomePath(trimmed);
-      if (!fs14.existsSync(expandedPath)) return "Path does not exist";
-      return fs14.statSync(expandedPath).isFile() ? null : "Path is a directory, not a file";
+      if (!fs15.existsSync(expandedPath)) return "Path does not exist";
+      return fs15.statSync(expandedPath).isFile() ? null : "Path is a directory, not a file";
     };
     cliPathSetting.addText((text) => {
       const placeholder = process.platform === "win32" ? `C:\\Program Files\\${pathDescriptor.command}.exe` : `/usr/local/bin/${pathDescriptor.command}`;
@@ -22877,7 +23577,7 @@ var ObsidianCopilotSettingTab = class extends import_obsidian31.PluginSettingTab
 };
 
 // src/main.ts
-var ObsidianCopilotPlugin = class extends import_obsidian33.Plugin {
+var ObsidianCopilotPlugin = class extends import_obsidian35.Plugin {
   constructor() {
     super(...arguments);
     this.conversations = [];
@@ -22909,6 +23609,17 @@ var ObsidianCopilotPlugin = class extends import_obsidian33.Plugin {
     this.capturedPermissionMode = null;
     /** Invalidates consent dialogs opened before a lifecycle authority reset. */
     this.permissionAuthorityEpoch = 0;
+    /** One run per skills root at a time; claude and agy use different roots, so a fast switch runs both. */
+    this.bundledSkillRuns = /* @__PURE__ */ new Map();
+    this.docArchiveSource = null;
+    this.libreOfficeNoticeChecking = false;
+    /** Per skills root: what ensure left alone and why, for the Settings line. */
+    this.bundledSkillProblems = /* @__PURE__ */ new Map();
+    this.lastEnsuredProvider = null;
+    /** Called after doc skills were installed in some root: tell the student once if LibreOffice is missing. */
+    this.onDocSkillsInstalled = () => {
+      void this.maybeShowLibreOfficeNotice();
+    };
     /** The tail of each conversation's write stream; its writes run one at a time, in call order. */
     this.conversationWrites = /* @__PURE__ */ new Map();
     /** Listeners told after a learning snapshot was acknowledged by storage (views sync their state). */
@@ -22941,15 +23652,15 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       if (next !== this.providerConnections) this.persistProviderConnections(next);
     };
     this.agentService.onPermissionNotice = (message) => {
-      new import_obsidian33.Notice(message);
+      new import_obsidian35.Notice(message);
     };
     void this.agentService.prewarmCapabilities();
     this.app.workspace.onLayoutReady(() => {
       void this.checkAndShowSetupWizard();
-      void this.installBundledSkillsOnce();
+      void this.ensureBundledSkills();
       void this.finishSecretMove();
     });
-    (0, import_obsidian33.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
+    (0, import_obsidian35.addIcon)("obsidian-ai-tutor-icon", COPILOT_ICON_SVG);
     this.registerView(
       VIEW_TYPE_OBSIDIAN_COPILOT,
       (leaf) => new ObsidianCopilotView(leaf, this)
@@ -22987,7 +23698,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
         const modal = new InlineEditModal(this.app, this, editContext, notePath);
         const result = await modal.openAndWait();
         if (result.decision === "accept" && result.editedText !== void 0) {
-          new import_obsidian33.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
+          new import_obsidian35.Notice(editContext.mode === "cursor" ? "Inserted" : "Edit applied");
         }
       }
     });
@@ -23003,7 +23714,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
           if (chatView == null ? void 0 : chatView.fileContextManager) {
             const normalizedPath = activeFile.path.replace(/\\/g, "/");
             chatView.fileContextManager.attachFileFromCommand(normalizedPath);
-            new import_obsidian33.Notice(`Attached: ${activeFile.name}`);
+            new import_obsidian35.Notice(`Attached: ${activeFile.name}`);
           }
         }).catch((error) => {
           console.error("[ObsidianCopilot] Failed to activate view for file attach:", error);
@@ -23052,33 +23763,141 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       console.warn("[ObsidianCopilot] Setup wizard failed to open:", err);
     }
   }
+  /** Plan §3: at most one download-failure notice a day, counted across restarts. */
+  docDownloadNoticeDue(now = Date.now()) {
+    var _a;
+    const KEY = "ai-tutor-doc-download-notice-at";
+    const last = Number((_a = this.app.loadLocalStorage(KEY)) != null ? _a : 0);
+    if (Number.isFinite(last) && now - last < 24 * 60 * 60 * 1e3) return false;
+    this.app.saveLocalStorage(KEY, String(now));
+    return true;
+  }
   /**
-   * Put the bundled Obsidian skills in the vault, once.
+   * Put the bundled skills (obsidian-markdown, json-canvas, pdf, xlsx, docx,
+   * pptx) into the selected provider's skills folder.
    *
-   * They teach the CLI wikilinks, callouts, properties and canvas files, and
-   * they used to wait behind an Install button in a collapsed settings section
-   * — so the students who needed them most never got them. Installed on first
-   * launch only: the flag means a student who removes them keeps them removed.
+   * Runs on every launch and every provider switch, not once: a skill added in
+   * a later release must reach students who installed earlier. Per-skill
+   * records keep a removed skill removed (see BundledSkills.ts).
    */
-  async installBundledSkillsOnce() {
+  async ensureBundledSkills(provider = this.settings.selectedProvider) {
+    this.lastEnsuredProvider = provider;
+    const { autoSkillsRoot: autoSkillsRoot2 } = await Promise.resolve().then(() => (init_BundledSkills(), BundledSkills_exports));
+    const root = autoSkillsRoot2(provider);
+    const running = this.bundledSkillRuns.get(root);
+    if (running) return running;
+    const run = this.ensureBundledSkillsRoot(root, provider).finally(() => this.bundledSkillRuns.delete(root));
+    this.bundledSkillRuns.set(root, run);
+    return run;
+  }
+  async ensureBundledSkillsRoot(root, provider) {
+    var _a, _b, _c;
     try {
-      const provider = this.settings.selectedProvider;
+      const { getVaultPath: getVaultPath2 } = await Promise.resolve().then(() => (init_path(), path_exports));
+      const vaultPath = getVaultPath2(this.app);
+      if (!vaultPath) return;
+      const { ensureRoot: ensureRoot2 } = await Promise.resolve().then(() => (init_BundledSkills(), BundledSkills_exports));
+      const { OBSIDIAN_MARKDOWN_SKILL: OBSIDIAN_MARKDOWN_SKILL2, JSON_CANVAS_SKILL: JSON_CANVAS_SKILL2 } = await Promise.resolve().then(() => (init_ObsidianSkillsInstaller(), ObsidianSkillsInstaller_exports));
+      const source = await this.getDocArchiveSource(vaultPath);
       const state = await this.storage.loadState();
-      const { installObsidianSkills: installObsidianSkills2, isObsidianSkillsInstalled: isObsidianSkillsInstalled2, shouldInstallBundledSkills: shouldInstallBundledSkills2 } = await Promise.resolve().then(() => (init_ObsidianSkillsInstaller(), ObsidianSkillsInstaller_exports));
-      if (!shouldInstallBundledSkills2(state, provider, isObsidianSkillsInstalled2(this.app, provider))) return;
-      if (await installObsidianSkills2(this.app, provider, this)) {
-        await this.storage.updateState({
-          skillsAutoInstalled: { ...state.skillsAutoInstalled, [provider]: true }
-        });
+      const result = await ensureRoot2({
+        vaultPath,
+        root,
+        records: (_b = (_a = state.bundledSkills) == null ? void 0 : _a[root]) != null ? _b : {},
+        markdownBodies: { "obsidian-markdown": OBSIDIAN_MARKDOWN_SKILL2, "json-canvas": JSON_CANVAS_SKILL2 },
+        evidence: { legacyUser: state.bundledSkillsLegacy === true, provider, skillsAutoInstalled: state.skillsAutoInstalled },
+        getArchive: () => source.get()
+      });
+      await this.storage.mergeBundledSkills(root, result.records);
+      if (result.installed.some((name) => ["pdf", "xlsx", "docx", "pptx"].includes(name))) {
+        new import_obsidian35.Notice("\u2705 \uBB38\uC11C \uC2A4\uD0AC(PDF\xB7\uC5D1\uC140\xB7\uC6CC\uB4DC\xB7PPT)\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.");
+        (_c = this.onDocSkillsInstalled) == null ? void 0 : _c.call(this);
       }
+      if (result.pending.length > 0 && source.failures() > 0 && this.docDownloadNoticeDue()) {
+        new import_obsidian35.Notice("\uBB38\uC11C \uC2A4\uD0AC\uC744 \uC544\uC9C1 \uB0B4\uB824\uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC778\uD130\uB137\uC5D0 \uC5F0\uACB0\uB418\uBA74 \uB2E4\uC74C \uC2E4\uD589 \uB54C \uB2E4\uC2DC \uC2DC\uB3C4\uD569\uB2C8\uB2E4.");
+      }
+      this.bundledSkillProblems.set(root, result.errors);
+      if (result.errors.length > 0) console.warn("[ObsidianCopilot] Bundled skills left as they were:", result.errors);
     } catch (error) {
+      this.bundledSkillProblems.set(root, [`\uC124\uCE58 \uC2E4\uD328: ${error instanceof Error ? error.message : String(error)}`]);
       console.warn("[ObsidianCopilot] Could not install the bundled skills:", error);
     }
   }
-  /** Loads settings and conversations from persistent storage. */
+  /** Where LibreOffice's soffice lives on this computer, or null. Looks at files only. */
+  async findLibreOffice() {
+    const { findLibreOffice: findLibreOffice2 } = await Promise.resolve().then(() => (init_libreOffice(), libreOffice_exports));
+    return findLibreOffice2({ platform: process.platform, env: process.env, home: os10.homedir() });
+  }
+  /** The once-only LibreOffice popup (also opened from Settings with force). */
+  async maybeShowLibreOfficeNotice(force = false) {
+    const KEY = "ai-tutor-libreoffice-notice-shown";
+    const platform = process.platform;
+    if (platform !== "darwin" && platform !== "win32") return;
+    if (!force && (this.app.loadLocalStorage(KEY) || this.libreOfficeNoticeChecking)) return;
+    this.libreOfficeNoticeChecking = true;
+    try {
+      if (!force && await this.findLibreOffice()) return;
+    } finally {
+      this.libreOfficeNoticeChecking = false;
+    }
+    this.app.saveLocalStorage(KEY, "1");
+    const { LibreOfficeNoticeModal: LibreOfficeNoticeModal2 } = await Promise.resolve().then(() => (init_LibreOfficeNoticeModal(), LibreOfficeNoticeModal_exports));
+    new LibreOfficeNoticeModal2(this.app, platform, {
+      prefillChat: async (prompt) => {
+        var _a;
+        await this.activateView();
+        (_a = this.getView()) == null ? void 0 : _a.prefillInput(prompt);
+      }
+    }).open();
+  }
+  /** One source for every root, so a fast provider switch still downloads once. */
+  getDocArchiveSource(vaultPath) {
+    var _a;
+    (_a = this.docArchiveSource) != null ? _a : this.docArchiveSource = this.createDocArchiveSource(vaultPath).catch((error) => {
+      this.docArchiveSource = null;
+      throw error;
+    });
+    return this.docArchiveSource;
+  }
+  async createDocArchiveSource(vaultPath) {
+    var _a, _b;
+    const { createArchiveSource: createArchiveSource2 } = await Promise.resolve().then(() => (init_docSkillsArchive(), docSkillsArchive_exports));
+    const pluginDir = (_b = (_a = this.manifest) == null ? void 0 : _a.dir) != null ? _b : ".obsidian/plugins/obsidian-ai-tutor";
+    const RETRY_KEY = "ai-tutor-doc-download-retry";
+    return createArchiveSource2({
+      cacheDir: path20.join(vaultPath, pluginDir),
+      // The wait after failures survives a restart, so a class reopening
+      // Obsidian does not all retry at once.
+      retry: {
+        load: () => {
+          var _a2;
+          try {
+            const raw = JSON.parse(String((_a2 = this.app.loadLocalStorage(RETRY_KEY)) != null ? _a2 : "null"));
+            const v = raw;
+            return v && typeof v.failures === "number" && typeof v.nextTryAt === "number" ? { failures: v.failures, nextTryAt: v.nextTryAt } : null;
+          } catch (e) {
+            return null;
+          }
+        },
+        save: (state) => this.app.saveLocalStorage(RETRY_KEY, JSON.stringify(state))
+      },
+      fetchBytes: async (url) => {
+        const response = await (0, import_obsidian35.requestUrl)({ url, throw: false });
+        return response.status === 200 ? Buffer.from(response.arrayBuffer) : null;
+      }
+    });
+  }
   async loadSettings() {
+    let legacyData = false;
+    try {
+      const raw = await this.loadData();
+      legacyData = !!raw && typeof raw === "object" && !("bundledSkills" in raw) && !("bundledSkillsLegacy" in raw);
+    } catch (e) {
+      legacyData = false;
+    }
     this.storage = new StorageService(this);
     const { settings, state } = await this.storage.initialize();
+    if (legacyData) await this.storage.updateState({ bundledSkillsLegacy: true });
     const slashCommands = await this.storage.commands.loadAll();
     this.settings = {
       ...DEFAULT_SETTINGS,
@@ -23181,13 +24000,22 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
       envSnippets: (_h = this.settings.envSnippets) != null ? _h : []
     }, this);
     await this.storage.settings.save(settingsToSave);
-    await this.storage.saveState({
+    await this.storage.updateState({
       activeConversationId: this.activeConversationId,
-      // saveState writes the whole state object, so anything omitted here is
-      // erased. Picking a provider in the chat popover calls saveSettings, and
-      // without this line that click wiped every stored connection.
       providerConnections: this.providerConnections
     });
+    if (this.lastEnsuredProvider !== null && this.lastEnsuredProvider !== this.settings.selectedProvider) {
+      void this.ensureBundledSkills();
+      if (this.settings.selectedProvider === "agy") void this.maybeShowAgyWebSearchNotice();
+    }
+  }
+  /** Once per computer, on the first switch to agy: its web search cannot be turned off per request. */
+  async maybeShowAgyWebSearchNotice() {
+    const KEY = "ai-tutor-agy-websearch-notice-shown";
+    if (this.app.loadLocalStorage(KEY)) return;
+    this.app.saveLocalStorage(KEY, "1");
+    const { AgyWebSearchNoticeModal: AgyWebSearchNoticeModal2 } = await Promise.resolve().then(() => (init_AgyWebSearchNoticeModal(), AgyWebSearchNoticeModal_exports));
+    new AgyWebSearchNoticeModal2(this.app).open();
   }
   /** Store what a check or a request just decided about one provider. */
   setProviderConnection(providerId, state) {
@@ -23209,7 +24037,7 @@ ${(_a = error.stack) != null ? _a : ""}` : String(error)
     await this.saveSettings();
     if (envText !== this.runtimeEnvironmentVariables) {
       if (!this.hasNotifiedEnvChange) {
-        new import_obsidian33.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
+        new import_obsidian35.Notice("Environment variables changed. Restart the plugin for changes to take effect.");
         this.hasNotifiedEnvChange = true;
       }
     } else {

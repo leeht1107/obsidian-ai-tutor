@@ -90,7 +90,7 @@ describe('the settings tab can reopen the installer', () => {
       agentService: { redactForLog: (t: string) => t },
       isBashExpansionInFlight: () => false,
       setProviderConnection: jest.fn(),
-      installBundledSkillsOnce: jest.fn().mockResolvedValue(undefined),
+      ensureBundledSkills: jest.fn().mockResolvedValue(undefined),
       storage: { getAdapter: () => undefined },
       manifest: { version: '0.1.16' },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

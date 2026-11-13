@@ -15,7 +15,7 @@ import { type FailureReportHost, reportBlockingFailure } from '../../core/storag
 import { getVaultPath } from '../../utils/path';
 
 /** Bundled skill files to install */
-const OBSIDIAN_MARKDOWN_SKILL = `---
+export const OBSIDIAN_MARKDOWN_SKILL = `---
 name: obsidian-markdown
 description: Create and edit Obsidian Flavored Markdown with wikilinks, embeds, callouts, properties, and other Obsidian-specific syntax. Use when working with .md files in Obsidian, or when the user mentions wikilinks, callouts, frontmatter, tags, embeds, or Obsidian notes.
 ---
@@ -147,7 +147,7 @@ This is visible %%but this is hidden%% text.
 - [Properties](https://help.obsidian.md/properties)
 `;
 
-const JSON_CANVAS_SKILL = `---
+export const JSON_CANVAS_SKILL = `---
 name: json-canvas
 description: Create and edit JSON Canvas files (.canvas) for visual note-taking and mind mapping in Obsidian. Use when the user wants to create visual diagrams, mind maps, or canvas views.
 ---
@@ -368,6 +368,27 @@ function resolveSkillsRoot(app: App, providerId: ProviderId): string | null {
 }
 
 /**
+ * Where the automatic install puts skills, vault-relative. Observed with
+ * probe skills on 2026-11-12 (claude 2.1.322 reads `.claude/skills`; codex
+ * 0.167.2, copilot 1.0.107 and agy 1.5.6 all read `.agents/skills`). Manual
+ * URL installs keep providerSkillsRoot.
+ */
+export function autoSkillsRoot(providerId: ProviderId): string {
+  return providerId === 'claude' ? '.claude/skills' : '.agents/skills';
+}
+
+function resolveAutoRoot(app: App, providerId: ProviderId): string | null {
+  const vaultPath = getVaultPath(app);
+  return vaultPath ? path.join(vaultPath, autoSkillsRoot(providerId)) : null;
+}
+
+/** The vault-side roots the Settings list shows for one provider: manual first, then automatic. */
+function listedRoots(app: App, providerId: ProviderId): string[] {
+  const roots = [resolveSkillsRoot(app, providerId), resolveAutoRoot(app, providerId)].filter((r): r is string => r !== null);
+  return [...new Set(roots.map((r) => path.resolve(r)))];
+}
+
+/**
  * Whether the plugin should install its bundled skills by itself.
  *
  * Never automatically outside the vault: codex keeps skills in CODEX_HOME, so
@@ -407,6 +428,8 @@ export function isPluginOwnedSkill(content: string): boolean {
 export function writeBundledSkill(root: string, name: string, body: string): 'written' | 'kept' {
   const file = path.join(root, name, 'SKILL.md');
   if (fs.existsSync(file) && !isPluginOwnedSkill(fs.readFileSync(file, 'utf-8'))) return 'kept';
+  // A same-name folder without SKILL.md is the student's work in progress.
+  if (!fs.existsSync(file) && fs.existsSync(path.join(root, name))) return 'kept';
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${body}${OWNERSHIP_MARKER}`, 'utf-8');
   return 'written';
@@ -417,7 +440,7 @@ const BUILT_IN_SKILLS = ['obsidian-markdown', 'json-canvas'];
 
 /** Check if obsidian skills are already installed */
 export function isObsidianSkillsInstalled(app: App, providerId: ProviderId): boolean {
-  const root = resolveSkillsRoot(app, providerId);
+  const root = resolveAutoRoot(app, providerId);
   // Both files, not just the first folder: an install that failed halfway
   // otherwise reported success and was never retried.
   return root !== null && BUILT_IN_SKILLS.every((name) => fs.existsSync(path.join(root, name, 'SKILL.md')));
@@ -425,14 +448,15 @@ export function isObsidianSkillsInstalled(app: App, providerId: ProviderId): boo
 
 /** Get all installed skills in the vault */
 export function getInstalledSkills(app: App, providerId: ProviderId): InstalledSkill[] {
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
   const globalRoot = providerGlobalSkillsRoot(providerId);
 
   const globalSkills = globalRoot ? loadSkillsFromPath(globalRoot, true) : [];
+  // Both the manual root and the automatic one: codex and copilot read the
+  // automatic `.agents/skills`, and a skill the plugin put there must be
+  // visible and removable here. Each row keeps its own path.
   const vaultSkills: InstalledSkill[] = [];
-
-  if (skillsBasePath) {
-    vaultSkills.push(...loadSkillsFromPath(skillsBasePath, false));
+  for (const root of listedRoots(app, providerId)) {
+    vaultSkills.push(...loadSkillsFromPath(root, false));
   }
 
   const vaultNames = new Set(vaultSkills.map((skill) => skill.name));
@@ -498,8 +522,18 @@ function loadSkillsFromPath(skillsBasePath: string, isGlobal: boolean): Installe
 }
 
 /** Remove a specific skill by name */
-export async function removeSkill(app: App, skillName: string, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
-  const skillsRoot = resolveSkillsRoot(app, providerId);
+export async function removeSkill(app: App, skillName: string, providerId: ProviderId, host?: FailureReportHost, skillPath?: string): Promise<boolean> {
+  // With a row's path, remove that folder and nothing else, and only inside
+  // a root this provider lists. Without one, the manual root as before.
+  let skillsRoot = resolveSkillsRoot(app, providerId);
+  if (skillPath !== undefined) {
+    const parent = path.resolve(path.dirname(skillPath));
+    skillsRoot = path.basename(skillPath) === skillName && listedRoots(app, providerId).includes(parent) ? parent : null;
+    if (!skillsRoot) {
+      new Notice(`Skill "${skillName}" is not in this provider's skills folder`);
+      return false;
+    }
+  }
   if (!skillsRoot) {
     reportBlockingFailure(host ?? {}, {
       notice: 'Could not determine skills folder',
@@ -535,7 +569,7 @@ export async function removeSkill(app: App, skillName: string, providerId: Provi
 
 /** Install obsidian skills to the vault */
 export async function installObsidianSkills(app: App, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
+  const skillsBasePath = resolveAutoRoot(app, providerId);
   // No vault path yet; the automatic install stays silent and tries again.
   if (!skillsBasePath) return false;
 
@@ -564,7 +598,7 @@ export async function installObsidianSkills(app: App, providerId: ProviderId, ho
 
 /** Uninstall obsidian skills from the vault */
 export async function uninstallObsidianSkills(app: App, providerId: ProviderId, host?: FailureReportHost): Promise<boolean> {
-  const skillsBasePath = resolveSkillsRoot(app, providerId);
+  const skillsBasePath = resolveAutoRoot(app, providerId);
   if (!skillsBasePath) {
     reportBlockingFailure(host ?? {}, {
       notice: 'Could not determine skills folder',
@@ -581,7 +615,10 @@ export async function uninstallObsidianSkills(app: App, providerId: ProviderId, 
     for (const name of BUILT_IN_SKILLS) {
       const file = path.join(skillsBasePath, name, 'SKILL.md');
       if (!fs.existsSync(file) || !isPluginOwnedSkill(fs.readFileSync(file, 'utf-8'))) continue;
-      fs.rmSync(path.join(skillsBasePath, name), { recursive: true });
+      // The plugin wrote only SKILL.md; anything else in the folder is the student's.
+      fs.rmSync(file);
+      const dir = path.join(skillsBasePath, name);
+      if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
     }
 
     new Notice('Obsidian Skills removed');

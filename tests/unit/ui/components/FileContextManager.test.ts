@@ -199,7 +199,8 @@ function createMockApp(options: {
       on: jest.fn(() => ({ id: 'event-ref' })),
       offref: jest.fn(),
       getAbstractFileByPath: jest.fn((filePath: string) => fileMap.get(filePath) || null),
-      getMarkdownFiles: jest.fn(() => Array.from(fileMap.values())),
+      getMarkdownFiles: jest.fn(() => Array.from(fileMap.values()).filter((f) => f.path.endsWith('.md'))),
+      getFiles: jest.fn(() => Array.from(fileMap.values())),
       // Obsidian returns files and folders together; folders are the non-TFile
       // entries, which is how the @ menu learns which folders exist.
       getAllLoadedFiles: jest.fn(() => [
@@ -364,7 +365,7 @@ describe('FileContextManager', () => {
     manager.destroy();
   });
 
-  it('shows the file name over its folders in the @ dropdown and inserts the filename on selection', () => {
+  it('shows the file name over its folders in the @ dropdown and inserts the full path on selection (plan §3)', () => {
     const app = createMockApp({
       files: ['clipping/file.md'],
     });
@@ -389,13 +390,85 @@ describe('FileContextManager', () => {
 
     manager.handleMentionKeydown({ key: 'Enter', preventDefault: jest.fn() } as any);
 
-    expect(inputEl.value).toBe('@file.md ');
+    expect(inputEl.value).toBe('@clipping/file.md ');
     const attached = (manager as any).state.getAttachedFiles();
     expect(attached.has('clipping/file.md')).toBe(true);
 
     manager.destroy();
   });
 
+
+  describe('@ for any vault file (doc skills)', () => {
+    const pick = (files: string[], typed: string) => {
+      const app = createMockApp({ files });
+      const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+      inputEl.value = typed;
+      inputEl.selectionStart = inputEl.selectionEnd = typed.length;
+      manager.handleInputChange();
+      manager.handleMentionKeydown({ key: 'Enter', preventDefault: jest.fn() } as any);
+      const attached = Array.from((manager as any).state.getAttachedFiles() as Set<string>);
+      const resolved = manager.getResolvedMentionPaths(inputEl.value).map((m) => m.path);
+      manager.destroy();
+      return { value: inputEl.value, attached, resolved };
+    };
+
+    it('lists and inserts a pdf, and the prompt resolves to that file', () => {
+      const { value, attached, resolved } = pick(['notes/a.md', 'week1/slides.pdf'], '@slides');
+      expect(value).toBe('@week1/slides.pdf ');
+      expect(attached).toEqual(['week1/slides.pdf']);
+      expect(resolved).toEqual(['week1/slides.pdf']);
+    });
+
+    it('uses the full path when two files share a name, so the prompt names the chosen one', () => {
+      const { value, attached, resolved } = pick(['A/report.pdf', 'B/report.pdf'], '@report');
+      expect(attached).toHaveLength(1);
+      expect(value).toBe(`@${attached[0]} `);
+      expect(resolved).toEqual(attached);
+    });
+
+    it('quotes a path with spaces so it survives as one mention', () => {
+      const { value, resolved } = pick(['1주차/Lecture 1.docx'], '@Lecture');
+      expect(value).toBe('@"1주차/Lecture 1.docx" ');
+      expect(resolved).toEqual(['1주차/Lecture 1.docx']);
+    });
+
+    it('quotes the full path of a file with no extension so it resolves (evaluator #7)', () => {
+      const { value, resolved } = pick(['A/README'], '@READ');
+      expect(value).toBe('@"A/README" ');
+      expect(resolved).toEqual(['A/README']);
+    });
+
+    it('inserts the full path even for a unique name, so a later file of that name cannot take it', () => {
+      const { value, resolved } = pick(['clipping/file.md', 'clipping/data.xlsx'], '@file');
+      expect(value).toBe('@clipping/file.md ');
+      expect(resolved).toEqual(['clipping/file.md']);
+    });
+
+    it('does not guess another file for a full path that is gone (evaluator cycle 6 #2)', () => {
+      const app = createMockApp({ files: ['X/A/report.pdf'] });
+      const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+      expect(manager.getResolvedMentionPaths('@A/report.pdf')).toEqual([]);
+      manager.destroy();
+    });
+
+    it('quotes a picked root file so it cannot later name another file of that name (evaluator cycle 7 #2)', () => {
+      const { value, resolved } = pick(['report.pdf', 'A/other.pdf'], '@report');
+      expect(value).toBe('@"report.pdf" ');
+      expect(resolved).toEqual(['report.pdf']);
+      const app = createMockApp({ files: ['A/report.pdf'] });
+      const manager = new FileContextManager(app, containerEl as any, inputEl, createMockCallbacks());
+      expect(manager.getResolvedMentionPaths('@"report.pdf"')).toEqual([]);
+      expect(manager.getResolvedMentionPaths('@report.pdf').map((m) => m.path)).toEqual(['A/report.pdf']); // hand-typed: as in 0.1.51
+      manager.destroy();
+    });
+
+    it('round-trips a name with both quote marks and a space', () => {
+      const file = `A/both'" names.pdf`;
+      const { value, resolved } = pick([file], '@both');
+      expect(value).toBe(String.raw`@"A/both'\" names.pdf" `);
+      expect(resolved).toEqual([file]);
+    });
+  });
 
   it('keeps folders out of the plain @ menu so note names stay at the top', () => {
     // Mixing folders in pushed the note names down and made the common case

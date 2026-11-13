@@ -5,7 +5,9 @@
  * Manages conversation persistence and environment variable configuration.
  */
 import type { Editor, MarkdownView } from 'obsidian';
-import { addIcon, Notice, Plugin } from 'obsidian';
+import { addIcon, Notice, Plugin, requestUrl } from 'obsidian';
+import * as os from 'os';
+import * as path from 'path';
 
 import { COPILOT_ICON_SVG } from './assets/icon';
 import { CopilotBridgeService } from './core/agent/CopilotBridgeService';
@@ -39,6 +41,7 @@ import {
 import type { ObsidianCopilotView } from './features/chat/ObsidianCopilotView';
 import { ObsidianCopilotView as ObsidianCopilotViewImpl } from './features/chat/ObsidianCopilotView';
 import { ObsidianCopilotSettingTab } from './features/settings/ObsidianCopilotSettings';
+import type { ArchiveSource } from './features/skills/docSkillsArchive';
 import type { InlineEditContext } from './ui/modals/InlineEditModal';
 import { cancelActiveInlineEdit, InlineEditModal } from './ui/modals/InlineEditModal';
 import { buildCursorContext } from './utils/editor';
@@ -121,7 +124,7 @@ export default class ObsidianCopilotPlugin extends Plugin {
     // Show setup wizard on first launch if CLI is missing (fires after layout is ready)
     this.app.workspace.onLayoutReady(() => {
       void this.checkAndShowSetupWizard();
-      void this.installBundledSkillsOnce();
+      void this.ensureBundledSkills();
       void this.finishSecretMove();
     });
 
@@ -250,40 +253,161 @@ export default class ObsidianCopilotPlugin extends Plugin {
     }
   }
 
+  /** One run per skills root at a time; claude and agy use different roots, so a fast switch runs both. */
+  private bundledSkillRuns = new Map<string, Promise<void>>();
+  private docArchiveSource: Promise<ArchiveSource> | null = null;
+  private libreOfficeNoticeChecking = false;
+  /** Per skills root: what ensure left alone and why, for the Settings line. */
+  bundledSkillProblems = new Map<string, string[]>();
+  private lastEnsuredProvider: string | null = null;
+  /** Plan §3: at most one download-failure notice a day, counted across restarts. */
+  private docDownloadNoticeDue(now = Date.now()): boolean {
+    const KEY = 'ai-tutor-doc-download-notice-at';
+    const last = Number(this.app.loadLocalStorage(KEY) ?? 0);
+    if (Number.isFinite(last) && now - last < 24 * 60 * 60 * 1000) return false;
+    this.app.saveLocalStorage(KEY, String(now));
+    return true;
+  }
+
   /**
-   * Put the bundled Obsidian skills in the vault, once.
+   * Put the bundled skills (obsidian-markdown, json-canvas, pdf, xlsx, docx,
+   * pptx) into the selected provider's skills folder.
    *
-   * They teach the CLI wikilinks, callouts, properties and canvas files, and
-   * they used to wait behind an Install button in a collapsed settings section
-   * — so the students who needed them most never got them. Installed on first
-   * launch only: the flag means a student who removes them keeps them removed.
+   * Runs on every launch and every provider switch, not once: a skill added in
+   * a later release must reach students who installed earlier. Per-skill
+   * records keep a removed skill removed (see BundledSkills.ts).
    */
-  async installBundledSkillsOnce(): Promise<void> {
+  async ensureBundledSkills(provider = this.settings.selectedProvider): Promise<void> {
+    this.lastEnsuredProvider = provider;
+    const { autoSkillsRoot } = await import('./features/skills/BundledSkills');
+    const root = autoSkillsRoot(provider);
+    const running = this.bundledSkillRuns.get(root);
+    if (running) return running;
+    const run = this.ensureBundledSkillsRoot(root, provider).finally(() => this.bundledSkillRuns.delete(root));
+    this.bundledSkillRuns.set(root, run);
+    return run;
+  }
+
+  private async ensureBundledSkillsRoot(root: string, provider: ProviderId): Promise<void> {
     try {
-      // Per provider: each CLI reads a different folder, so switching provider
-      // means a folder that has never had these skills.
-      const provider = this.settings.selectedProvider;
+      const { getVaultPath } = await import('./utils/path');
+      const vaultPath = getVaultPath(this.app);
+      if (!vaultPath) return; // vault path not ready; the next launch or switch tries again
+      const { ensureRoot } = await import('./features/skills/BundledSkills');
+      const { OBSIDIAN_MARKDOWN_SKILL, JSON_CANVAS_SKILL } = await import('./features/skills/ObsidianSkillsInstaller');
+      const source = await this.getDocArchiveSource(vaultPath);
       const state = await this.storage.loadState();
-      const { installObsidianSkills, isObsidianSkillsInstalled, shouldInstallBundledSkills } =
-        await import('./features/skills/ObsidianSkillsInstaller');
-      if (!shouldInstallBundledSkills(state, provider, isObsidianSkillsInstalled(this.app, provider))) return;
-      // Only record the attempt when it worked, so a vault path that was not
-      // ready yet gets another chance next launch instead of being written off.
-      if (await installObsidianSkills(this.app, provider, this)) {
-        await this.storage.updateState({
-          skillsAutoInstalled: { ...state.skillsAutoInstalled, [provider]: true },
-        });
+      const result = await ensureRoot({
+        vaultPath,
+        root,
+        records: state.bundledSkills?.[root] ?? {},
+        markdownBodies: { 'obsidian-markdown': OBSIDIAN_MARKDOWN_SKILL, 'json-canvas': JSON_CANVAS_SKILL },
+        evidence: { legacyUser: state.bundledSkillsLegacy === true, provider, skillsAutoInstalled: state.skillsAutoInstalled },
+        getArchive: () => source.get(),
+      });
+      await this.storage.mergeBundledSkills(root, result.records);
+      if (result.installed.some((name) => ['pdf', 'xlsx', 'docx', 'pptx'].includes(name))) {
+        new Notice('✅ 문서 스킬(PDF·엑셀·워드·PPT)을 설치했습니다.');
+        this.onDocSkillsInstalled?.();
       }
+      if (result.pending.length > 0 && source.failures() > 0 && this.docDownloadNoticeDue()) {
+        new Notice('문서 스킬을 아직 내려받지 못했습니다. 인터넷에 연결되면 다음 실행 때 다시 시도합니다.');
+      }
+      this.bundledSkillProblems.set(root, result.errors);
+      if (result.errors.length > 0) console.warn('[ObsidianCopilot] Bundled skills left as they were:', result.errors);
     } catch (error) {
+      // Not the console alone: nobody reads it, and this hid a broken install
+      // through every unit test (2026-11-13). Settings shows the line.
+      this.bundledSkillProblems.set(root, [`설치 실패: ${error instanceof Error ? error.message : String(error)}`]);
       console.warn('[ObsidianCopilot] Could not install the bundled skills:', error);
     }
   }
 
-  /** Loads settings and conversations from persistent storage. */
+  /** Called after doc skills were installed in some root: tell the student once if LibreOffice is missing. */
+  onDocSkillsInstalled?: () => void = () => { void this.maybeShowLibreOfficeNotice(); };
+
+  /** Where LibreOffice's soffice lives on this computer, or null. Looks at files only. */
+  async findLibreOffice(): Promise<string | null> {
+    const { findLibreOffice } = await import('./core/setup/libreOffice');
+    return findLibreOffice({ platform: process.platform, env: process.env, home: os.homedir() });
+  }
+
+  /** The once-only LibreOffice popup (also opened from Settings with force). */
+  async maybeShowLibreOfficeNotice(force = false): Promise<void> {
+    const KEY = 'ai-tutor-libreoffice-notice-shown';
+    const platform = process.platform;
+    if (platform !== 'darwin' && platform !== 'win32') return;
+    if (!force && (this.app.loadLocalStorage(KEY) || this.libreOfficeNoticeChecking)) return;
+    // Two roots can finish installing together; the check below awaits, so
+    // claim the popup first.
+    this.libreOfficeNoticeChecking = true;
+    try {
+      if (!force && (await this.findLibreOffice())) return;
+    } finally {
+      this.libreOfficeNoticeChecking = false;
+    }
+    this.app.saveLocalStorage(KEY, '1');
+    const { LibreOfficeNoticeModal } = await import('./ui/modals/LibreOfficeNoticeModal');
+    new LibreOfficeNoticeModal(this.app, platform, {
+      prefillChat: async (prompt) => {
+        await this.activateView();
+        this.getView()?.prefillInput(prompt);
+      },
+    }).open();
+  }
+
+  /** One source for every root, so a fast provider switch still downloads once. */
+  private getDocArchiveSource(vaultPath: string): Promise<ArchiveSource> {
+    this.docArchiveSource ??= this.createDocArchiveSource(vaultPath).catch((error: unknown) => {
+      this.docArchiveSource = null; // let the next ensure try again
+      throw error;
+    });
+    return this.docArchiveSource;
+  }
+
+  private async createDocArchiveSource(vaultPath: string): Promise<ArchiveSource> {
+    const { createArchiveSource } = await import('./features/skills/docSkillsArchive');
+    const pluginDir = this.manifest?.dir ?? '.obsidian/plugins/obsidian-ai-tutor';
+    const RETRY_KEY = 'ai-tutor-doc-download-retry';
+    return createArchiveSource({
+      cacheDir: path.join(vaultPath, pluginDir),
+      // The wait after failures survives a restart, so a class reopening
+      // Obsidian does not all retry at once.
+      retry: {
+        load: () => {
+          try {
+            const raw: unknown = JSON.parse(String(this.app.loadLocalStorage(RETRY_KEY) ?? 'null'));
+            const v = raw as { failures?: unknown; nextTryAt?: unknown } | null;
+            return v && typeof v.failures === 'number' && typeof v.nextTryAt === 'number' ? { failures: v.failures, nextTryAt: v.nextTryAt } : null;
+          } catch {
+            return null;
+          }
+        },
+        save: (state) => this.app.saveLocalStorage(RETRY_KEY, JSON.stringify(state)),
+      },
+      fetchBytes: async (url) => {
+        const response = await requestUrl({ url, throw: false });
+        return response.status === 200 ? Buffer.from(response.arrayBuffer) : null;
+      },
+    });
+  }
+
   async loadSettings() {
+    // Read before anything writes: data.json with no bundledSkills means this
+    // student ran an older release, whose skill records may have been erased.
+    let legacyData = false;
+    try {
+      const raw: unknown = await this.loadData();
+      legacyData = !!raw && typeof raw === 'object' && !('bundledSkills' in raw) && !('bundledSkillsLegacy' in raw);
+    } catch {
+      legacyData = false;
+    }
     // Initialize storage service (handles migration if needed)
     this.storage = new StorageService(this);
     const { settings, state } = await this.storage.initialize();
+    // Kept in state so the evidence outlives the first launch: a shared skills
+    // root first visited weeks later must still get the 0.1.51 rule.
+    if (legacyData) await this.storage.updateState({ bundledSkillsLegacy: true });
 
     // Load slash commands from files
     const slashCommands = await this.storage.commands.loadAll();
@@ -418,13 +542,29 @@ export default class ObsidianCopilotPlugin extends Plugin {
     }, this);
     await this.storage.settings.save(settingsToSave);
 
-    await this.storage.saveState({
+    // updateState, not saveState: saveState writes the whole object, so any
+    // field left out here was erased. A provider switch in the chat popover
+    // calls this, and in 0.1.51 it wiped skillsAutoInstalled — a removed
+    // bundled skill then came back on the next launch.
+    await this.storage.updateState({
       activeConversationId: this.activeConversationId,
-      // saveState writes the whole state object, so anything omitted here is
-      // erased. Picking a provider in the chat popover calls saveSettings, and
-      // without this line that click wiped every stored connection.
       providerConnections: this.providerConnections,
     });
+    // Every provider switch (chat popover, settings, setup wizard) saves
+    // settings, so this is the one place that sees all of them.
+    if (this.lastEnsuredProvider !== null && this.lastEnsuredProvider !== this.settings.selectedProvider) {
+      void this.ensureBundledSkills();
+      if (this.settings.selectedProvider === 'agy') void this.maybeShowAgyWebSearchNotice();
+    }
+  }
+
+  /** Once per computer, on the first switch to agy: its web search cannot be turned off per request. */
+  private async maybeShowAgyWebSearchNotice(): Promise<void> {
+    const KEY = 'ai-tutor-agy-websearch-notice-shown';
+    if (this.app.loadLocalStorage(KEY)) return;
+    this.app.saveLocalStorage(KEY, '1');
+    const { AgyWebSearchNoticeModal } = await import('./ui/modals/AgyWebSearchNoticeModal');
+    new AgyWebSearchNoticeModal(this.app).open();
   }
 
   /** Store what a check or a request just decided about one provider. */

@@ -77,7 +77,7 @@ const CURRENT_NOTE_ONLY_PATTERNS = [
   /what(?:'s| is).*note/i,
 ] as const;
 
-function parseMentionedLearningCommand(
+export function parseMentionedLearningCommand(
   content: string,
   fileContextManager: FileContextManager | null,
 ): { mode: 'quiz' | 'socratic'; notePath: string } | null {
@@ -86,6 +86,8 @@ function parseMentionedLearningCommand(
     : [];
   if (mentions.length !== 1) return null;
   const mention = mentions[0];
+  // Learning sessions read a note; a pdf or xlsx picked with @ stays a normal chat turn.
+  if (!mention.path.toLowerCase().endsWith('.md')) return null;
   const command = (content.slice(0, mention.start) + content.slice(mention.end)).trim();
   if (command === '/quiz') return { mode: 'quiz', notePath: mention.path };
   if (command === '/socratic') return { mode: 'socratic', notePath: mention.path };

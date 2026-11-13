@@ -488,7 +488,7 @@ export class MentionDropdownController {
         }
       }
 
-      const replacement = `@${selectedItem.name} `;
+      const replacement = `${vaultFileMentionToken(selectedItem.file?.path ?? selectedItem.path ?? selectedItem.name)} `;
       this.inputEl.value = beforeAt + replacement + afterCursor;
       this.inputEl.selectionStart = this.inputEl.selectionEnd = beforeAt.length + replacement.length;
     }
@@ -496,4 +496,19 @@ export class MentionDropdownController {
     this.hide();
     this.inputEl.focus();
   }
+}
+
+/**
+ * The text a picked vault file becomes in the input: always the full vault
+ * path, so the mention names the file that was picked even if another file of
+ * that name appears later. Quoted when it is at the vault root or has a space, quote or no extension
+ * (the resolver reads an unquoted token only when it ends in one); a `"` inside
+ * is escaped. Obsidian forbids `\` in file names, so the escape is unambiguous.
+ */
+export function vaultFileMentionToken(filePath: string): string {
+  // A root file goes in quotes too: a quoted token resolves only exactly, so
+  // `@"report.pdf"` cannot later name `A/report.pdf` (unquoted `@report.pdf`
+  // is how students type a note by name, and that still finds the one match).
+  if (filePath.includes('/') && !/[\s"']/.test(filePath) && /\.\w+$/.test(filePath)) return `@${filePath}`;
+  return `@"${filePath.replace(/"/g, '\\"')}"`;
 }

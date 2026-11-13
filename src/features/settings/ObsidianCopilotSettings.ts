@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import type { App } from 'obsidian';
 import { Notice, PluginSettingTab, setIcon,Setting } from 'obsidian';
+import * as os from 'os';
 
 import { DEFAULT_LEARNING_RECORDS_FOLDER, normalizeVaultPath } from '../../core/learning/records';
 import { defaultModelSource, getConfiguredProviderCliPath, getProviderDescriptor, getStaticProviderModels, type ProviderId, type ProviderModelOption, PROVIDERS, storeDefaultModel } from '../../core/providers/providerRegistry';
+import { findLibreOffice } from '../../core/setup/libreOffice';
 import { checkProviderConnection, connectionLabel, resolveCheckedState } from '../../core/setup/providerConnection';
 import { ERROR_LOG_PATH } from '../../core/storage/ErrorLog';
 import { reportBlockingFailure } from '../../core/storage/FailureReport';
@@ -15,6 +17,7 @@ import { UnsafeAgyAgentConsentModal } from '../../ui/modals/UnsafeAgyAgentConsen
 import { setupCollapsible } from '../../ui/utils/collapsible';
 import { expandHomePath } from '../../utils/path';
 import {
+  autoSkillsRoot,
   getInstalledSkills,
   installObsidianSkills,
   installSkillFromUrl,
@@ -270,7 +273,7 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       // discovering it later.
       skillsContentEl.createDiv({
         cls: 'setting-item-description',
-        text: 'OpenAI Codex는 스킬을 이 컴퓨터 전체에 저장합니다 (~/.codex/skills). 다른 금고에서도 함께 적용됩니다.',
+        text: 'GitHub 주소로 직접 받은 Codex 스킬은 이 컴퓨터 전체에 저장됩니다 (~/.codex/skills). 기본 스킬은 이 금고의 .agents/skills에 들어갑니다.',
       });
     }
 
@@ -286,11 +289,17 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
         if (skillsInstalled) {
           button.setButtonText('Reinstall').onClick(async () => {
             await installObsidianSkills(this.app, skillProvider, this.plugin);
+            await this.plugin.ensureBundledSkills(skillProvider); // record what is there now
             this.display();
           });
         } else {
           button.setButtonText('Install').setCta().onClick(async () => {
+            // A deliberate click undoes an earlier Remove; forget that record first.
+            await this.plugin.storage.clearBundledSkills(autoSkillsRoot(skillProvider), ['obsidian-markdown', 'json-canvas']);
             await installObsidianSkills(this.app, skillProvider, this.plugin);
+            // Record them as installed now, so deleting them later is a deletion
+            // the next ensure honours rather than a gap it fills.
+            await this.plugin.ensureBundledSkills(skillProvider);
             this.display();
           });
         }
@@ -298,11 +307,54 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
       .addButton((button) => {
         if (skillsInstalled) {
           button.setButtonText('Remove').onClick(async () => {
-            await uninstallObsidianSkills(this.app, skillProvider, this.plugin);
+            if (await uninstallObsidianSkills(this.app, skillProvider, this.plugin)) {
+              // Record the choice now, so no ensure before the next one brings them back.
+              const removed = { version: '', state: 'removed' as const };
+              await this.plugin.storage.mergeBundledSkills(autoSkillsRoot(skillProvider), { 'obsidian-markdown': removed, 'json-canvas': removed });
+            }
             this.display();
           });
         }
       });
+
+    const docRoot = autoSkillsRoot(skillProvider);
+    const docVault = (this.app.vault.adapter as { basePath?: string }).basePath;
+    const DOC_SKILL_NAMES = ['pdf', 'xlsx', 'docx', 'pptx'];
+    const missingDocSkills = docVault
+      ? DOC_SKILL_NAMES.filter((name) => !fs.existsSync(`${docVault}/${docRoot}/${name}/SKILL.md`))
+      : DOC_SKILL_NAMES;
+    const docProblems = this.plugin.bundledSkillProblems?.get(docRoot) ?? [];
+    new Setting(skillsContentEl)
+      .setName('문서 스킬 (PDF·엑셀·워드·PPT)')
+      .setDesc((missingDocSkills.length === 0
+        ? `설치됨 - ${docRoot}`
+        : `없음: ${missingDocSkills.join(', ')} - 설치를 누르면 다시 넣습니다. 일부 기능은 LibreOffice가 있어야 동작합니다.`)
+        + (docProblems.length > 0 ? ` 손대지 않은 폴더: ${docProblems.join(' / ')}` : ''))
+      .addButton((button) => {
+        if (missingDocSkills.length === 0) return;
+        button.setButtonText('설치').setCta().onClick(async () => {
+          button.setDisabled(true);
+          await this.plugin.storage.clearBundledSkills(docRoot, missingDocSkills);
+          await this.plugin.ensureBundledSkills(skillProvider);
+          this.display();
+        });
+      });
+
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      const officeDir = findLibreOffice({ platform: process.platform, env: process.env, home: os.homedir() });
+      new Setting(skillsContentEl)
+        .setName('LibreOffice')
+        .setDesc(officeDir
+          ? `찾음 - ${officeDir}. 문서 스킬의 모든 기능을 쓸 수 있어요.`
+          : '없음 - 엑셀 수식 다시 계산, 워드·PPT를 PDF로 바꾸기 같은 기능에 필요해요.')
+        .addButton((button) => button.setButtonText('다시 확인').onClick(() => this.display()))
+        .addButton((button) => {
+          if (officeDir) return;
+          button.setButtonText('설치 안내 보기').setCta().onClick(() => {
+            void this.plugin.maybeShowLibreOfficeNotice(true);
+          });
+        });
+    }
 
     let skillUrl = '';
     let textInput: HTMLInputElement | null = null;
@@ -408,7 +460,12 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
             cls: 'ocop-skills-remove-btn',
           });
           removeBtn.addEventListener('click', async () => {
-            await removeSkill(this.app, skill.name, skillProvider, this.plugin);
+            const removed = await removeSkill(this.app, skill.name, skillProvider, this.plugin, skill.path);
+            // A removed bundled skill is recorded now, not at the next launch.
+            const autoRoot = autoSkillsRoot(skillProvider);
+            if (removed && skill.path.replace(/\\/g, '/').endsWith(`/${autoRoot}/${skill.name}`)) {
+              await this.plugin.storage.mergeBundledSkills(autoRoot, { [skill.name]: { version: '', state: 'removed' } });
+            }
             this.display();
           });
         }
@@ -461,9 +518,9 @@ export class ObsidianCopilotSettingTab extends PluginSettingTab {
           this.plugin.settings.selectedProvider = value as typeof this.plugin.settings.selectedProvider;
           await this.plugin.saveSettings();
           this.plugin.agentService?.cleanup();
-          // The new provider reads a different skills folder, which has never
-          // had the bundled skills. Put them there before redrawing.
-          await this.plugin.installBundledSkillsOnce();
+          // The new provider may read a different skills folder. Put the
+          // bundled skills there before redrawing.
+          await this.plugin.ensureBundledSkills();
           this.display();
         });
       });

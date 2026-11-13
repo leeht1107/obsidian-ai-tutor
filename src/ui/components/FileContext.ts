@@ -282,14 +282,16 @@ export class FileContextManager {
 
   /** Returns only mentions that resolve uniquely through the existing Vault resolver. */
   getResolvedMentionPaths(text: string): Array<{ start: number; end: number; path: string }> {
-    const pattern = /(^|[^\w])@(?:"([^"]+)"|'([^']+)'|([^\s]+\.\w+))/g;
+    // `@"..."` may carry `\"` for a quote inside the name (vaultFileMentionToken).
+    const pattern = /(^|[^\w])@(?:"((?:\\"|[^"])+)"|'([^']+)'|([^\s]+\.\w+))/g;
     const mentions: Array<{ start: number; end: number; path: string }> = [];
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const full = match[0];
       const prefix = match[1] ?? '';
-      const rawPath = match[2] || match[3] || match[4];
-      const path = this.resolveVaultMentionPath(rawPath);
+      const rawPath = match[2] ? match[2].replace(/\\"/g, '"') : match[3] || match[4];
+      // Quoted tokens come from the picker (or a careful student): exact only.
+      const path = this.resolveVaultMentionPath(rawPath, match[2] !== undefined || match[3] !== undefined);
       if (path) mentions.push({ start: match.index + prefix.length, end: match.index + full.length, path });
     }
     return mentions;
@@ -306,12 +308,13 @@ export class FileContextManager {
     return result;
   }
 
-  private resolveVaultMentionPath(rawPath: string): string | null {
+  private resolveVaultMentionPath(rawPath: string, exactOnly = false): string | null {
     const normalizedRaw = rawPath.replace(/\\/g, '/');
     const exact = this.app.vault.getAbstractFileByPath(normalizedRaw);
     if (isVaultFileCandidate(exact)) {
       return exact.path;
     }
+    if (exactOnly) return null;
 
     const allFiles = this.fileCache.getFiles();
     const needle = normalizedRaw.toLowerCase();
@@ -321,6 +324,9 @@ export class FileContextManager {
       return basenameMatches[0].path;
     }
 
+    // A token with a folder is a full path (the picker inserts those): if it
+    // is gone, say so rather than guess `X/A/report.pdf` for `A/report.pdf`.
+    if (needle.includes('/')) return null;
     const suffixMatches = allFiles.filter((file) => file.path.toLowerCase().endsWith(`/${needle}`));
     if (suffixMatches.length === 1) {
       return suffixMatches[0].path;

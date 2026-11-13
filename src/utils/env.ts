@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { libreOfficeProgramDirs } from '../core/setup/libreOffice';
 import { parsePathEntries } from './path';
 
 const isWindows = process.platform === 'win32';
@@ -229,6 +230,9 @@ function getExtraBinaryPaths(): string[] {
     // Docker
     paths.push(path.join(programFiles, 'Docker', 'Docker', 'resources', 'bin'));
 
+    // LibreOffice: the doc skills run `soffice` by bare name, and its installer never adds it to PATH
+    paths.push(...libreOfficeProgramDirs('win32', process.env, home));
+
     // User bin (if exists)
     if (home) {
       paths.push(path.join(home, '.local', 'bin'));
@@ -277,6 +281,9 @@ function getExtraBinaryPaths(): string[] {
       paths.push(...getFnmCandidateDirs(home));
       paths.push(...getNvmCandidateDirs(home));
     }
+
+    // LibreOffice: the doc skills run `soffice` by bare name, and a .dmg install never puts it on PATH
+    paths.push(...libreOfficeProgramDirs(process.platform, process.env, home));
 
     return paths;
   }

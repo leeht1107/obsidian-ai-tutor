@@ -30,6 +30,9 @@ export const LEGACY_PATH = '.copilot';
 /** Machine-specific state stored in Obsidian's data.json. */
 export interface PluginState {
   activeConversationId: string | null;
+  /** Machine state that settings keep out of settings.json (SettingsStorage). */
+  lastEnvHash?: string;
+  migrationVersion?: number;
   /** Machine-local link between a selected Brief and its confirmed study folder. */
   studyGoalBindings?: StudyGoalBinding[];
   /**
@@ -42,7 +45,25 @@ export interface PluginState {
    * Per provider, because each CLI reads a different folder — and machine
    * state, because it records what this install already did to this vault. */
   skillsAutoInstalled?: Partial<Record<ProviderId, boolean>>;
+  /** What the plugin did with each bundled skill, per vault-relative skills
+   * root (e.g. `.agents/skills`). A `removed` entry is the student's delete:
+   * it must outlive every data.json write, or the skill comes back. */
+  bundledSkills?: BundledSkillRecords;
+  /** This data.json predates bundledSkills (a 0.1.51 or older student). Set once, never cleared. */
+  bundledSkillsLegacy?: boolean;
 }
+
+export type BundledSkillState = 'installed' | 'kept' | 'removed';
+
+export interface BundledSkillRecord {
+  version: string;
+  state: BundledSkillState;
+  /** sha256 per relative file path, as written by the plugin. */
+  files?: Record<string, string>;
+}
+
+/** root (vault-relative) → skill name → record */
+export type BundledSkillRecords = Record<string, Record<string, BundledSkillRecord>>;
 
 export interface StudyGoalBinding {
   id: string;
@@ -64,6 +85,8 @@ interface LegacyData extends Partial<ObsidianCopilotSettings> {
   migrationVersion?: number;
   providerConnections?: ProviderConnections;
   skillsAutoInstalled?: Partial<Record<ProviderId, boolean>>;
+  bundledSkills?: BundledSkillRecords;
+  bundledSkillsLegacy?: boolean;
   studyGoalBindings?: StudyGoalBinding[];
 }
 
@@ -151,6 +174,8 @@ export class StorageService {
       'migrationVersion',
       'providerConnections',
       'skillsAutoInstalled',
+      'bundledSkills',
+      'bundledSkillsLegacy',
       'studyGoalBindings',
     ]);
     const hasSettings = Object.keys(legacyData).some(key => !stateKeys.has(key));
@@ -189,13 +214,17 @@ export class StorageService {
       return false;
     }
 
-    // 4. Update data.json to state-only format
-    await this.saveState({
-      activeConversationId: legacyData.activeConversationId || null,
-      providerConnections: legacyData.providerConnections,
-      skillsAutoInstalled: legacyData.skillsAutoInstalled,
-      studyGoalBindings: legacyData.studyGoalBindings,
-    });
+    // 4. Update data.json to state-only format, in the same queue as every other state write
+    // Against the state as it is now, not as `legacyData` saw it: a record
+    // written since that read is newer and stays.
+    await this.enqueueStateWrite(async (current) => ({
+      activeConversationId: current.activeConversationId ?? legacyData.activeConversationId ?? null,
+      providerConnections: current.providerConnections ?? legacyData.providerConnections,
+      skillsAutoInstalled: current.skillsAutoInstalled ?? legacyData.skillsAutoInstalled,
+      bundledSkills: current.bundledSkills ?? legacyData.bundledSkills,
+      bundledSkillsLegacy: current.bundledSkillsLegacy ?? legacyData.bundledSkillsLegacy,
+      studyGoalBindings: current.studyGoalBindings ?? legacyData.studyGoalBindings,
+    }));
 
     return true;
   }
@@ -213,21 +242,69 @@ export class StorageService {
   /** Load plugin state from data.json. */
   async loadState(): Promise<PluginState> {
     try {
-      const data = await this.plugin.loadData();
-      return {
-        activeConversationId: data?.activeConversationId ?? DEFAULT_STATE.activeConversationId,
-        providerConnections: data?.providerConnections ?? undefined,
-        skillsAutoInstalled: data?.skillsAutoInstalled ?? undefined,
-        studyGoalBindings: data?.studyGoalBindings ?? undefined,
-      };
+      return await this.readStateStrict();
     } catch {
       return { ...DEFAULT_STATE };
     }
   }
 
+  /** loadState for a write: a failed read throws, so defaults never overwrite real state. */
+  private async readStateStrict(): Promise<PluginState> {
+    const data = await this.plugin.loadData();
+    return {
+        activeConversationId: data?.activeConversationId ?? DEFAULT_STATE.activeConversationId,
+        ...(data?.lastEnvHash !== undefined ? { lastEnvHash: data.lastEnvHash } : {}),
+        ...(data?.migrationVersion !== undefined ? { migrationVersion: data.migrationVersion } : {}),
+        providerConnections: data?.providerConnections ?? undefined,
+        skillsAutoInstalled: data?.skillsAutoInstalled ?? undefined,
+        bundledSkills: data?.bundledSkills ?? undefined,
+        bundledSkillsLegacy: data?.bundledSkillsLegacy ?? undefined,
+        studyGoalBindings: data?.studyGoalBindings ?? undefined,
+      };
+  }
+
   /** Save plugin state to data.json. */
   async saveState(state: PluginState): Promise<void> {
     await this.plugin.saveData(state);
+  }
+
+  /**
+   * Merge one skills root's records into state, inside the same serialized
+   * chain as updateState. A `removed` record already stored wins over
+   * anything else: a Remove click that lands while an install is running
+   * must not be undone by the install's older view of the folder.
+   */
+  async mergeBundledSkills(root: string, records: Record<string, BundledSkillRecord>): Promise<void> {
+    return this.enqueueStateWrite(async (current) => {
+      const all = { ...(current.bundledSkills ?? {}) };
+      const merged = { ...(all[root] ?? {}) };
+      for (const [name, record] of Object.entries(records)) {
+        if (merged[name]?.state === 'removed' && record.state !== 'removed') continue;
+        merged[name] = record;
+      }
+      all[root] = merged;
+      return { bundledSkills: all };
+    });
+  }
+
+  /** Forget records so the next ensure installs again (the Settings Install button). */
+  async clearBundledSkills(root: string, names: string[]): Promise<void> {
+    return this.enqueueStateWrite(async (current) => {
+      const all = { ...(current.bundledSkills ?? {}) };
+      const kept = { ...(all[root] ?? {}) };
+      for (const name of names) delete kept[name];
+      all[root] = kept;
+      return { bundledSkills: all };
+    });
+  }
+
+  private enqueueStateWrite(build: (current: PluginState) => Promise<Partial<PluginState>>): Promise<void> {
+    const write = this.stateWrites.then(async () => {
+      const current = await this.readStateStrict();
+      await this.saveState({ ...current, ...(await build(current)) });
+    });
+    this.stateWrites = write.catch(() => undefined);
+    return write;
   }
 
   /**
@@ -240,7 +317,7 @@ export class StorageService {
    */
   async updateState(updates: Partial<PluginState>): Promise<void> {
     const write = this.stateWrites.then(async () => {
-      const current = await this.loadState();
+      const current = await this.readStateStrict();
       await this.saveState({ ...current, ...updates });
     });
     // A rejected write must not wedge every later one behind it.
@@ -375,6 +452,8 @@ export class StorageService {
       migrationVersion: _____,
       providerConnections: ______,
       skillsAutoInstalled: _______,
+      bundledSkills: _________,
+      bundledSkillsLegacy: __________,
       studyGoalBindings: ________,
       ...settingsFields
     } = legacyData;
