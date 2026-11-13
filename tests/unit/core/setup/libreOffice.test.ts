@@ -40,9 +40,11 @@ describe('findLibreOffice', () => {
 
 describe('getEnhancedPath', () => {
   it('lets the CLI find soffice from a GUI LibreOffice install', () => {
+    // Linux has no GUI-install folder to add (release CI runs on ubuntu, 2026-11-13).
+    const dirs = libreOfficeProgramDirs(process.platform, process.env, os.homedir());
     const entries = getEnhancedPath().split(path.delimiter);
-    const expected = libreOfficeProgramDirs(process.platform, process.env, os.homedir())[0];
-    expect(entries).toContain(expected);
+    for (const dir of dirs) expect(entries).toContain(dir);
+    if (process.platform === 'darwin' || process.platform === 'win32') expect(dirs.length).toBeGreaterThan(0);
   });
 });
 
