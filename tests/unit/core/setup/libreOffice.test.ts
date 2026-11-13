@@ -44,7 +44,7 @@ describe('getEnhancedPath', () => {
     const dirs = libreOfficeProgramDirs(process.platform, process.env, os.homedir());
     const entries = getEnhancedPath().split(path.delimiter);
     for (const dir of dirs) expect(entries).toContain(dir);
-    if (process.platform === 'darwin' || process.platform === 'win32') expect(dirs.length).toBeGreaterThan(0);
+    expect(dirs.length > 0 || !['darwin', 'win32'].includes(process.platform)).toBe(true);
   });
 });
 
