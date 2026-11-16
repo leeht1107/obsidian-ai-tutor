@@ -915,7 +915,7 @@ ${promptToSend}`;
 
     if (assistantMsg.editReview && editReviewBase !== null) {
       const { notePath } = assistantMsg.editReview;
-      promptToSend = `${buildEditProposalInstruction(notePath)}\n\n${prependCurrentNoteContent(promptToSend, notePath, editReviewBase)}`;
+      promptToSend = `${buildEditProposalInstruction(notePath)}\n\n${prependCurrentNoteContent(promptToSend, notePath, editReviewBase, { verbatim: true })}`;
     }
 
 

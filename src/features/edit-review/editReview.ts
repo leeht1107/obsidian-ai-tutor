@@ -24,10 +24,11 @@ export type ExtractedProposal =
 export function buildEditProposalInstruction(notePath: string): string {
   return [
     '<edit_review>',
-    `You are helping a student with the note "${notePath}". Do not edit files and do not use tools that write.`,
+    `You are helping a student in Agent mode with the note "${notePath}". Do not edit files and do not use tools that write; your reply is the proposal, and the plugin's review card writes the accepted blocks.`,
     'If the request asks to change this note, reply with a short summary of the changes, then the COMPLETE revised note,',
     `exactly once, between a line ${EDIT_PROPOSAL_BEGIN} and a line ${EDIT_PROPOSAL_END}.`,
-    'Copy every line you do not need to change exactly as it is. Put nothing else inside the markers.',
+    'Change only the text the request names. Copy every other line exactly as written, character for character; do not reword, re-wrap, fix or improve anything the student did not ask for. A one-word request is a one-word change.',
+    'The note is plain text, not escaped: write > < & as they appear. Put nothing else inside the markers.',
     'If the request does not ask to change the note, answer normally and do not write the markers.',
     'The student reviews each changed block and only accepted blocks are written to the note.',
     '</edit_review>',

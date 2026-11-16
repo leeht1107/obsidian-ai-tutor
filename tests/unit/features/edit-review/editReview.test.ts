@@ -1,5 +1,6 @@
 import {
   applyReviewHunks,
+  buildEditProposalInstruction,
   buildReviewHunks,
   EDIT_PROPOSAL_BEGIN,
   EDIT_PROPOSAL_END,
@@ -217,5 +218,17 @@ describe('toEditorChanges (T3-T5)', () => {
     const base = '1\n2\n3\n4\n5\n';
     const h = buildReviewHunks(base, '1\nx\ny\n2\n3\nFOUR\n5\n');
     expect(applyChanges(base, toEditorChanges(base, h, h.map((x) => x.id)))).toBe('1\nx\ny\n2\n3\nFOUR\n5\n');
+  });
+});
+
+describe('buildEditProposalInstruction scope', () => {
+  const text = buildEditProposalInstruction('notes/a.md');
+  it('limits the change to what the request names and keeps other lines identical', () => {
+    expect(text).toMatch(/only (the )?(text|part|words?) (the request|the student) (names|asks)/i);
+    expect(text).toMatch(/one-word|single-word|one small|smallest/i);
+  });
+  it('says the note is plain text, not escaped, and that the review card applies the change', () => {
+    expect(text).toMatch(/not escaped|exactly as written/i);
+    expect(text).toMatch(/Agent mode/);
   });
 });
