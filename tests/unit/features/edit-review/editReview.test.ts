@@ -155,10 +155,16 @@ describe('readProposalIntoReview', () => {
     expect(review.hunks).toHaveLength(3);
   });
 
-  it('leaves an ordinary answer alone and the review awaiting', () => {
+  it('flags an unstructured answer instead of silently discarding a requested edit', () => {
     const review = awaiting();
-    expect(readProposalIntoReview(review, '요약입니다.')).toBeNull();
-    expect(review.status).toBe('awaiting');
+    expect(readProposalIntoReview(review, '아래 내용을 노트에 넣으세요.')).toBeNull();
+    expect(review.status).toBe('malformed');
+  });
+
+  it('keeps an explicitly marked ordinary answer as an ordinary answer', () => {
+    const review = awaiting();
+    expect(readProposalIntoReview(review, '<<<ANSWER_ONLY>>>\n요약입니다.')).toBe('요약입니다.');
+    expect(review.status).toBe('answered');
   });
 
   it('marks a broken proposal malformed and shows the raw answer', () => {
@@ -222,6 +228,9 @@ describe('toEditorChanges (T3-T5)', () => {
 });
 
 describe('buildEditProposalInstruction scope', () => {
+  it('treats acceptance of a previous proposed edit as an edit request', () => {
+    expect(buildEditProposalInstruction('n.md')).toContain('short acceptance');
+  });
   const text = buildEditProposalInstruction('notes/a.md');
   it('limits the change to what the request names and keeps other lines identical', () => {
     expect(text).toMatch(/only (the )?(text|part|words?) (the request|the student) (names|asks)/i);

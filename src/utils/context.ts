@@ -29,6 +29,9 @@ export function formatCurrentNoteContent(notePath: string, content: string, opti
   const body = options.verbatim
     ? content.replace(/<(\/current_note_content)/gi, '&lt;$1')
     : escapeXmlText(content);
+  if (options.verbatim) {
+    return `${NOTE_CONTENT_NOTICE}\n<current_note_content path="${escapeXmlAttribute(notePath)}">\n${body}\n</current_note_content>`;
+  }
   return `<current_note_content path="${escapeXmlAttribute(notePath)}">\n${NOTE_CONTENT_NOTICE}\n${body}\n</current_note_content>`;
 }
 

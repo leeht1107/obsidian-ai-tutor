@@ -103,7 +103,7 @@ export interface EditReviewState {
   hunks: ReviewHunk[];
   decisions: Record<string, 'accepted' | 'rejected'>;
   /** awaiting: answer not read yet; pending: student is reviewing. */
-  status: 'awaiting' | 'pending' | 'applied' | 'malformed' | 'too_large';
+  status: 'awaiting' | 'answered' | 'pending' | 'applied' | 'malformed' | 'too_large';
   appliedIds?: string[];
 }
 

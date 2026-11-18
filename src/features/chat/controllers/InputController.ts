@@ -966,11 +966,14 @@ ${promptToSend}`;
         state.currentContentEl = null;
 
         streamController.finalizeCurrentThinkingBlock(assistantMsg);
-        await streamController.finalizeCurrentTextBlock(assistantMsg);
+        await streamController.finalizeCurrentTextBlock(assistantMsg, streamOutcome === 'completed');
         assistantMsg.requestOutcome = streamOutcome;
         if (assistantMsg.editReview) {
-          // No proposal (an ordinary answer) or an unfinished turn leaves nothing to review.
-          if (assistantMsg.editReview.status === 'awaiting' || streamOutcome !== 'completed') {
+          // A finished unstructured response cannot silently masquerade as a successful edit.
+          if (assistantMsg.editReview.status === 'awaiting' && streamOutcome === 'completed') {
+            assistantMsg.editReview.status = 'malformed';
+          }
+          if (assistantMsg.editReview.status === 'answered' || streamOutcome !== 'completed') {
             delete assistantMsg.editReview;
           } else if (contentEl) {
             renderEditReviewCard(contentEl, assistantMsg.editReview, {

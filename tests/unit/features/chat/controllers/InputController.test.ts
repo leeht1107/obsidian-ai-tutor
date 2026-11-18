@@ -15,6 +15,8 @@ function createMockElement() {
   const style: Record<string, string> = { display: 'none' };
   return {
     style,
+    createDiv: jest.fn(() => ({ empty: jest.fn(), createDiv: jest.fn() })),
+    empty: jest.fn(),
     setText: jest.fn((text: string) => {
       (createMockElement as any).lastText = text;
     }),

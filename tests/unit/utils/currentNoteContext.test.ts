@@ -24,4 +24,10 @@ describe('current note prompt context', () => {
     // A forged closing tag still cannot end the wrapper early.
     expect(formatted.match(/<\/current_note_content>/g)).toHaveLength(1);
   });
+
+  it('keeps the trust notice outside the verbatim note body', () => {
+    const formatted = formatCurrentNoteContent('a.md', 'first\nsecond', { verbatim: true });
+    expect(formatted.toLowerCase()).toContain('untrusted reference data');
+    expect(formatted).toContain('<current_note_content path="a.md">\nfirst\nsecond\n</current_note_content>');
+  });
 });

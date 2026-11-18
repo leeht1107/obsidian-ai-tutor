@@ -13,6 +13,7 @@ export type { ReviewHunk };
 
 export const EDIT_PROPOSAL_BEGIN = '<<<REVISED_NOTE>>>';
 export const EDIT_PROPOSAL_END = '<<<END_REVISED_NOTE>>>';
+export const ANSWER_ONLY = '<<<ANSWER_ONLY>>>';
 
 
 export type ExtractedProposal =
@@ -20,16 +21,18 @@ export type ExtractedProposal =
   | { kind: 'malformed' }
   | { kind: 'proposal'; revised: string; displayText: string };
 
-/** The instruction prepended to an Agent-mode turn. Wording measured 40/40 across four CLIs. */
+/** The instruction prepended to an Agent-mode turn. */
 export function buildEditProposalInstruction(notePath: string): string {
   return [
     '<edit_review>',
     `You are helping a student in Agent mode with the note "${notePath}". Do not edit files and do not use tools that write; your reply is the proposal, and the plugin's review card writes the accepted blocks.`,
+    'Interpret the request using the conversation history. A short acceptance such as "넣자", "do it", or "yes" after discussing a specific change to this note is an edit request: make that change in the revised note, using the previously agreed text.',
     'If the request asks to change this note, reply with a short summary of the changes, then the COMPLETE revised note,',
     `exactly once, between a line ${EDIT_PROPOSAL_BEGIN} and a line ${EDIT_PROPOSAL_END}.`,
     'Change only the text the request names. Copy every other line exactly as written, character for character; do not reword, re-wrap, fix or improve anything the student did not ask for. A one-word request is a one-word change.',
     'The note is plain text, not escaped: write > < & as they appear. Put nothing else inside the markers.',
-    'If the request does not ask to change the note, answer normally and do not write the markers.',
+    `If the request does not ask to change the note, begin your answer with ${ANSWER_ONLY} on its own line and answer normally.`,
+    'For an edit request, produce the revised note for the review card; do not merely tell the student to insert it or claim editing is prohibited.',
     'The student reviews each changed block and only accepted blocks are written to the note.',
     '</edit_review>',
   ].join('\n');
@@ -209,12 +212,20 @@ export const PROPOSAL_FALLBACK_TEXT = '수정안을 만들었어요. 아래에�
 /**
  * Reads a finished answer into an `awaiting` review. Returns the text to show in place of
  * the answer (the note copy is hidden behind the review card), or null to show the answer
- * unchanged. An answer without markers leaves the review `awaiting`; the caller drops it.
+ * unchanged. A final unmarked answer is malformed; a marked ordinary answer is dropped
+ * from review by the caller.
  */
-export function readProposalIntoReview(review: EditReviewState, answer: string): string | null {
+export function readProposalIntoReview(review: EditReviewState, answer: string, finalBlock = true): string | null {
   if (review.status !== 'awaiting') return null;
   const extracted = extractEditProposal(answer);
-  if (extracted.kind === 'none') return null;
+  if (extracted.kind === 'none') {
+    if (answer.trimStart().startsWith(ANSWER_ONLY)) {
+      review.status = 'answered';
+      return answer.trimStart().slice(ANSWER_ONLY.length).trimStart();
+    }
+    if (finalBlock) review.status = 'malformed';
+    return null;
+  }
   if (extracted.kind === 'malformed') {
     review.status = 'malformed';
     return null;
